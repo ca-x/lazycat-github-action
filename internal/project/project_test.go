@@ -103,6 +103,34 @@ func TestInspectHonorsManifestPathFromBuildConfig(t *testing.T) {
 	}
 }
 
+func TestInspectFixedLazyCatContribFixtures(t *testing.T) {
+	tests := []struct {
+		name      string
+		kind      project.Kind
+		packageID string
+	}{
+		{name: "contrib-multiservice", kind: project.KindService, packageID: "community.lazycat.app.new-api"},
+		{name: "contrib-exec", kind: project.KindExec, packageID: "cloud.lazycat.app.czyt.lazycat-mcp"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root, err := filepath.Abs(filepath.Join("..", "..", "testdata", test.name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := project.Inspect(context.Background(), config.Project{
+				Root: root, BuildConfig: "lzc-build.yml", PackageFile: "package.yml", Output: "dist/app.lpk",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Kind != test.kind || got.PackageID != test.packageID || got.Name == "" || got.Description == "" {
+				t.Fatalf("info=%#v", got)
+			}
+		})
+	}
+}
+
 func TestInspectRejectsEscapingProjectPath(t *testing.T) {
 	root := createProject(t, "application: {}\n")
 	_, err := project.Inspect(context.Background(), config.Project{
