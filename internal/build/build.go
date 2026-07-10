@@ -2,15 +2,14 @@ package build
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/ca-x/lazycat-github-action/internal/lpkcheck"
 	"github.com/ca-x/lazycat-github-action/internal/platform"
 	"github.com/ca-x/lazycat-github-action/internal/project"
 	lpkgo "github.com/lib-x/lzc-toolkit-go"
@@ -199,7 +198,7 @@ func (Builder) Build(ctx context.Context, request Request) (result Result, resul
 		return Result{}, fmt.Errorf("%s reported %d warning(s)", profile, len(lintWarnings))
 	}
 
-	digest, size, err := hashFile(temporary)
+	digest, size, err := lpkcheck.HashFile(ctx, temporary)
 	if err != nil {
 		return Result{}, err
 	}
@@ -229,20 +228,6 @@ func rootCauseMessage(err error) string {
 		}
 		root = unwrapped
 	}
-}
-
-func hashFile(filename string) (string, int64, error) {
-	file, err := os.Open(filename)
-	if err != nil {
-		return "", 0, fmt.Errorf("open built LPK for hashing: %w", err)
-	}
-	hash := sha256.New()
-	written, copyErr := io.Copy(hash, file)
-	closeErr := file.Close()
-	if copyErr != nil || closeErr != nil {
-		return "", 0, fmt.Errorf("hash built LPK: %w", errors.Join(copyErr, closeErr))
-	}
-	return fmt.Sprintf("%x", hash.Sum(nil)), written, nil
 }
 
 func syncDirectory(directory string) error {
