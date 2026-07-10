@@ -63,4 +63,8 @@ fi
 
 tar -xzf "${tmp}/${archive}" -C "${tmp}" lazycat-action
 chmod 0755 "${tmp}/lazycat-action"
-exec "${tmp}/lazycat-action"
+set +e
+"${tmp}/lazycat-action"
+status=$?
+set -e
+exit "${status}"

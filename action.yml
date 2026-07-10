@@ -46,7 +46,7 @@ outputs:
     value: ${{ steps.run.outputs.changed }}
   package-id:
     description: LazyCat package identifier.
-    value: ${{ steps.run.outputs.package-id }}
+    value: ${{ steps.run.outputs['package-id'] }}
   version:
     description: Normalized application version without a leading v.
     value: ${{ steps.run.outputs.version }}
@@ -55,25 +55,25 @@ outputs:
     value: ${{ steps.run.outputs.tag }}
   lpk-path:
     description: Absolute path to the built LPK.
-    value: ${{ steps.run.outputs.lpk-path }}
+    value: ${{ steps.run.outputs['lpk-path'] }}
   sha256:
     description: Lowercase hexadecimal SHA256 of the LPK.
     value: ${{ steps.run.outputs.sha256 }}
   download-url:
     description: Confirmed GitHub Release Asset URL.
-    value: ${{ steps.run.outputs.download-url }}
+    value: ${{ steps.run.outputs['download-url'] }}
   image-results:
     description: JSON array of image inspection and copy results.
-    value: ${{ steps.run.outputs.image-results }}
+    value: ${{ steps.run.outputs['image-results'] }}
   result-file:
     description: Absolute path to the complete JSON result.
-    value: ${{ steps.run.outputs.result-file }}
+    value: ${{ steps.run.outputs['result-file'] }}
   runner-arch:
     description: Host architecture used to run the Action binary.
-    value: ${{ steps.run.outputs.runner-arch }}
+    value: ${{ steps.run.outputs['runner-arch'] }}
   target-platform:
     description: LazyCat target platform; fixed to linux/amd64 in v1.
-    value: ${{ steps.run.outputs.target-platform }}
+    value: ${{ steps.run.outputs['target-platform'] }}
 
 runs:
   using: composite
@@ -85,10 +85,10 @@ runs:
         LAZYCAT_ACTION_VERSION: v1.0.0
         INPUT_OPERATION: ${{ inputs.operation }}
         INPUT_CONFIG: ${{ inputs.config }}
-        INPUT_IMAGE_ID: ${{ inputs.image-id }}
+        INPUT_IMAGE_ID: ${{ inputs['image-id'] }}
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_CHANGELOG: ${{ inputs.changelog }}
-        INPUT_LPK_PATH: ${{ inputs.lpk-path }}
-        INPUT_DOWNLOAD_URL: ${{ inputs.download-url }}
-        INPUT_DRY_RUN: ${{ inputs.dry-run }}
+        INPUT_LPK_PATH: ${{ inputs['lpk-path'] }}
+        INPUT_DOWNLOAD_URL: ${{ inputs['download-url'] }}
+        INPUT_DRY_RUN: ${{ inputs['dry-run'] }}
       run: "${{ github.action_path }}/scripts/run-action.sh"

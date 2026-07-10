@@ -201,6 +201,10 @@ func Run(ctx context.Context, input Input, dependencies Dependencies) (Result, e
 		rollbackVersion(dependencies, info.PackageFile, change)
 		return Result{}, actionError(CodeBuildFailed, "LPK build failed", err)
 	}
+	if built.TargetPlatform != platform.TargetPlatform {
+		rollbackVersion(dependencies, info.PackageFile, change)
+		return Result{}, actionError(CodeLPKInvalid, fmt.Sprintf("LPK target platform %q does not match required %q", built.TargetPlatform, platform.TargetPlatform), nil)
+	}
 	result.PackageID = built.PackageID
 	result.LPKPath = built.Path
 	result.SHA256 = built.SHA256
@@ -248,6 +252,11 @@ func writeResult(result *Result, directory string) (resultErr error) {
 	absolute, err := filepath.Abs(directory)
 	if err != nil {
 		return err
+	}
+	if info, statErr := os.Lstat(absolute); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("result directory %q must not be a symbolic link", absolute)
+	} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return statErr
 	}
 	if err := os.MkdirAll(absolute, 0o700); err != nil {
 		return err

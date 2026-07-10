@@ -102,6 +102,31 @@ func TestRunDryRunSkipsEditsAndBuild(t *testing.T) {
 	}
 }
 
+func TestRunRejectsSymlinkedResultDirectory(t *testing.T) {
+	root := t.TempDir()
+	external := t.TempDir()
+	resultDir := filepath.Join(root, "results")
+	if err := os.Symlink(external, resultDir); err != nil {
+		t.Fatal(err)
+	}
+	deps := action.Dependencies{
+		Host:       platform.Host{OS: "linux", Arch: "amd64"},
+		ResultDir:  resultDir,
+		LoadConfig: func(string) (config.Config, error) { return gitConfig(), nil },
+		Inspect: func(context.Context, config.Project) (project.Info, error) {
+			return project.Info{Root: root, PackageID: "cloud.lazycat.example", Version: "1.0.0"}, nil
+		},
+		SetVersion: func(string, string) (yamledit.Change, error) { return yamledit.Change{}, nil },
+		Build: func(context.Context, actionbuild.Request) (actionbuild.Result, error) {
+			return actionbuild.Result{}, nil
+		},
+	}
+	_, err := action.Run(context.Background(), action.Input{Operation: action.OperationBuild, Version: "1.2.3", DryRun: true}, deps)
+	if err == nil || !strings.Contains(err.Error(), action.CodeBuildFailed) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestRunBuildFailureRollsBackVersion(t *testing.T) {
 	root := t.TempDir()
 	var edits []string
@@ -132,6 +157,34 @@ func TestRunBuildFailureRollsBackVersion(t *testing.T) {
 	}
 	if !reflect.DeepEqual(edits, []string{"1.2.3", "1.0.0"}) {
 		t.Fatalf("edits=%v", edits)
+	}
+}
+
+func TestRunRejectsNonAMD64BuildResult(t *testing.T) {
+	root := t.TempDir()
+	inspectCount := 0
+	deps := action.Dependencies{
+		Host:       platform.Host{OS: "linux", Arch: "arm64"},
+		ResultDir:  filepath.Join(root, "results"),
+		LoadConfig: func(string) (config.Config, error) { return gitConfig(), nil },
+		Inspect: func(context.Context, config.Project) (project.Info, error) {
+			inspectCount++
+			version := "1.0.0"
+			if inspectCount > 1 {
+				version = "1.2.3"
+			}
+			return project.Info{Root: root, PackageFile: filepath.Join(root, "package.yml"), PackageID: "cloud.lazycat.example", Version: version}, nil
+		},
+		SetVersion: func(_ string, version string) (yamledit.Change, error) {
+			return yamledit.Change{Changed: true, Old: "1.0.0", New: version}, nil
+		},
+		Build: func(context.Context, actionbuild.Request) (actionbuild.Result, error) {
+			return actionbuild.Result{PackageID: "cloud.lazycat.example", Version: "1.2.3", TargetPlatform: "linux/arm64"}, nil
+		},
+	}
+	_, err := action.Run(context.Background(), action.Input{Operation: action.OperationBuild, Version: "1.2.3"}, deps)
+	if err == nil || !strings.Contains(err.Error(), action.CodeLPKInvalid) {
+		t.Fatalf("err=%v", err)
 	}
 }
 

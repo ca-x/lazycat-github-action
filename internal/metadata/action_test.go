@@ -3,6 +3,7 @@ package metadata
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"go.yaml.in/yaml/v3"
@@ -52,5 +53,23 @@ func TestActionMetadataExposesStableContract(t *testing.T) {
 	}
 	if document.Runs.Using != "composite" {
 		t.Fatalf("runs.using=%q", document.Runs.Using)
+	}
+}
+
+func TestActionMetadataUsesBracketSyntaxForHyphenatedNames(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "action.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, expression := range []string{
+		"steps.run.outputs['package-id']",
+		"steps.run.outputs['target-platform']",
+		"inputs['image-id']",
+		"inputs['download-url']",
+	} {
+		if !strings.Contains(text, expression) {
+			t.Fatalf("action.yml is missing safe expression %q", expression)
+		}
 	}
 }

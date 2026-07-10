@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ca-x/lazycat-github-action/internal/config"
@@ -29,6 +30,16 @@ func TestInspectClassifiesProjectWithoutGuessingMainService(t *testing.T) {
 			manifest: `application:
   routes:
     - /=exec://8080,/lzcapp/pkg/content/app
+`,
+			want: project.KindExec,
+		},
+		{
+			name: "exec upstream launch command",
+			manifest: `application:
+  upstreams:
+    - location: /
+      backend: http://127.0.0.1:8080/
+      backend_launch_command: /lzcapp/pkg/content/app
 `,
 			want: project.KindExec,
 		},
@@ -99,6 +110,26 @@ func TestInspectRejectsEscapingProjectPath(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected escaping build config to fail")
+	}
+}
+
+func TestInspectRejectsSymlinkedProjectInputs(t *testing.T) {
+	root := createProject(t, "application: {}\n")
+	external := filepath.Join(t.TempDir(), "external-build.yml")
+	if err := os.WriteFile(external, []byte("contentdir: content\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, "lzc-build.yml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(external, filepath.Join(root, "lzc-build.yml")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := project.Inspect(context.Background(), config.Project{
+		Root: root, BuildConfig: "lzc-build.yml", PackageFile: "package.yml", Output: "dist/app.lpk",
+	})
+	if err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("err=%v", err)
 	}
 }
 

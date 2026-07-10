@@ -88,3 +88,16 @@ func TestSetPackageVersionRejectsInvalidVersionWithoutChangingFile(t *testing.T)
 		t.Fatalf("file changed:\n%s", data)
 	}
 }
+
+func TestPackageVersionValidationRejectsLeadingZeroPrereleaseNumbers(t *testing.T) {
+	for _, value := range []string{"1.2.3-01", "1.2.3-alpha.01"} {
+		if yamledit.IsValidPackageVersion(value) {
+			t.Fatalf("version %q unexpectedly passed", value)
+		}
+	}
+	for _, value := range []string{"1.2.3-0", "1.2.3-alpha.1", "1.2.3+build.01"} {
+		if !yamledit.IsValidPackageVersion(value) {
+			t.Fatalf("version %q unexpectedly failed", value)
+		}
+	}
+}

@@ -51,11 +51,14 @@ chmod 0755 "${fake_bin}/curl"
 run_download_case() {
   local runner_arch="$1"
   local archive_arch="$2"
+  local action_tmp="${tmp}/action-tmp-${archive_arch}"
+  mkdir -p "${action_tmp}"
   : >"${tmp}/curl.log"
-  output="$(PATH="${fake_bin}:${PATH}" FIXTURE_DIR="${fixtures}" CURL_LOG="${tmp}/curl.log" RUNNER_OS=Linux RUNNER_ARCH="${runner_arch}" LAZYCAT_ACTION_VERSION=v1.0.0 bash "${root}/scripts/run-action.sh")"
+  output="$(TMPDIR="${action_tmp}" PATH="${fake_bin}:${PATH}" FIXTURE_DIR="${fixtures}" CURL_LOG="${tmp}/curl.log" RUNNER_OS=Linux RUNNER_ARCH="${runner_arch}" LAZYCAT_ACTION_VERSION=v1.0.0 bash "${root}/scripts/run-action.sh")"
   grep -q "lazycat-action_linux_${archive_arch}.tar.gz" "${tmp}/curl.log"
   grep -q "binary-${archive_arch} target=linux/amd64" <<<"${output}"
   grep -q "Action host: linux/${archive_arch}; LazyCat target: linux/amd64" <<<"${output}"
+  test -z "$(find "${action_tmp}" -mindepth 1 -print -quit)"
 }
 
 run_download_case X64 amd64

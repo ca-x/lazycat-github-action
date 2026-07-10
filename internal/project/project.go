@@ -53,6 +53,9 @@ func Inspect(ctx context.Context, cfg config.Project) (Info, error) {
 	if err != nil {
 		return Info{}, fmt.Errorf("inspect build config: %w", err)
 	}
+	if err := rejectSymlinkComponents(root, buildConfig); err != nil {
+		return Info{}, fmt.Errorf("inspect build config: %w", err)
+	}
 	loaded, err := toolkitbuild.LoadConfig(ctx, root, buildConfig, map[string]string{})
 	if err != nil {
 		return Info{}, fmt.Errorf("inspect build config: %w", err)
@@ -72,6 +75,11 @@ func Inspect(ctx context.Context, cfg config.Project) (Info, error) {
 	output, err := beneath(root, cfg.Output)
 	if err != nil {
 		return Info{}, fmt.Errorf("inspect output: %w", err)
+	}
+	for label, name := range map[string]string{"manifest": manifestFile, "package": packageFile, "output": output} {
+		if err := rejectSymlinkComponents(root, name); err != nil {
+			return Info{}, fmt.Errorf("inspect %s: %w", label, err)
+		}
 	}
 
 	packageData, err := os.ReadFile(packageFile)
@@ -110,6 +118,10 @@ func Inspect(ctx context.Context, cfg config.Project) (Info, error) {
 		return Info{}, fmt.Errorf("inspect application routes: %w", lookupErr)
 	} else if found && containsExecRoute(routes) {
 		kind = KindExec
+	} else if upstreams, found, lookupErr := manifestDocument.Lookup("application", "upstreams"); lookupErr != nil {
+		return Info{}, fmt.Errorf("inspect application upstreams: %w", lookupErr)
+	} else if found && containsLaunchCommand(upstreams) {
+		kind = KindExec
 	}
 
 	return Info{
@@ -143,6 +155,31 @@ func beneath(root, name string) (string, error) {
 	return joined, nil
 }
 
+func rejectSymlinkComponents(root, name string) error {
+	relative, err := filepath.Rel(root, name)
+	if err != nil {
+		return err
+	}
+	current := root
+	for _, component := range strings.Split(relative, string(filepath.Separator)) {
+		if component == "" || component == "." {
+			continue
+		}
+		current = filepath.Join(current, component)
+		info, err := os.Lstat(current)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("path %q contains a symbolic link", name)
+		}
+	}
+	return nil
+}
+
 func containsExecRoute(value any) bool {
 	switch typed := value.(type) {
 	case string:
@@ -162,6 +199,36 @@ func containsExecRoute(value any) bool {
 	case map[any]any:
 		for key, item := range typed {
 			if containsExecRoute(key) || containsExecRoute(item) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func containsLaunchCommand(value any) bool {
+	switch typed := value.(type) {
+	case []any:
+		for _, item := range typed {
+			if containsLaunchCommand(item) {
+				return true
+			}
+		}
+	case map[string]any:
+		for key, item := range typed {
+			if key == "backend_launch_command" && strings.TrimSpace(fmt.Sprint(item)) != "" {
+				return true
+			}
+			if containsLaunchCommand(item) {
+				return true
+			}
+		}
+	case map[any]any:
+		for key, item := range typed {
+			if strings.TrimSpace(fmt.Sprint(key)) == "backend_launch_command" && strings.TrimSpace(fmt.Sprint(item)) != "" {
+				return true
+			}
+			if containsLaunchCommand(item) {
 				return true
 			}
 		}
