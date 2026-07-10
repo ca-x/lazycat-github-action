@@ -1187,11 +1187,12 @@ Expected: seven focused implementation commits after the plan commit, no whitesp
 
 ## Milestone 1 Completion Record
 
-When execution finishes, append a short record containing:
-
-- merge commit or fast-forward commit SHA;
-- `go test ./...` result;
-- `go vet ./...` result;
-- amd64 and arm64 cross-build result;
-- shell bootstrap test result;
-- any intentionally deferred items, limited to the design-spec Milestone 2 and Milestone 3 scope.
+- `main` was fast-forwarded to `cf81446` on 2026-07-10.
+- `go test -race ./...` passed for every package.
+- `go vet ./...` passed.
+- `scripts/run-action_test.sh` and ShellCheck 0.11.0 passed.
+- `CGO_ENABLED=0` cross-builds produced Linux x86-64 and Linux ARM64 Action executables; both retain the fixed LazyCat target contract `linux/amd64`.
+- The static fixture completed an end-to-end build through `scripts/run-action.sh`, produced an LPK, reopened it in tests, and matched the emitted SHA256.
+- GoReleaser 2.17.0 `check` passed using the checksum-verified official Linux x86-64 release binary.
+- Intentionally deferred to Milestone 2: OCI channel discovery, image target updates, LazyCat/direct/mirror delivery, PR/reusable-workflow orchestration, tag and GitHub Release Asset automation.
+- Intentionally deferred to Milestone 3: official developer-platform authentication/publishing, the MiaoMiao private store, complete multi-language examples, Agent Skill/evals, and the public v1 release.
