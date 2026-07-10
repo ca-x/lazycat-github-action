@@ -1,0 +1,94 @@
+name: LazyCat GitHub Action
+description: Build, verify, update, and publish LazyCat LPK applications from GitHub Actions.
+author: ca-x
+
+branding:
+  icon: package
+  color: orange
+
+inputs:
+  operation:
+    description: auto, check, build, publish-official, or publish-private.
+    required: false
+    default: auto
+  config:
+    description: Path to the LazyCat Action configuration file.
+    required: false
+    default: .github/lazycat-action.yml
+  image-id:
+    description: Optional explicitly configured image ID to process.
+    required: false
+    default: ""
+  version:
+    description: Application SemVer, optionally prefixed with v.
+    required: false
+    default: ""
+  changelog:
+    description: Changelog used by publish operations.
+    required: false
+    default: ""
+  lpk-path:
+    description: Existing LPK path used by publish operations.
+    required: false
+    default: ""
+  download-url:
+    description: GitHub Release Asset URL used by private-store publishing.
+    required: false
+    default: ""
+  dry-run:
+    description: Calculate the plan without changing files or remote state.
+    required: false
+    default: "false"
+
+outputs:
+  changed:
+    description: Whether managed project files changed.
+    value: ${{ steps.run.outputs.changed }}
+  package-id:
+    description: LazyCat package identifier.
+    value: ${{ steps.run.outputs.package-id }}
+  version:
+    description: Normalized application version without a leading v.
+    value: ${{ steps.run.outputs.version }}
+  tag:
+    description: Normalized Git tag.
+    value: ${{ steps.run.outputs.tag }}
+  lpk-path:
+    description: Absolute path to the built LPK.
+    value: ${{ steps.run.outputs.lpk-path }}
+  sha256:
+    description: Lowercase hexadecimal SHA256 of the LPK.
+    value: ${{ steps.run.outputs.sha256 }}
+  download-url:
+    description: Confirmed GitHub Release Asset URL.
+    value: ${{ steps.run.outputs.download-url }}
+  image-results:
+    description: JSON array of image inspection and copy results.
+    value: ${{ steps.run.outputs.image-results }}
+  result-file:
+    description: Absolute path to the complete JSON result.
+    value: ${{ steps.run.outputs.result-file }}
+  runner-arch:
+    description: Host architecture used to run the Action binary.
+    value: ${{ steps.run.outputs.runner-arch }}
+  target-platform:
+    description: LazyCat target platform; fixed to linux/amd64 in v1.
+    value: ${{ steps.run.outputs.target-platform }}
+
+runs:
+  using: composite
+  steps:
+    - name: Run LazyCat Action
+      id: run
+      shell: bash
+      env:
+        LAZYCAT_ACTION_VERSION: v1.0.0
+        INPUT_OPERATION: ${{ inputs.operation }}
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_IMAGE_ID: ${{ inputs.image-id }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_CHANGELOG: ${{ inputs.changelog }}
+        INPUT_LPK_PATH: ${{ inputs.lpk-path }}
+        INPUT_DOWNLOAD_URL: ${{ inputs.download-url }}
+        INPUT_DRY_RUN: ${{ inputs.dry-run }}
+      run: "${{ github.action_path }}/scripts/run-action.sh"
