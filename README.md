@@ -10,7 +10,7 @@ Current scope:
 
 - Milestone 1: static Web and Exec builds, LPK validation, SHA256, amd64 and arm64 Action binaries.
 - Milestone 2: stable, beta, nightly, and custom OCI checks; LazyCat, direct, and mirror delivery; pull requests; Artifacts; tags; Releases; Release Assets.
-- Milestone 3: LazyCat official developer-platform submission and Miao private-store submission. The related configuration fields are reserved, but store submission operations are not active yet.
+- Milestone 3: LazyCat official developer-platform submission, MiaoMiao private-store submission, complete source-build examples, and the repository Agent Skill.
 
 ## Choose the interface
 
@@ -300,16 +300,25 @@ The reusable workflow runs `docker/login-action`, which writes Docker credential
 
 ## Authentication
 
-Milestone 2 image copy uses a developer-platform token. The Action resolves it in this order:
+LazyCat image copy and official LPK publishing resolve credentials in this order:
 
 1. `LAZYCAT_TOKEN`
 2. `LZC_CLI_TOKEN`
+3. `LAZYCAT_USERNAME` plus `LAZYCAT_PASSWORD`, exchanged for an in-memory token
+4. the explicit `token-file` workflow input on a self-hosted Runner
 
-Do not store an account password in GitHub Actions. Log in once from a trusted machine and save the returned token as a GitHub Actions secret.
+CI should normally store a token. Username/password is supported as a temporary fallback, but keeping an account password as a long-lived GitHub secret is less desirable than a scoped/revocable token. The login response is kept in memory and is not written to disk.
 
 When lzc-cli 2.0.8 is already logged in locally, it checks `LZC_CLI_TOKEN` first and then the `token` field in `~/.config/lazycat/box-config.json`. `lzc-cli config get token` prints the effective token, so do not run that command in CI logs. A GitHub-hosted Runner cannot read your local login file; add the token as a repository or organization secret.
 
-The underlying toolkit also supports account/password exchange and explicit token stores. See the [lzc-toolkit-go authentication examples](https://github.com/lib-x/lzc-toolkit-go#example-5-log-in-and-submit-an-lpk). The Action itself accepts tokens only in Milestone 2. Account/password login and store submission orchestration arrive in Milestone 3.
+On a trusted self-hosted Runner, an existing lzc-cli-compatible file can be selected explicitly:
+
+```yaml
+with:
+  token-file: ~/.config/lazycat/box-config.json
+```
+
+The file must be a regular file, must not contain symbolic-link path components, and must not be writable by group or other users. The Action does not automatically inherit a developer workstation login. See the [lzc-toolkit-go authentication examples](https://github.com/lib-x/lzc-toolkit-go#example-5-log-in-and-submit-an-lpk) for the underlying API.
 
 Project builds execute repository-controlled `buildscript` commands. The Action removes LazyCat tokens, Registry credentials, GitHub tokens, and GitHub output/control file paths from the buildscript environment. Keep write-permission release workflows on trusted branches, tags, schedules, and manual runs; do not expose inherited secrets to untrusted pull-request code.
 
@@ -352,7 +361,65 @@ update:
 
 A successful scheduled or manual image check commits only the managed package and Manifest files with `[skip ci]`, pushes the current branch, creates `v<version>`, and uploads the LPK to a GitHub Release. An existing tag is never moved. If it points to another commit, the workflow fails.
 
-Direct publish in Milestone 2 means Git commit, tag, and GitHub Release. It does not submit to the LazyCat official store or a private store yet.
+Direct publish creates the Git commit, tag, GitHub Release, and Release Asset. If a store is enabled, the reusable workflow then submits the verified LPK to that store. Store publishing never runs for `strategy: pull`.
+
+## Store publishing
+
+Store publication happens only after the workflow has uploaded or safely reused a GitHub Release Asset and confirmed its GitHub-reported SHA256. Projects with no `services` or `images`, including static Web and Exec applications, use the same store flow.
+
+### LazyCat official developer platform
+
+Enable official lint and publishing:
+
+```yaml
+update:
+  strategy: publish
+  version_source:
+    type: git
+
+stores:
+  official:
+    enabled: true
+    create_if_missing: true
+    changelog_locales: [zh, en]
+    application:
+      language: zh
+      name: Example App
+      source: https://github.com/acme/example
+      source_author: acme
+```
+
+`create_if_missing: false` publishes only to an application that already exists. When creation is enabled, `application.name` defaults to `package.yml.name`; `language` defaults to `zh`. Official mode enforces the lzc-cli-compatible preferences, including official locales, an icon no larger than 200 KB, SemVer metadata, and LazyCat Registry runtime images. Any configured `direct` or `mirror` image makes configuration fail before publishing.
+
+The reusable workflow accepts `LAZYCAT_TOKEN`, `LZC_CLI_TOKEN`, or `LAZYCAT_USERNAME` plus `LAZYCAT_PASSWORD` as secrets. Token authentication is recommended.
+
+### MiaoMiao private store
+
+Configure the application metadata without putting credentials in the repository:
+
+```yaml
+stores:
+  official:
+    enabled: false
+  private:
+    enabled: true
+    name: Example App
+    summary: Published from CI
+```
+
+Add these GitHub secrets:
+
+```text
+APPSTORE_URL=https://store.example.com
+APPSTORE_TOKEN=lcst_...
+APP_ID=42
+```
+
+`APP_ID` is optional. If it is absent, the client searches for an exact `packageId`; it reuses that application or creates it when no match exists. If it is present, the client verifies that the application's `packageId` matches the LPK before adding a version.
+
+The Action sends JSON to `POST /api/v1/apps` for a new application or `POST /api/v1/apps/{APP_ID}/versions` for an external version. Both `downloadUrl` and the locally computed 64-character lowercase `sha256` are required. The URL must be a real `https://github.com/<owner>/<repo>/releases/download/...` asset URL. The store can record the supplied checksum without downloading the LPK merely to recompute it. The same version and SHA256 is returned as an idempotent existing result; different content under the same version fails.
+
+The private store supports Docker `lazycat`, `direct`, and `mirror` delivery, plus applications with no Docker images. `direct` and `mirror` applications are intentionally not publishable to the official store.
 
 ## Tag and release builds for static, Exec, Go, Rust, and TypeScript projects
 
@@ -481,6 +548,15 @@ docker buildx build \
 
 Use `toolchains: docker`. On ARM64, keep `enable-qemu: true` if Dockerfile build stages execute x64 programs.
 
+Complete copyable files are under [`examples/`](examples/):
+
+- [`docker-stable-lazycat`](examples/docker-stable-lazycat/.github/lazycat-action.yml) and [`docker-mirror`](examples/docker-mirror/.github/lazycat-action.yml)
+- [`go-exec`](examples/go-exec/.github/workflows/lazycat.yml) and [`rust-exec`](examples/rust-exec/.github/workflows/lazycat.yml)
+- [`typescript-static`](examples/typescript-static/.github/workflows/lazycat.yml) and [`typescript-exec`](examples/typescript-exec/.github/workflows/lazycat.yml)
+- [official and private stores together](examples/stores/.github/workflows/lazycat.yml)
+
+The TypeScript Exec example expects `@yao-pkg/pkg` in the committed lockfile and emits `node22-linux-x64`. TypeScript static assets are architecture-neutral; Go, Rust, TypeScript Exec, and Docker content are explicitly Linux x86_64 even when the Action runs on ARM64.
+
 ## Static and Exec Manifests can have no services
 
 Static Web:
@@ -507,7 +583,7 @@ These projects do not need an `images` section. Their version comes from the tag
 
 | Output | Meaning |
 |---|---|
-| `operation` | Resolved `check` or `build` operation |
+| `operation` | Resolved `check`, `build`, `publish-official`, or `publish-private` operation |
 | `changed` | Managed project files changed |
 | `package-id` | LazyCat package ID |
 | `package-file` | Absolute `package.yml` path |
@@ -518,6 +594,9 @@ These projects do not need an `images` section. Their version comes from the tag
 | `sha256` | Lowercase 64-character LPK SHA256 |
 | `download-url` | Verified GitHub Release Asset URL when released |
 | `image-results` | JSON array of selected and delivered images |
+| `store-results` | JSON object containing official/private publication results |
+| `official-store-enabled` | Official store is enabled in configuration |
+| `private-store-enabled` | Private store is enabled in configuration |
 | `update-strategy` | `pull` or `publish` |
 | `channel` | Channel of the version-source image |
 | `result-file` | Complete secret-free JSON result path |
@@ -549,12 +628,38 @@ Example `image-results` item:
 
 `.lazycat-action/result.json` contains the complete secret-free result. Tokens, passwords, cookies, and authorization headers are not written to outputs or summaries.
 
+Example `store-results`:
+
+```json
+{
+  "official": {
+    "published": true,
+    "created": false,
+    "packageId": "cloud.lazycat.example",
+    "version": "1.2.3",
+    "uploadUrl": "/developer/uploads/example.lpk",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "private": {
+    "published": true,
+    "created": false,
+    "existing": false,
+    "appId": "42",
+    "versionId": "56",
+    "packageId": "cloud.lazycat.example",
+    "version": "1.2.3",
+    "downloadUrl": "https://github.com/acme/example/releases/download/v1.2.3/app.lpk",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+}
+```
+
 ## Artifact versus Release Asset
 
 - Every non-empty build result is uploaded as a Workflow Artifact for CI inspection.
 - Pull-request mode stops after the Artifact and PR.
 - Release flows also attach the LPK to a GitHub Release and return `download-url`.
-- The future private-store publisher uses the Release Asset URL plus SHA256, so the store can trust the provided digest without downloading the file just to compute it.
+- Private-store publishing uses the confirmed Release Asset URL plus local SHA256, so the store can trust the provided digest without downloading the file just to compute it.
 
 ## Dry run
 

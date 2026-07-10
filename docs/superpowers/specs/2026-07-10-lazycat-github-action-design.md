@@ -558,15 +558,15 @@ Content-Type: application/json
 
 请求包含 `packageId`、`name`、`summary`、`version`、`sourceType: GITHUB`、`downloadUrl` 和 `sha256`。
 
-已有应用上传版本调用：
+已有应用创建外部版本调用：
 
 ```http
 POST /api/v1/apps/{APP_ID}/versions
 Authorization: Bearer <APPSTORE_TOKEN>
-Content-Type: multipart/form-data
+Content-Type: application/json
 ```
 
-表单包含 `version`、`changelog`、`file`、`downloadUrl` 和 `sha256`。客户端验证 URL 为 HTTPS GitHub Release Asset 地址、SHA256 为 64 位小写十六进制、LPK 本地计算值与输入一致。
+JSON 包含 `version`、`changelog`、`sourceType: GITHUB`、`downloadUrl` 和 `sha256`。multipart 只用于直接上传 `file`，不能附带外部 URL 和 SHA256；本 Action 使用外部版本 JSON 协议。客户端验证 URL 为 HTTPS GitHub Release Asset 地址、SHA256 为 64 位小写十六进制、LPK 本地计算值与输入一致。
 
 ## 13. GitHub 权限与秘密
 

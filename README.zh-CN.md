@@ -10,7 +10,7 @@ Action 使用 [`github.com/lib-x/lzc-toolkit-go`](https://github.com/lib-x/lzc-t
 
 - Milestone 1：静态 Web 和 Exec 构建、LPK 校验、SHA256、amd64 和 arm64 Action 二进制。
 - Milestone 2：stable、beta、nightly 和 custom OCI 检查；LazyCat、direct 和 mirror 镜像交付；Pull Request；Artifact；tag；Release；Release Asset。
-- Milestone 3：懒猫官方开发者平台提交和喵喵私有商店提交。相关配置字段已经预留，但商店提交操作还未启用。
+- Milestone 3：懒猫官方开发者平台提交、喵喵私有商店提交、完整源码构建示例和仓库内 Agent Skill。
 
 ## 选择使用方式
 
@@ -300,16 +300,25 @@ reusable workflow 使用 `docker/login-action` 写入 Docker 凭据，OCI 客户
 
 ## 认证
 
-Milestone 2 的镜像复制使用开发者平台 token。Action 按以下顺序读取：
+LazyCat 镜像复制和官方 LPK 提交按以下顺序解析认证信息：
 
 1. `LAZYCAT_TOKEN`
 2. `LZC_CLI_TOKEN`
+3. `LAZYCAT_USERNAME` 和 `LAZYCAT_PASSWORD`，登录后得到只保存在内存中的 token
+4. self-hosted Runner 上通过 `token-file` 显式指定的 token 文件
 
-不建议把账号密码长期保存到 GitHub Actions。可以在可信机器上登录一次，把返回的 token 保存为 GitHub Actions Secret。
+CI 推荐长期保存可撤销的 token。账号密码可以作为临时回退方式，但不建议把账户密码长期放在 GitHub Secrets；登录返回的 token 只在当前进程内存中使用，不写入磁盘。
 
 本机已经通过 lzc-cli 2.0.8 登录时，lzc-cli 先读取 `LZC_CLI_TOKEN`，否则读取 `~/.config/lazycat/box-config.json` 的 `token` 字段。`lzc-cli config get token` 会打印当前生效的 token，不要在 CI 日志中运行。GitHub 托管 Runner 无法读取你的本机登录文件，必须把 token 配置为仓库或组织 Secret。
 
-底层 toolkit 同时支持账号密码换 token 和显式 token store，具体见 [lzc-toolkit-go 认证示例](https://github.com/lib-x/lzc-toolkit-go/blob/main/README.zh-CN.md#例子五登录并提交-lpk)。Action 在 Milestone 2 只接受 token，账号密码登录和商店提交编排属于 Milestone 3。
+可信 self-hosted Runner 可以显式使用已有的 lzc-cli 兼容文件：
+
+```yaml
+with:
+  token-file: ~/.config/lazycat/box-config.json
+```
+
+文件必须是普通文件，路径中不能包含符号链接，并且不能允许 group/other 写入。Action 不会自动继承开发机的本地登录状态。底层 API 示例见 [lzc-toolkit-go 认证文档](https://github.com/lib-x/lzc-toolkit-go/blob/main/README.zh-CN.md#例子五登录并提交-lpk)。
 
 项目构建会执行仓库中的 `buildscript`。Action 会从 buildscript 环境中移除 LazyCat token、Registry 凭据、GitHub token，以及 GitHub output/control 文件路径。带写权限的发布 workflow 应只用于可信分支、tag、定时任务和手动运行，不要把继承的 Secrets 暴露给不可信 Pull Request 代码。
 
@@ -352,7 +361,65 @@ update:
 
 定时或手动镜像检查成功后，workflow 只提交受管的 package 和 Manifest 文件，commit 带 `[skip ci]`，然后推送当前分支、创建 `v<version>` 并上传 LPK。已有 tag 不会被移动；如果同名 tag 指向其他 commit，workflow 会失败。
 
-Milestone 2 的直接发布只包含 Git commit、tag 和 GitHub Release，不会提交到懒猫官方商店或私有商店。
+直接发布会创建 Git commit、tag、GitHub Release 和 Release Asset。配置了商店时，reusable workflow 随后提交经过校验的 LPK。`strategy: pull` 永远不会发布商店。
+
+## 商店发布
+
+只有在 workflow 上传或安全复用 GitHub Release Asset，并确认 GitHub 返回的 SHA256 后，才会发布商店。没有 `services` 或 `images` 的静态 Web、Exec 应用同样使用这条发布链。
+
+### 懒猫官方开发者平台
+
+启用官方 lint 和发布：
+
+```yaml
+update:
+  strategy: publish
+  version_source:
+    type: git
+
+stores:
+  official:
+    enabled: true
+    create_if_missing: true
+    changelog_locales: [zh, en]
+    application:
+      language: zh
+      name: Example App
+      source: https://github.com/acme/example
+      source_author: acme
+```
+
+`create_if_missing: false` 只允许发布到已经存在的应用。允许创建时，`application.name` 默认读取 `package.yml.name`，`language` 默认为 `zh`。官方模式会执行与 lzc-cli 偏好一致的检查，包括 locales、图标不超过 200 KB、SemVer 元数据和 LazyCat Registry 运行镜像。只要配置了 `direct` 或 `mirror`，就会在发布前失败。
+
+reusable workflow 接受 `LAZYCAT_TOKEN`、`LZC_CLI_TOKEN`，或者 `LAZYCAT_USERNAME` 加 `LAZYCAT_PASSWORD`。推荐使用 token。
+
+### 喵喵私有商店
+
+应用元数据可以写入配置，凭据不要提交到仓库：
+
+```yaml
+stores:
+  official:
+    enabled: false
+  private:
+    enabled: true
+    name: Example App
+    summary: Published from CI
+```
+
+配置 GitHub Secrets：
+
+```text
+APPSTORE_URL=https://store.example.com
+APPSTORE_TOKEN=lcst_...
+APP_ID=42
+```
+
+`APP_ID` 可选。没有 APP_ID 时，客户端先按 `packageId` 精确查找，找到就复用，找不到才创建应用。提供 APP_ID 时，会先确认该应用的 `packageId` 与 LPK 一致，再增加版本。
+
+新建应用调用 `POST /api/v1/apps`；已有应用的外部版本调用 `POST /api/v1/apps/{APP_ID}/versions`，两者都发送 JSON。`downloadUrl` 和本地计算的 64 位小写 `sha256` 都是必填项。URL 必须是真实的 `https://github.com/<owner>/<repo>/releases/download/...` Release Asset 地址。私有商店可以直接记录 Action 提供的 checksum，不需要仅为了重新计算 SHA256 而下载 LPK。相同版本和 SHA256 会幂等返回已有结果；同版本内容不同会失败。
+
+私有商店支持 Docker 的 `lazycat`、`direct`、`mirror` 三种模式，也支持完全没有 Docker 镜像的应用。`direct` 和 `mirror` 应用不能误发官方商店。
 
 ## 静态、Exec、Go、Rust 和 TypeScript 的 tag/release 构建
 
@@ -481,6 +548,15 @@ docker buildx build \
 
 workflow 使用 `toolchains: docker`。ARM64 Runner 的 Dockerfile 构建阶段需要执行 x64 程序时，保留 `enable-qemu: true`。
 
+可直接复制的完整文件位于 [`examples/`](examples/)：
+
+- [`docker-stable-lazycat`](examples/docker-stable-lazycat/.github/lazycat-action.yml) 和 [`docker-mirror`](examples/docker-mirror/.github/lazycat-action.yml)
+- [`go-exec`](examples/go-exec/.github/workflows/lazycat.yml) 和 [`rust-exec`](examples/rust-exec/.github/workflows/lazycat.yml)
+- [`typescript-static`](examples/typescript-static/.github/workflows/lazycat.yml) 和 [`typescript-exec`](examples/typescript-exec/.github/workflows/lazycat.yml)
+- [同时发布官方和私有商店](examples/stores/.github/workflows/lazycat.yml)
+
+TypeScript Exec 示例要求锁文件中包含 `@yao-pkg/pkg`，输出 `node22-linux-x64`。TypeScript 静态资源通常与 CPU 无关；Go、Rust、TypeScript Exec 和 Docker 内容即使在 ARM64 Runner 上构建，目标仍显式固定为 Linux x86_64。
+
 ## 静态和 Exec Manifest 可以没有 services
 
 静态 Web：
@@ -507,7 +583,7 @@ application:
 
 | Output | 含义 |
 |---|---|
-| `operation` | 最终执行的 `check` 或 `build` 操作 |
+| `operation` | 最终执行的 `check`、`build`、`publish-official` 或 `publish-private` 操作 |
 | `changed` | 受管项目文件是否变化 |
 | `package-id` | LazyCat package ID |
 | `package-file` | `package.yml` 绝对路径 |
@@ -518,6 +594,9 @@ application:
 | `sha256` | 64 位小写 LPK SHA256 |
 | `download-url` | 发布后确认过的 GitHub Release Asset URL |
 | `image-results` | 镜像选择和交付结果 JSON 数组 |
+| `store-results` | 官方和私有商店发布结果 JSON 对象 |
+| `official-store-enabled` | 配置是否启用官方商店 |
+| `private-store-enabled` | 配置是否启用私有商店 |
 | `update-strategy` | `pull` 或 `publish` |
 | `channel` | 驱动应用版本的镜像 Channel |
 | `result-file` | 完整且不含秘密的 JSON 结果文件 |
@@ -549,12 +628,38 @@ application:
 
 完整结果写入 `.lazycat-action/result.json`。token、密码、Cookie 和 Authorization 请求头不会写入 outputs 或 step summary。
 
+`store-results` 示例：
+
+```json
+{
+  "official": {
+    "published": true,
+    "created": false,
+    "packageId": "cloud.lazycat.example",
+    "version": "1.2.3",
+    "uploadUrl": "/developer/uploads/example.lpk",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "private": {
+    "published": true,
+    "created": false,
+    "existing": false,
+    "appId": "42",
+    "versionId": "56",
+    "packageId": "cloud.lazycat.example",
+    "version": "1.2.3",
+    "downloadUrl": "https://github.com/acme/example/releases/download/v1.2.3/app.lpk",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+}
+```
+
 ## Artifact 和 Release Asset 的区别
 
 - 只要本次运行生成了 LPK，就会上传 Workflow Artifact，便于 CI 检查。
 - Pull Request 模式到 Artifact 和 PR 为止。
 - Release 流程还会把 LPK 挂到 GitHub Release，并返回 `download-url`。
-- 后续私有商店发布会使用 Release Asset URL 和 SHA256，让私有商店直接信任提供的 digest，不必先下载文件来计算。
+- 私有商店发布使用确认过的 Release Asset URL 和本地 SHA256，让商店直接信任提供的 digest，不必为了重新计算而下载文件。
 
 ## Dry run
 

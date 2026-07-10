@@ -1,0 +1,24 @@
+version: 1
+
+project:
+  output: dist/application.lpk
+
+update:
+  strategy: publish
+  version_source:
+    type: git
+
+stores:
+  official:
+    enabled: true
+    create_if_missing: true
+    changelog_locales: [zh, en]
+    application:
+      language: zh
+      name: Example App
+      source: https://github.com/acme/example
+      source_author: acme
+  private:
+    enabled: true
+    name: Example App
+    summary: Published from GitHub Actions

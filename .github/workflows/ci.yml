@@ -29,7 +29,7 @@ jobs:
         run: go vet ./...
 
       - name: Validate workflows
-        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/*.yml
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/*.yml examples/*/.github/workflows/*.yml
 
   shell:
     runs-on: ubuntu-latest
@@ -38,13 +38,13 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Check shell syntax
-        run: bash -n scripts/run-action.sh scripts/run-action_test.sh
+        run: bash -n scripts/run-action.sh scripts/run-action_test.sh examples/*/scripts/*.sh
 
       - name: Run bootstrap tests
         run: bash scripts/run-action_test.sh
 
       - name: Run ShellCheck
-        run: shellcheck scripts/*.sh testdata/*/scripts/*.sh
+        run: shellcheck scripts/*.sh testdata/*/scripts/*.sh examples/*/scripts/*.sh
 
   cross-build:
     runs-on: ubuntu-latest
