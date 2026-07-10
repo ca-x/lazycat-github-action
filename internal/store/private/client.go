@@ -137,7 +137,7 @@ func (client *Client) getApplication(ctx context.Context, appID string) (appDTO,
 	if err := client.doJSON(ctx, http.MethodGet, "/api/v1/apps/"+url.PathEscape(appID), nil, &response); err != nil {
 		return appDTO{}, err
 	}
-	if strings.TrimSpace(string(response.App.ID)) == "" || strings.TrimSpace(response.App.PackageID) == "" {
+	if !validIdentifier(response.App.ID) || strings.TrimSpace(response.App.PackageID) == "" {
 		return appDTO{}, clientError(lpkgo.CodeRemoteUnavailable, http.StatusOK, false, errors.New("private store returned incomplete application metadata"))
 	}
 	return response.App, nil
@@ -154,7 +154,7 @@ func (client *Client) createApplication(ctx context.Context, request Request) (R
 	if err := client.doJSON(ctx, http.MethodPost, "/api/v1/apps", input, &response); err != nil {
 		return Result{}, err
 	}
-	if strings.TrimSpace(string(response.App.ID)) == "" || strings.TrimSpace(response.App.PackageID) != request.PackageID || response.App.LatestVersion == nil {
+	if !validIdentifier(response.App.ID) || strings.TrimSpace(response.App.PackageID) != request.PackageID || response.App.LatestVersion == nil {
 		return Result{}, clientError(lpkgo.CodeRemoteUnavailable, http.StatusCreated, false, errors.New("private store returned incomplete created application metadata"))
 	}
 	version := *response.App.LatestVersion
@@ -289,10 +289,15 @@ func verifyVersion(version versionDTO, request Request, appID identifier) error 
 }
 
 func verifyVersionIdentity(version versionDTO, expectedVersion string, appID identifier) error {
-	if strings.TrimSpace(version.Version) != expectedVersion || strings.TrimSpace(string(version.ID)) == "" || strings.TrimSpace(string(version.AppID)) != strings.TrimSpace(string(appID)) {
+	if strings.TrimSpace(version.Version) != expectedVersion || !validIdentifier(version.ID) || !validIdentifier(version.AppID) || version.AppID != appID {
 		return clientError(lpkgo.CodeRemoteUnavailable, http.StatusOK, false, errors.New("private store returned invalid version identity"))
 	}
 	return nil
+}
+
+func validIdentifier(id identifier) bool {
+	value, err := strconv.ParseUint(strings.TrimSpace(string(id)), 10, 64)
+	return err == nil && value > 0
 }
 
 func resultFromVersion(application appDTO, version versionDTO, created, existing bool) Result {

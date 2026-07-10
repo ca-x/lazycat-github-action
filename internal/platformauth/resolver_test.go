@@ -120,6 +120,16 @@ func TestResolverRejectsUnsafeTokenFiles(t *testing.T) {
 	if _, err := resolver.Resolve(context.Background(), platformauth.Request{TokenFile: unsafe}); err == nil || !errors.Is(err, lpkgo.ErrPermissionDenied) {
 		t.Fatalf("unsafe permissions err=%v", err)
 	}
+	readable := filepath.Join(root, "group-readable.json")
+	if err := os.WriteFile(readable, []byte(`{"token":"secret"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(readable, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolver.Resolve(context.Background(), platformauth.Request{TokenFile: readable}); err == nil || !errors.Is(err, lpkgo.ErrPermissionDenied) {
+		t.Fatalf("group-readable permissions err=%v", err)
+	}
 	target := filepath.Join(root, "target.json")
 	if err := os.WriteFile(target, []byte(`{"token":"secret"}`), 0o600); err != nil {
 		t.Fatal(err)

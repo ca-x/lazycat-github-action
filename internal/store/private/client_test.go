@@ -182,3 +182,21 @@ func TestClientRejectsOversizedAndMalformedResponses(t *testing.T) {
 		})
 	}
 }
+
+func TestClientRejectsInvalidRemoteIdentifiers(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodPost {
+			t.Fatal("client must not use an invalid remote application ID")
+		}
+		_, _ = response.Write([]byte(`{"app":{"id":"../admin","packageId":"cloud.lazycat.example.app","versions":[]}}`))
+	}))
+	defer server.Close()
+	client, err := private.New(private.Options{BaseURL: server.URL, Token: "lcst_test", HTTPClient: server.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Publish(context.Background(), private.Request{AppID: "42", PackageID: packageID, Name: "Example", Version: version, DownloadURL: downloadURL, SHA256: digest})
+	if !errors.Is(err, lpkgo.ErrRemoteUnavailable) {
+		t.Fatalf("err=%v", err)
+	}
+}

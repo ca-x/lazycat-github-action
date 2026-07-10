@@ -318,7 +318,7 @@ with:
   token-file: ~/.config/lazycat/box-config.json
 ```
 
-The file must be a regular file, must not contain symbolic-link path components, and must not be writable by group or other users. The Action does not automatically inherit a developer workstation login. See the [lzc-toolkit-go authentication examples](https://github.com/lib-x/lzc-toolkit-go#example-5-log-in-and-submit-an-lpk) for the underlying API.
+The file must be a regular file, must not contain symbolic-link path components, and must not grant any group/other permissions. The Action does not automatically inherit a developer workstation login. See the [lzc-toolkit-go authentication examples](https://github.com/lib-x/lzc-toolkit-go#example-5-log-in-and-submit-an-lpk) for the underlying API.
 
 Project builds execute repository-controlled `buildscript` commands. The Action removes LazyCat tokens, Registry credentials, GitHub tokens, and GitHub output/control file paths from the buildscript environment. Keep write-permission release workflows on trusted branches, tags, schedules, and manual runs; do not expose inherited secrets to untrusted pull-request code.
 

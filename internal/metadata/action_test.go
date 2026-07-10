@@ -26,6 +26,16 @@ func TestActionAndReleaseMetadataAreValidYAML(t *testing.T) {
 	}
 }
 
+func TestReleaseWorkflowSkipsFloatingMajorTag(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "release.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "if: github.ref_name != 'v1'") {
+		t.Fatal("release workflow must not publish a second release for the floating v1 tag")
+	}
+}
+
 func TestReusableWorkflowContractAndActionPins(t *testing.T) {
 	filename := filepath.Join("..", "..", ".github", "workflows", "lazycat.yml")
 	data, err := os.ReadFile(filename)

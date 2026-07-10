@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   release:
+    if: github.ref_name != 'v1'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

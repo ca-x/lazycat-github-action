@@ -318,7 +318,7 @@ with:
   token-file: ~/.config/lazycat/box-config.json
 ```
 
-文件必须是普通文件，路径中不能包含符号链接，并且不能允许 group/other 写入。Action 不会自动继承开发机的本地登录状态。底层 API 示例见 [lzc-toolkit-go 认证文档](https://github.com/lib-x/lzc-toolkit-go/blob/main/README.zh-CN.md#例子五登录并提交-lpk)。
+文件必须是普通文件，路径中不能包含符号链接，并且不能授予任何 group/other 权限。Action 不会自动继承开发机的本地登录状态。底层 API 示例见 [lzc-toolkit-go 认证文档](https://github.com/lib-x/lzc-toolkit-go/blob/main/README.zh-CN.md#例子五登录并提交-lpk)。
 
 项目构建会执行仓库中的 `buildscript`。Action 会从 buildscript 环境中移除 LazyCat token、Registry 凭据、GitHub token，以及 GitHub output/control 文件路径。带写权限的发布 workflow 应只用于可信分支、tag、定时任务和手动运行，不要把继承的 Secrets 暴露给不可信 Pull Request 代码。
 
