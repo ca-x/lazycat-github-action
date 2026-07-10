@@ -11,10 +11,15 @@ import (
 
 	actionbuild "github.com/ca-x/lazycat-github-action/internal/build"
 	"github.com/ca-x/lazycat-github-action/internal/config"
+	"github.com/ca-x/lazycat-github-action/internal/delivery"
+	"github.com/ca-x/lazycat-github-action/internal/imageflow"
 	"github.com/ca-x/lazycat-github-action/internal/platform"
 	"github.com/ca-x/lazycat-github-action/internal/project"
+	"github.com/ca-x/lazycat-github-action/internal/registry"
 	"github.com/ca-x/lazycat-github-action/internal/yamledit"
 	lpkgo "github.com/lib-x/lzc-toolkit-go"
+	"github.com/lib-x/lzc-toolkit-go/appstore"
+	"github.com/lib-x/lzc-toolkit-go/auth"
 )
 
 const (
@@ -23,6 +28,8 @@ const (
 	CodeVersionNotFound    = "VERSION_NOT_FOUND"
 	CodeBuildFailed        = "BUILD_FAILED"
 	CodeLPKInvalid         = "LPK_INVALID"
+	CodePlatformNotFound   = "PLATFORM_NOT_FOUND"
+	CodeImageCopyFailed    = "IMAGE_COPY_FAILED"
 )
 
 type Operation string
@@ -61,6 +68,8 @@ type Result struct {
 	SHA256         string          `json:"sha256"`
 	DownloadURL    string          `json:"downloadUrl,omitempty"`
 	ImageResults   json.RawMessage `json:"imageResults"`
+	UpdateStrategy string          `json:"updateStrategy"`
+	Channel        string          `json:"channel,omitempty"`
 	ResultFile     string          `json:"resultFile"`
 	RunnerArch     string          `json:"runnerArch"`
 	TargetPlatform string          `json:"targetPlatform"`
@@ -89,22 +98,34 @@ func (err *Error) Unwrap() error {
 }
 
 type Dependencies struct {
-	Host       platform.Host
-	ResultDir  string
-	LoadConfig func(string) (config.Config, error)
-	Inspect    func(context.Context, config.Project) (project.Info, error)
-	SetVersion func(string, string) (yamledit.Change, error)
-	Build      func(context.Context, actionbuild.Request) (actionbuild.Result, error)
+	Host        platform.Host
+	ResultDir   string
+	LoadConfig  func(string) (config.Config, error)
+	Inspect     func(context.Context, config.Project) (project.Info, error)
+	SetVersion  func(string, string) (yamledit.Change, error)
+	Build       func(context.Context, actionbuild.Request) (actionbuild.Result, error)
+	CheckImages func(context.Context, imageflow.Request) (imageflow.Result, error)
 }
 
 func DefaultDependencies(host platform.Host) Dependencies {
 	builder := actionbuild.Builder{}
+	registryClient := registry.New()
+	token := auth.Chain{
+		auth.EnvironmentToken{Name: "LAZYCAT_TOKEN"},
+		auth.EnvironmentToken{Name: "LZC_CLI_TOKEN"},
+	}
+	storeClient := appstore.New(appstore.Options{Token: token})
+	imageFlow := imageflow.Flow{
+		Registry:  registryClient,
+		Deliverer: delivery.Resolver{Copier: storeClient, Inspector: registryClient},
+	}
 	return Dependencies{
-		Host:       host,
-		LoadConfig: config.Load,
-		Inspect:    project.Inspect,
-		SetVersion: yamledit.SetPackageVersion,
-		Build:      builder.Build,
+		Host:        host,
+		LoadConfig:  config.Load,
+		Inspect:     project.Inspect,
+		SetVersion:  yamledit.SetPackageVersion,
+		Build:       builder.Build,
+		CheckImages: imageFlow.Check,
 	}
 }
 
@@ -147,15 +168,6 @@ func Run(ctx context.Context, input Input, dependencies Dependencies) (Result, e
 	if err != nil {
 		return Result{}, actionError(CodeConfigInvalid, err.Error(), err)
 	}
-	if operation != OperationBuild {
-		return Result{}, actionError(CodeProjectUnsupported, fmt.Sprintf("operation %q is not available in milestone 1", operation), nil)
-	}
-	if input.Version == "" {
-		return Result{}, actionError(CodeVersionNotFound, "a SemVer version is required for build", nil)
-	}
-	if input.Tag == "" {
-		input.Tag = "v" + input.Version
-	}
 	if input.ConfigPath == "" {
 		input.ConfigPath = ".github/lazycat-action.yml"
 	}
@@ -168,7 +180,29 @@ func Run(ctx context.Context, input Input, dependencies Dependencies) (Result, e
 	if err != nil {
 		return Result{}, actionError(CodeConfigInvalid, "unable to inspect LazyCat project", err)
 	}
-	result := baseResult(input, dependencies.Host, info)
+	switch operation {
+	case OperationBuild:
+		return runBuild(ctx, input, cfg, info, dependencies)
+	case OperationCheck:
+		return runCheck(ctx, input, cfg, info, dependencies)
+	case OperationPublishOfficial, OperationPublishPrivate:
+		return Result{}, actionError(CodeProjectUnsupported, fmt.Sprintf("operation %q is not available until milestone 3", operation), nil)
+	default:
+		return Result{}, actionError(CodeConfigInvalid, fmt.Sprintf("unsupported operation %q", operation), nil)
+	}
+}
+
+func runBuild(ctx context.Context, input Input, cfg config.Config, info project.Info, dependencies Dependencies) (Result, error) {
+	if input.Version == "" {
+		input.Version = info.Version
+	}
+	if input.Version == "" {
+		return Result{}, actionError(CodeVersionNotFound, "a SemVer version is required for build", nil)
+	}
+	if input.Tag == "" {
+		input.Tag = "v" + input.Version
+	}
+	result := baseResult(input, dependencies.Host, info, cfg)
 	result.Changed = info.Version != input.Version
 	if input.DryRun {
 		if err := writeResult(&result, resultDirectory(dependencies.ResultDir, info.Root)); err != nil {
@@ -216,15 +250,93 @@ func Run(ctx context.Context, input Input, dependencies Dependencies) (Result, e
 	return result, nil
 }
 
-func baseResult(input Input, host platform.Host, info project.Info) Result {
+func runCheck(ctx context.Context, input Input, cfg config.Config, info project.Info, dependencies Dependencies) (Result, error) {
+	if cfg.Update.VersionSource.Type != config.VersionSourceImage {
+		return Result{}, actionError(CodeConfigInvalid, "check operation requires update.version_source.type=image", nil)
+	}
+	if dependencies.CheckImages == nil {
+		return Result{}, actionError(CodeConfigInvalid, "image check dependency is unavailable", nil)
+	}
+	checked, err := dependencies.CheckImages(ctx, imageflow.Request{
+		Config: cfg, Project: info, ImageID: input.ImageID, DryRun: input.DryRun,
+	})
+	if err != nil {
+		return Result{}, mapImageError(err)
+	}
+	input.Version = checked.Version
+	input.Tag = "v" + checked.Version
+	input.Channel = checked.Channel
+	result := baseResult(input, dependencies.Host, info, cfg)
+	result.Channel = checked.Channel
+	encodedImages, err := json.Marshal(checked.Images)
+	if err != nil {
+		return Result{}, actionError(CodeBuildFailed, "unable to encode image results", err)
+	}
+	result.ImageResults = encodedImages
+	result.Changed = checked.Changed || info.Version != checked.Version
+	if input.DryRun || !result.Changed {
+		if err := writeResult(&result, resultDirectory(dependencies.ResultDir, info.Root)); err != nil {
+			return Result{}, actionError(CodeBuildFailed, "unable to write image check result", err)
+		}
+		return result, nil
+	}
+
+	change, err := dependencies.SetVersion(info.PackageFile, checked.Version)
+	if err != nil {
+		return Result{}, actionError(CodeConfigInvalid, "unable to update package.yml version", err)
+	}
+	updated, err := dependencies.Inspect(ctx, cfg.Project)
+	if err != nil {
+		rollbackVersion(dependencies, info.PackageFile, change)
+		return Result{}, actionError(CodeConfigInvalid, "unable to inspect image-updated LazyCat project", err)
+	}
+	built, err := dependencies.Build(ctx, actionbuild.Request{
+		Project: updated, Version: checked.Version, Tag: input.Tag, Channel: checked.Channel,
+		SourceDateEpoch: input.SourceDateEpoch, Official: cfg.Stores.Official.Enabled,
+		FailOnWarnings: cfg.Stores.Official.Enabled, RunBuildScript: cfg.Build.ShouldRunBuildScript(),
+	})
+	if err != nil {
+		rollbackVersion(dependencies, info.PackageFile, change)
+		return Result{}, actionError(CodeBuildFailed, "LPK validation build failed after image update", err)
+	}
+	if built.TargetPlatform != platform.TargetPlatform {
+		rollbackVersion(dependencies, info.PackageFile, change)
+		return Result{}, actionError(CodeLPKInvalid, fmt.Sprintf("LPK target platform %q does not match required %q", built.TargetPlatform, platform.TargetPlatform), nil)
+	}
+	result.PackageID = built.PackageID
+	result.LPKPath = built.Path
+	result.SHA256 = built.SHA256
+	result.Warnings = built.Warnings
+	if err := writeResult(&result, resultDirectory(dependencies.ResultDir, updated.Root)); err != nil {
+		return Result{}, actionError(CodeBuildFailed, "unable to write image update result", err)
+	}
+	return result, nil
+}
+
+func baseResult(input Input, host platform.Host, info project.Info, cfg config.Config) Result {
 	return Result{
 		PackageID:      info.PackageID,
 		Version:        input.Version,
 		Tag:            input.Tag,
 		DownloadURL:    input.DownloadURL,
 		ImageResults:   json.RawMessage("[]"),
+		UpdateStrategy: string(cfg.Update.Strategy),
+		Channel:        input.Channel,
 		RunnerArch:     host.Arch,
 		TargetPlatform: platform.TargetPlatform,
+	}
+}
+
+func mapImageError(err error) *Error {
+	switch {
+	case errors.Is(err, imageflow.ErrVersionNotFound):
+		return actionError(CodeVersionNotFound, "no image version matched the configured channel", err)
+	case errors.Is(err, imageflow.ErrPlatformNotFound):
+		return actionError(CodePlatformNotFound, "the configured image has no usable linux/amd64 candidate", err)
+	case errors.Is(err, imageflow.ErrDeliveryFailed):
+		return actionError(CodeImageCopyFailed, "image delivery failed", err)
+	default:
+		return actionError(CodeConfigInvalid, "image check failed", err)
 	}
 }
 

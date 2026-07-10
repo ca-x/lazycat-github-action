@@ -65,6 +65,12 @@ outputs:
   image-results:
     description: JSON array of image inspection and copy results.
     value: ${{ steps.run.outputs['image-results'] }}
+  update-strategy:
+    description: Normalized pull or publish update strategy.
+    value: ${{ steps.run.outputs['update-strategy'] }}
+  channel:
+    description: Channel selected by the version-source image.
+    value: ${{ steps.run.outputs.channel }}
   result-file:
     description: Absolute path to the complete JSON result.
     value: ${{ steps.run.outputs['result-file'] }}

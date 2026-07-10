@@ -12,6 +12,7 @@ import (
 	"github.com/ca-x/lazycat-github-action/internal/action"
 	actionbuild "github.com/ca-x/lazycat-github-action/internal/build"
 	"github.com/ca-x/lazycat-github-action/internal/config"
+	"github.com/ca-x/lazycat-github-action/internal/imageflow"
 	"github.com/ca-x/lazycat-github-action/internal/platform"
 	"github.com/ca-x/lazycat-github-action/internal/project"
 	"github.com/ca-x/lazycat-github-action/internal/yamledit"
@@ -209,6 +210,80 @@ func TestResolveOperation(t *testing.T) {
 				t.Fatalf("operation=%q want=%q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestRunCheckUpdatesVersionBuildsAndReturnsImageResults(t *testing.T) {
+	root := t.TempDir()
+	packageFile := filepath.Join(root, "package.yml")
+	inspectCount := 0
+	var built actionbuild.Request
+	deps := action.Dependencies{
+		Host:      platform.Host{OS: "linux", Arch: "arm64"},
+		ResultDir: filepath.Join(root, "results"),
+		LoadConfig: func(string) (config.Config, error) {
+			cfg := gitConfig()
+			cfg.Update.Strategy = config.StrategyPull
+			cfg.Update.VersionSource = config.VersionSource{Type: config.VersionSourceImage, Image: "web"}
+			cfg.Images = []config.Image{{ID: "web", Target: "service", Service: "web", Source: "ghcr.io/acme/web", Channel: "stable", Sort: "semver", Delivery: config.Delivery{Mode: "direct"}}}
+			return cfg, nil
+		},
+		Inspect: func(context.Context, config.Project) (project.Info, error) {
+			inspectCount++
+			version := "1.0.0"
+			if inspectCount > 1 {
+				version = "2.0.0"
+			}
+			return project.Info{Root: root, PackageFile: packageFile, ManifestFile: filepath.Join(root, "manifest.yml"), Output: filepath.Join(root, "dist", "app.lpk"), PackageID: "cloud.lazycat.example", Version: version}, nil
+		},
+		SetVersion: func(_ string, version string) (yamledit.Change, error) {
+			return yamledit.Change{Changed: true, Old: "1.0.0", New: version}, nil
+		},
+		Build: func(_ context.Context, request actionbuild.Request) (actionbuild.Result, error) {
+			built = request
+			return actionbuild.Result{Path: request.Project.Output, PackageID: request.Project.PackageID, Version: request.Version, SHA256: strings.Repeat("a", 64), TargetPlatform: "linux/amd64"}, nil
+		},
+		CheckImages: func(context.Context, imageflow.Request) (imageflow.Result, error) {
+			return imageflow.Result{Changed: true, Version: "2.0.0", Channel: "stable", Images: []imageflow.ImageResult{{ID: "web", Target: "service", Service: "web", Platform: "linux/amd64", SourceRef: "ghcr.io/acme/web:v2.0.0", SourceDigest: strings.Repeat("a", 64), DeliveryMode: "direct", DeliveredRef: "ghcr.io/acme/web:v2.0.0"}}}, nil
+		},
+	}
+	result, err := action.Run(context.Background(), action.Input{Operation: action.OperationCheck}, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Changed || result.Version != "2.0.0" || result.Tag != "v2.0.0" || result.UpdateStrategy != "pull" || result.Channel != "stable" {
+		t.Fatalf("result=%#v", result)
+	}
+	if built.Version != "2.0.0" || built.Channel != "stable" || !strings.Contains(string(result.ImageResults), `"id":"web"`) {
+		t.Fatalf("built=%#v images=%s", built, result.ImageResults)
+	}
+}
+
+func TestRunBuildUsesCurrentPackageVersionWhenInputIsEmpty(t *testing.T) {
+	root := t.TempDir()
+	deps := action.Dependencies{
+		Host:       platform.Host{OS: "linux", Arch: "amd64"},
+		ResultDir:  filepath.Join(root, "results"),
+		LoadConfig: func(string) (config.Config, error) { return gitConfig(), nil },
+		Inspect: func(context.Context, config.Project) (project.Info, error) {
+			return project.Info{Root: root, PackageFile: filepath.Join(root, "package.yml"), Output: filepath.Join(root, "dist", "app.lpk"), PackageID: "cloud.lazycat.example", Version: "1.2.3"}, nil
+		},
+		SetVersion: func(_ string, version string) (yamledit.Change, error) {
+			if version != "1.2.3" {
+				t.Fatalf("version=%q", version)
+			}
+			return yamledit.Change{Old: version, New: version}, nil
+		},
+		Build: func(_ context.Context, request actionbuild.Request) (actionbuild.Result, error) {
+			return actionbuild.Result{Path: request.Project.Output, PackageID: request.Project.PackageID, Version: request.Version, SHA256: strings.Repeat("a", 64), TargetPlatform: "linux/amd64"}, nil
+		},
+	}
+	result, err := action.Run(context.Background(), action.Input{Operation: action.OperationBuild}, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Version != "1.2.3" || result.Tag != "v1.2.3" {
+		t.Fatalf("result=%#v", result)
 	}
 }
 

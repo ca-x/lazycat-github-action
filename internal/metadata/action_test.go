@@ -46,7 +46,7 @@ func TestActionMetadataExposesStableContract(t *testing.T) {
 			t.Fatalf("missing input %q", input)
 		}
 	}
-	for _, output := range []string{"changed", "package-id", "version", "tag", "lpk-path", "sha256", "download-url", "image-results", "result-file", "runner-arch", "target-platform"} {
+	for _, output := range []string{"changed", "package-id", "version", "tag", "lpk-path", "sha256", "download-url", "image-results", "update-strategy", "channel", "result-file", "runner-arch", "target-platform"} {
 		if _, exists := document.Outputs[output]; !exists {
 			t.Fatalf("missing output %q", output)
 		}
@@ -65,6 +65,7 @@ func TestActionMetadataUsesBracketSyntaxForHyphenatedNames(t *testing.T) {
 	for _, expression := range []string{
 		"steps.run.outputs['package-id']",
 		"steps.run.outputs['target-platform']",
+		"steps.run.outputs['update-strategy']",
 		"inputs['image-id']",
 		"inputs['download-url']",
 	} {

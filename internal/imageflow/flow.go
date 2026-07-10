@@ -1,0 +1,263 @@
+package imageflow
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"regexp"
+	"strings"
+
+	"github.com/ca-x/lazycat-github-action/internal/config"
+	"github.com/ca-x/lazycat-github-action/internal/delivery"
+	"github.com/ca-x/lazycat-github-action/internal/manifestedit"
+	"github.com/ca-x/lazycat-github-action/internal/platform"
+	"github.com/ca-x/lazycat-github-action/internal/project"
+	"github.com/ca-x/lazycat-github-action/internal/registry"
+	"github.com/ca-x/lazycat-github-action/internal/versioning"
+	"github.com/lib-x/lzc-toolkit-go/appstore"
+)
+
+var (
+	ErrVersionNotFound  = errors.New("image version not found")
+	ErrPlatformNotFound = errors.New("image platform not found")
+	ErrDeliveryFailed   = errors.New("image delivery failed")
+)
+
+type Registry interface {
+	Candidates(context.Context, string, ...registry.TagFilter) ([]versioning.Candidate, error)
+}
+
+type Deliverer interface {
+	Deliver(context.Context, delivery.Request) (delivery.Result, error)
+}
+
+type Request struct {
+	Config     config.Config
+	Project    project.Info
+	ImageID    string
+	DryRun     bool
+	OnProgress func(string, appstore.CopyProgress)
+}
+
+type LayerProgress struct {
+	Hash     string `json:"hash"`
+	Progress int    `json:"progress"`
+}
+
+type CopyResult struct {
+	SourceImage  string          `json:"sourceImage"`
+	Platform     string          `json:"platform"`
+	LazyCatImage string          `json:"lazyCatImage"`
+	Finished     bool            `json:"finished"`
+	Layers       []LayerProgress `json:"layers,omitempty"`
+}
+
+type ImageResult struct {
+	ID           string      `json:"id"`
+	Target       string      `json:"target"`
+	Service      string      `json:"service,omitempty"`
+	Platform     string      `json:"platform"`
+	Tag          string      `json:"tag"`
+	SourceRef    string      `json:"sourceRef"`
+	SourceDigest string      `json:"sourceDigest"`
+	DeliveryMode string      `json:"deliveryMode"`
+	DeliveredRef string      `json:"deliveredRef"`
+	Copied       bool        `json:"copied"`
+	CopyResult   *CopyResult `json:"copyResult,omitempty"`
+}
+
+type Result struct {
+	Changed bool          `json:"changed"`
+	Version string        `json:"version"`
+	Channel string        `json:"channel,omitempty"`
+	Images  []ImageResult `json:"images"`
+}
+
+type Flow struct {
+	Registry      Registry
+	Deliverer     Deliverer
+	ReadManifest  func(string, []manifestedit.Target) ([]manifestedit.Current, error)
+	ApplyManifest func(string, []manifestedit.Update) ([]manifestedit.Change, error)
+}
+
+func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
+	if ctx == nil {
+		return Result{}, errors.New("image check context is required")
+	}
+	if flow.Registry == nil || flow.Deliverer == nil {
+		return Result{}, errors.New("image check requires Registry and delivery adapters")
+	}
+	selected, err := selectImages(request.Config.Images, request.ImageID)
+	if err != nil {
+		return Result{}, err
+	}
+	readManifest := flow.ReadManifest
+	if readManifest == nil {
+		readManifest = manifestedit.Read
+	}
+	applyManifest := flow.ApplyManifest
+	if applyManifest == nil {
+		applyManifest = manifestedit.Apply
+	}
+	targets := make([]manifestedit.Target, 0, len(selected))
+	for _, image := range selected {
+		targets = append(targets, imageTarget(image))
+	}
+	currentValues, err := readManifest(request.Project.ManifestFile, targets)
+	if err != nil {
+		return Result{}, fmt.Errorf("validate manifest image targets: %w", err)
+	}
+	currentByID := make(map[string]manifestedit.Current, len(currentValues))
+	for _, current := range currentValues {
+		currentByID[current.ID] = current
+	}
+	for _, image := range selected {
+		if _, exists := currentByID[image.ID]; !exists {
+			return Result{}, fmt.Errorf("manifest reader did not return image target %q", image.ID)
+		}
+	}
+
+	result := Result{Version: request.Project.Version, Images: make([]ImageResult, 0, len(selected))}
+	updates := make([]manifestedit.Update, 0, len(selected))
+	for _, image := range selected {
+		rule, filter, err := imageRule(image)
+		if err != nil {
+			return Result{}, err
+		}
+		candidates, err := flow.Registry.Candidates(ctx, image.Source, filter)
+		if err != nil {
+			return Result{}, fmt.Errorf("%w: inspect %q: %v", ErrPlatformNotFound, image.ID, err)
+		}
+		selection, err := versioning.Select(rule, candidates)
+		if err != nil {
+			return Result{}, fmt.Errorf("%w for %q: %v", ErrVersionNotFound, image.ID, err)
+		}
+		sourceRef := image.Source + ":" + selection.Candidate.Tag
+		current := currentByID[image.ID]
+		deliveryRequest := delivery.Request{
+			Image: image, Tag: selection.Candidate.Tag, SourceRef: sourceRef, SourceDigest: selection.Candidate.Digest, DryRun: request.DryRun,
+		}
+		if request.OnProgress != nil {
+			deliveryRequest.OnProgress = func(progress appstore.CopyProgress) { request.OnProgress(image.ID, progress) }
+		}
+
+		needsUpdate := current.UpstreamRef != sourceRef
+		var delivered delivery.Result
+		switch image.Delivery.Mode {
+		case "direct", "mirror":
+			delivered, err = flow.Deliverer.Deliver(ctx, deliveryRequest)
+			if err != nil {
+				return Result{}, fmt.Errorf("%w for %q: %v", ErrDeliveryFailed, image.ID, err)
+			}
+			needsUpdate = needsUpdate || current.RuntimeRef != delivered.RuntimeRef
+		case "lazycat":
+			needsUpdate = needsUpdate || current.RuntimeRef == "" || !strings.HasPrefix(current.RuntimeRef, "registry.lazycat.cloud")
+			if needsUpdate {
+				delivered, err = flow.Deliverer.Deliver(ctx, deliveryRequest)
+				if err != nil {
+					return Result{}, fmt.Errorf("%w for %q: %v", ErrDeliveryFailed, image.ID, err)
+				}
+			} else {
+				delivered = delivery.Result{Mode: "lazycat", RuntimeRef: current.RuntimeRef}
+			}
+		default:
+			return Result{}, fmt.Errorf("unsupported delivery mode %q", image.Delivery.Mode)
+		}
+		if delivered.RuntimeRef == "" {
+			delivered.RuntimeRef = current.RuntimeRef
+		}
+		if needsUpdate && !request.DryRun && delivered.RuntimeRef == "" {
+			return Result{}, fmt.Errorf("%w for %q: delivery returned an empty runtime reference", ErrDeliveryFailed, image.ID)
+		}
+		if needsUpdate {
+			result.Changed = true
+			if !request.DryRun {
+				updates = append(updates, manifestedit.Update{Target: imageTarget(image), SourceRef: sourceRef, RuntimeRef: delivered.RuntimeRef})
+			}
+		}
+		imageResult := ImageResult{
+			ID: image.ID, Target: image.Target, Service: image.Service, Platform: platform.TargetPlatform,
+			Tag: selection.Candidate.Tag, SourceRef: sourceRef, SourceDigest: selection.Candidate.Digest,
+			DeliveryMode: image.Delivery.Mode, DeliveredRef: delivered.RuntimeRef, Copied: delivered.Copied,
+			CopyResult: copyResult(delivered.CopyResult),
+		}
+		result.Images = append(result.Images, imageResult)
+		if request.Config.Update.VersionSource.Type == config.VersionSourceImage && request.Config.Update.VersionSource.Image == image.ID {
+			result.Version = selection.Version
+			result.Channel = image.Channel
+		}
+	}
+	if len(updates) > 0 {
+		changes, err := applyManifest(request.Project.ManifestFile, updates)
+		if err != nil {
+			return Result{}, fmt.Errorf("apply manifest image updates: %w", err)
+		}
+		if len(changes) != len(updates) {
+			return Result{}, errors.New("manifest editor returned an incomplete change set")
+		}
+	}
+	return result, nil
+}
+
+func selectImages(images []config.Image, imageID string) ([]config.Image, error) {
+	if len(images) == 0 {
+		return nil, errors.New("no images are configured")
+	}
+	imageID = strings.TrimSpace(imageID)
+	if imageID == "" {
+		return append([]config.Image(nil), images...), nil
+	}
+	for _, image := range images {
+		if image.ID == imageID {
+			return []config.Image{image}, nil
+		}
+	}
+	return nil, fmt.Errorf("image ID %q is not configured", imageID)
+}
+
+func imageTarget(image config.Image) manifestedit.Target {
+	return manifestedit.Target{ID: image.ID, Kind: manifestedit.TargetKind(image.Target), Service: image.Service}
+}
+
+func imageRule(image config.Image) (versioning.Rule, registry.TagFilter, error) {
+	compile := func(label, expression string) (*regexp.Regexp, error) {
+		if strings.TrimSpace(expression) == "" {
+			return nil, nil
+		}
+		compiled, err := regexp.Compile(expression)
+		if err != nil {
+			return nil, fmt.Errorf("compile image %q %s: %w", image.ID, label, err)
+		}
+		return compiled, nil
+	}
+	tagRegex, err := compile("tag_regex", image.TagRegex)
+	if err != nil {
+		return versioning.Rule{}, registry.TagFilter{}, err
+	}
+	excludeRegex, err := compile("exclude_regex", image.ExcludeRegex)
+	if err != nil {
+		return versioning.Rule{}, registry.TagFilter{}, err
+	}
+	versionRegex, err := compile("version_regex", image.VersionRegex)
+	if err != nil {
+		return versioning.Rule{}, registry.TagFilter{}, err
+	}
+	return versioning.Rule{
+		Channel: versioning.Channel(image.Channel), Sort: versioning.Sort(image.Sort), TagRegex: tagRegex,
+		ExcludeRegex: excludeRegex, VersionRegex: versionRegex, VersionTemplate: image.VersionTemplate,
+	}, registry.TagFilter{Include: tagRegex, Exclude: excludeRegex}, nil
+}
+
+func copyResult(value *appstore.CopyImageResult) *CopyResult {
+	if value == nil {
+		return nil
+	}
+	layers := make([]LayerProgress, 0, len(value.Progress.Layers))
+	for _, layer := range value.Progress.Layers {
+		layers = append(layers, LayerProgress{Hash: layer.Hash, Progress: layer.Progress})
+	}
+	return &CopyResult{
+		SourceImage: value.SourceImage, Platform: value.Platform, LazyCatImage: value.LazyCatImage,
+		Finished: value.Progress.Finished, Layers: layers,
+	}
+}
