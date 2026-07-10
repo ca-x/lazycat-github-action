@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -88,8 +89,33 @@ func applyDefaults(value *Config) {
 		image.Service = strings.TrimSpace(image.Service)
 		image.Source = strings.TrimSpace(image.Source)
 		image.Channel = strings.ToLower(strings.TrimSpace(image.Channel))
+		if image.Channel == "night" {
+			image.Channel = "nightly"
+		}
+		if image.Channel == "" {
+			image.Channel = "stable"
+		}
 		image.Sort = strings.ToLower(strings.TrimSpace(image.Sort))
+		if image.Sort == "" {
+			switch image.Channel {
+			case "stable", "beta":
+				image.Sort = "semver"
+			case "nightly":
+				image.Sort = "created"
+			}
+		}
+		image.TagRegex = strings.TrimSpace(image.TagRegex)
+		image.ExcludeRegex = strings.TrimSpace(image.ExcludeRegex)
+		image.VersionRegex = strings.TrimSpace(image.VersionRegex)
+		image.VersionTemplate = strings.TrimSpace(image.VersionTemplate)
+		if image.VersionTemplate == "" {
+			image.VersionTemplate = "{version}"
+		}
 		image.Delivery.Mode = strings.ToLower(strings.TrimSpace(image.Delivery.Mode))
+		if image.Delivery.Mode == "" {
+			image.Delivery.Mode = "lazycat"
+		}
+		image.Delivery.ImageTemplate = strings.TrimSpace(image.Delivery.ImageTemplate)
 	}
 }
 
@@ -117,17 +143,6 @@ func validate(value Config) error {
 	default:
 		return fmt.Errorf("unsupported update strategy %q", value.Update.Strategy)
 	}
-	switch value.Update.VersionSource.Type {
-	case VersionSourceGit:
-		if value.Update.VersionSource.Image != "" {
-			return errors.New("version source image must be empty when type is git")
-		}
-	case VersionSourceImage:
-		return errors.New("version source image automation is not available in milestone 1")
-	default:
-		return fmt.Errorf("unsupported version source type %q", value.Update.VersionSource.Type)
-	}
-
 	toolchains := make(map[string]struct{}, len(value.Build.Toolchains))
 	for _, toolchain := range value.Build.Toolchains {
 		if toolchain.Kind == "" {
@@ -139,6 +154,7 @@ func validate(value Config) error {
 		toolchains[toolchain.Kind] = struct{}{}
 	}
 	images := make(map[string]struct{}, len(value.Images))
+	targets := make(map[string]string, len(value.Images))
 	for _, image := range value.Images {
 		if image.ID == "" {
 			return errors.New("image id is required")
@@ -147,6 +163,108 @@ func validate(value Config) error {
 			return fmt.Errorf("duplicate image id %q", image.ID)
 		}
 		images[image.ID] = struct{}{}
+		if image.Source == "" {
+			return fmt.Errorf("image %q source is required", image.ID)
+		}
+		targetKey := image.Target
+		switch image.Target {
+		case "service":
+			if image.Service == "" {
+				return fmt.Errorf("image %q service is required for service target", image.ID)
+			}
+			targetKey += ":" + image.Service
+		case "application":
+			if image.Service != "" {
+				return fmt.Errorf("image %q service must be empty for application target", image.ID)
+			}
+		default:
+			return fmt.Errorf("image %q has unsupported target %q", image.ID, image.Target)
+		}
+		if existing, found := targets[targetKey]; found {
+			return fmt.Errorf("images %q and %q use duplicate target %q", existing, image.ID, targetKey)
+		}
+		targets[targetKey] = image.ID
+		if err := validateImageRule(image); err != nil {
+			return fmt.Errorf("image %q: %w", image.ID, err)
+		}
+		if value.Stores.Official.Enabled && image.Delivery.Mode != "lazycat" {
+			return fmt.Errorf("official store requires lazycat delivery for image %q", image.ID)
+		}
+	}
+	switch value.Update.VersionSource.Type {
+	case VersionSourceGit:
+		if value.Update.VersionSource.Image != "" {
+			return errors.New("version source image must be empty when type is git")
+		}
+	case VersionSourceImage:
+		if value.Update.VersionSource.Image == "" {
+			return errors.New("version source image id is required")
+		}
+		if _, exists := images[value.Update.VersionSource.Image]; !exists {
+			return fmt.Errorf("version source image %q is not configured", value.Update.VersionSource.Image)
+		}
+	default:
+		return fmt.Errorf("unsupported version source type %q", value.Update.VersionSource.Type)
+	}
+	return nil
+}
+
+func validateImageRule(image Image) error {
+	switch image.Channel {
+	case "stable", "beta":
+		if image.Sort != "semver" {
+			return fmt.Errorf("channel %q requires semver sort", image.Channel)
+		}
+	case "nightly":
+		if image.Sort != "created" {
+			return errors.New("nightly channel requires created sort")
+		}
+		if image.TagRegex == "" {
+			return errors.New("tag_regex is required for nightly channel")
+		}
+	case "custom":
+		if image.Sort == "" {
+			return errors.New("sort is required for custom channel")
+		}
+		if image.Sort != "semver" && image.Sort != "created" {
+			return fmt.Errorf("unsupported sort %q", image.Sort)
+		}
+		if image.TagRegex == "" {
+			return errors.New("tag_regex is required for custom channel")
+		}
+	default:
+		return fmt.Errorf("unsupported channel %q", image.Channel)
+	}
+	for label, expression := range map[string]string{
+		"tag_regex":     image.TagRegex,
+		"exclude_regex": image.ExcludeRegex,
+		"version_regex": image.VersionRegex,
+	} {
+		if expression == "" {
+			continue
+		}
+		compiled, err := regexp.Compile(expression)
+		if err != nil {
+			return fmt.Errorf("invalid %s: %w", label, err)
+		}
+		if label == "version_regex" && compiled.SubexpIndex("version") < 0 {
+			return errors.New("version_regex must define a named version group")
+		}
+	}
+	switch image.Delivery.Mode {
+	case "lazycat", "direct":
+		if image.Delivery.ImageTemplate != "" {
+			return fmt.Errorf("image_template is only valid for mirror delivery")
+		}
+		if image.Delivery.RequireDigestMatch {
+			return fmt.Errorf("require_digest_match is only valid for mirror delivery")
+		}
+	case "mirror":
+		if image.Delivery.ImageTemplate == "" {
+			return errors.New("image_template is required for mirror delivery")
+		}
+	default:
+		return fmt.Errorf("unsupported delivery mode %q", image.Delivery.Mode)
 	}
 	return nil
 }

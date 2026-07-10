@@ -6,3 +6,5 @@ require (
 	github.com/lib-x/lzc-toolkit-go v0.1.0
 	go.yaml.in/yaml/v3 v3.0.4
 )
+
+require github.com/Masterminds/semver/v3 v3.5.0

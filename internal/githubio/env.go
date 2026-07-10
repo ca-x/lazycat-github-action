@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/ca-x/lazycat-github-action/internal/action"
-	"github.com/ca-x/lazycat-github-action/internal/yamledit"
+	"github.com/ca-x/lazycat-github-action/internal/appversion"
 )
 
 const maxEventBytes = 1 << 20
@@ -151,12 +151,5 @@ func releaseTag(filename string) (string, error) {
 }
 
 func normalizeVersion(raw string) (string, string, error) {
-	value := strings.TrimSpace(raw)
-	if strings.HasPrefix(value, "v") {
-		value = strings.TrimPrefix(value, "v")
-	}
-	if !yamledit.IsValidPackageVersion(value) {
-		return "", "", fmt.Errorf("invalid version %q: expected SemVer with an optional leading v", raw)
-	}
-	return value, "v" + value, nil
+	return appversion.Normalize(raw)
 }

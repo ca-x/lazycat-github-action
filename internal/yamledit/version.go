@@ -6,12 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 
+	"github.com/ca-x/lazycat-github-action/internal/appversion"
 	"go.yaml.in/yaml/v3"
 )
-
-var semverPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
 
 type Change struct {
 	Changed bool   `json:"changed"`
@@ -20,7 +18,7 @@ type Change struct {
 }
 
 func IsValidPackageVersion(value string) bool {
-	return semverPattern.MatchString(value)
+	return appversion.IsValid(value)
 }
 
 func SetPackageVersion(filename, value string) (Change, error) {

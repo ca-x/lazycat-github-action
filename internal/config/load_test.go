@@ -76,15 +76,25 @@ update:
 			wantErr: "field target_arch not found",
 		},
 		{
-			name: "image source unavailable in milestone one",
+			name: "image version source",
 			yaml: `version: 1
 project: {}
 update:
   version_source:
     type: image
     image: web
+images:
+  - id: web
+    target: service
+    service: web
+    source: ghcr.io/acme/web
 `,
-			wantErr: "version source image",
+			check: func(t *testing.T, got config.Config) {
+				image := got.Images[0]
+				if image.Channel != "stable" || image.Sort != "semver" || image.VersionTemplate != "{version}" || image.Delivery.Mode != "lazycat" {
+					t.Fatalf("image defaults=%#v", image)
+				}
+			},
 		},
 		{
 			name: "path escapes root",
@@ -120,7 +130,12 @@ update:
     type: git
 images:
   - id: web
+    target: service
+    service: web
+    source: ghcr.io/acme/web
   - id: web
+    target: application
+    source: ghcr.io/acme/runtime
 `,
 			wantErr: "duplicate image id",
 		},
@@ -147,6 +162,48 @@ images:
 			}
 		})
 	}
+}
+
+func TestLoadRejectsInvalidImageConfiguration(t *testing.T) {
+	tests := []struct {
+		name    string
+		image   string
+		stores  string
+		wantErr string
+	}{
+		{name: "missing source", image: "id: web\ntarget: service\nservice: web", wantErr: "source is required"},
+		{name: "service missing name", image: "id: web\ntarget: service\nsource: ghcr.io/acme/web", wantErr: "service is required"},
+		{name: "application has service", image: "id: web\ntarget: application\nservice: web\nsource: ghcr.io/acme/web", wantErr: "must be empty"},
+		{name: "nightly missing regex", image: "id: web\ntarget: service\nservice: web\nsource: ghcr.io/acme/web\nchannel: nightly", wantErr: "tag_regex is required"},
+		{name: "custom missing sort", image: "id: web\ntarget: service\nservice: web\nsource: ghcr.io/acme/web\nchannel: custom\ntag_regex: edge", wantErr: "sort is required"},
+		{name: "bad regex", image: "id: web\ntarget: service\nservice: web\nsource: ghcr.io/acme/web\ntag_regex: '['", wantErr: "invalid tag_regex"},
+		{name: "mirror missing template", image: "id: web\ntarget: service\nservice: web\nsource: ghcr.io/acme/web\ndelivery:\n  mode: mirror", wantErr: "image_template is required"},
+		{name: "official direct", image: "id: web\ntarget: service\nservice: web\nsource: ghcr.io/acme/web\ndelivery:\n  mode: direct", stores: "official:\n    enabled: true", wantErr: "official store requires lazycat"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			yaml := "version: 1\nproject: {}\nupdate:\n  version_source:\n    type: git\nimages:\n  - " + strings.ReplaceAll(test.image, "\n", "\n    ") + "\n"
+			if test.stores != "" {
+				yaml += "stores:\n" + indent(test.stores, 2)
+			}
+			filename := filepath.Join(t.TempDir(), "lazycat.yml")
+			if err := os.WriteFile(filename, []byte(yaml), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := config.Load(filename); err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("err=%v yaml=\n%s", err, yaml)
+			}
+		})
+	}
+}
+
+func indent(value string, spaces int) string {
+	prefix := strings.Repeat(" ", spaces)
+	lines := strings.Split(value, "\n")
+	for index := range lines {
+		lines[index] = prefix + lines[index]
+	}
+	return strings.Join(lines, "\n") + "\n"
 }
 
 func TestLoadRejectsOversizedConfiguration(t *testing.T) {

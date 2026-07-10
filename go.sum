@@ -1,3 +1,5 @@
+github.com/Masterminds/semver/v3 v3.5.0 h1:kQceYJfbupGfZOKZQg0kou0DgAKhzDg2NZPAwZ/2OOE=
+github.com/Masterminds/semver/v3 v3.5.0/go.mod h1:4V+yj/TJE1HU9XfppCwVMZq3I84lprf4nC11bSS5beM=
 github.com/lib-x/lzc-toolkit-go v0.1.0 h1:lY1nEqAObbTxc5DGlvLbB2tJAiI1BagRTqSKv3wf1es=
 github.com/lib-x/lzc-toolkit-go v0.1.0/go.mod h1:zqwb/2x2br/hBsh7d2M7XFYxL6u1sBB3h1EI2+7HCVI=
 go.yaml.in/yaml/v3 v3.0.4 h1:tfq32ie2Jv2UxXFdLJdh3jXuOzWiL1fo0bu/FbuKpbc=
