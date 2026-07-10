@@ -125,7 +125,7 @@ jobs:
           test -f .lazycat-action/result.json
           grep -q 'target-platform<<lazycat_output_' "${GITHUB_OUTPUT}"
           grep -q 'linux/amd64' "${GITHUB_OUTPUT}"
-          grep -q 'Action host: `linux/amd64`' "${GITHUB_STEP_SUMMARY}"
+          grep -q "Action host: \`linux/amd64\`" "${GITHUB_STEP_SUMMARY}"
           test "$(sha256sum dist/app.lpk | cut -d' ' -f1)" = "$(sed -n '/^sha256<</{n;p;}' "${GITHUB_OUTPUT}")"
 
       - name: Upload fixture LPK
