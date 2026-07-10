@@ -29,6 +29,8 @@ type Info struct {
 	Output       string `json:"output"`
 	PackageID    string `json:"packageId"`
 	Version      string `json:"version"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
 	Kind         Kind   `json:"kind"`
 }
 
@@ -132,6 +134,8 @@ func Inspect(ctx context.Context, cfg config.Project) (Info, error) {
 		Output:       output,
 		PackageID:    strings.TrimSpace(packageInfo.Package),
 		Version:      strings.TrimSpace(packageInfo.Version),
+		Name:         strings.TrimSpace(packageInfo.Name),
+		Description:  strings.TrimSpace(packageInfo.Description),
 		Kind:         kind,
 	}, nil
 }

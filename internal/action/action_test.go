@@ -72,6 +72,9 @@ func TestRunBuildCallsDependenciesInOrderAndReturnsStableResult(t *testing.T) {
 	if result.RunnerArch != "arm64" || result.TargetPlatform != "linux/amd64" || string(result.ImageResults) != "[]" {
 		t.Fatalf("architectures/result=%#v", result)
 	}
+	if result.OfficialStoreEnabled || result.PrivateStoreEnabled || string(result.StoreResults) != "{}" {
+		t.Fatalf("store result=%#v", result)
+	}
 	if result.ResultFile == "" {
 		t.Fatal("result file is empty")
 	}

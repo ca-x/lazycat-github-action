@@ -76,13 +76,23 @@ type Stores struct {
 }
 
 type OfficialStore struct {
-	Enabled         bool     `yaml:"enabled"`
-	CreateIfMissing bool     `yaml:"create_if_missing"`
-	Locales         []string `yaml:"changelog_locales"`
+	Enabled         bool                `yaml:"enabled"`
+	CreateIfMissing bool                `yaml:"create_if_missing"`
+	Locales         []string            `yaml:"changelog_locales"`
+	Application     OfficialApplication `yaml:"application"`
+}
+
+type OfficialApplication struct {
+	Language     string `yaml:"language"`
+	Name         string `yaml:"name"`
+	Source       string `yaml:"source"`
+	SourceAuthor string `yaml:"source_author"`
 }
 
 type PrivateStore struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled bool   `yaml:"enabled"`
+	Name    string `yaml:"name"`
+	Summary string `yaml:"summary"`
 }
 
 func (build Build) ShouldRunBuildScript() bool {

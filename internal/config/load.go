@@ -80,6 +80,16 @@ func applyDefaults(value *Config) {
 	value.Update.Strategy = Strategy(strings.ToLower(strings.TrimSpace(string(value.Update.Strategy))))
 	value.Update.VersionSource.Type = VersionSourceType(strings.ToLower(strings.TrimSpace(string(value.Update.VersionSource.Type))))
 	value.Update.VersionSource.Image = strings.TrimSpace(value.Update.VersionSource.Image)
+	value.Stores.Official.Locales = normalizeLocales(value.Stores.Official.Locales)
+	value.Stores.Official.Application.Language = strings.ToLower(strings.TrimSpace(value.Stores.Official.Application.Language))
+	if value.Stores.Official.Application.Language == "" {
+		value.Stores.Official.Application.Language = "zh"
+	}
+	value.Stores.Official.Application.Name = strings.TrimSpace(value.Stores.Official.Application.Name)
+	value.Stores.Official.Application.Source = strings.TrimSpace(value.Stores.Official.Application.Source)
+	value.Stores.Official.Application.SourceAuthor = strings.TrimSpace(value.Stores.Official.Application.SourceAuthor)
+	value.Stores.Private.Name = strings.TrimSpace(value.Stores.Private.Name)
+	value.Stores.Private.Summary = strings.TrimSpace(value.Stores.Private.Summary)
 	for index := range value.Build.Toolchains {
 		value.Build.Toolchains[index].Kind = strings.ToLower(strings.TrimSpace(value.Build.Toolchains[index].Kind))
 		value.Build.Toolchains[index].Version = strings.TrimSpace(value.Build.Toolchains[index].Version)
@@ -139,6 +149,14 @@ func validate(value Config) error {
 	}
 	if !strings.EqualFold(filepath.Ext(value.Project.Output), ".lpk") {
 		return errors.New("output must use the .lpk extension")
+	}
+	if !value.Stores.Official.CreateIfMissing && hasOfficialApplication(value.Stores.Official.Application) {
+		return errors.New("official application metadata requires create_if_missing=true")
+	}
+	for _, locale := range value.Stores.Official.Locales {
+		if !imageIDPattern.MatchString(locale) {
+			return fmt.Errorf("invalid official changelog locale %q", locale)
+		}
 	}
 	switch value.Update.Strategy {
 	case StrategyPull, StrategyPublish:
@@ -217,6 +235,33 @@ func validate(value Config) error {
 		return fmt.Errorf("unsupported version source type %q", value.Update.VersionSource.Type)
 	}
 	return nil
+}
+
+func normalizeLocales(locales []string) []string {
+	if len(locales) == 0 {
+		return []string{"zh", "en"}
+	}
+	seen := make(map[string]struct{}, len(locales))
+	normalized := make([]string, 0, len(locales))
+	for _, locale := range locales {
+		locale = strings.ToLower(strings.TrimSpace(locale))
+		if locale == "" {
+			continue
+		}
+		if _, found := seen[locale]; found {
+			continue
+		}
+		seen[locale] = struct{}{}
+		normalized = append(normalized, locale)
+	}
+	if len(normalized) == 0 {
+		return []string{"zh", "en"}
+	}
+	return normalized
+}
+
+func hasOfficialApplication(application OfficialApplication) bool {
+	return application.Name != "" || application.Source != "" || application.SourceAuthor != "" || application.Language != "zh"
 }
 
 func validateImageRule(image Image) error {

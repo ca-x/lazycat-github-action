@@ -38,6 +38,43 @@ update:
 				if !got.Build.ShouldRunBuildScript() {
 					t.Fatal("buildscript should default to enabled")
 				}
+				if strings.Join(got.Stores.Official.Locales, ",") != "zh,en" {
+					t.Fatalf("official locales=%v", got.Stores.Official.Locales)
+				}
+			},
+		},
+		{
+			name: "store metadata is normalized",
+			yaml: `version: 1
+project: {}
+update:
+  version_source:
+    type: git
+stores:
+  official:
+    enabled: true
+    create_if_missing: true
+    changelog_locales: [ZH, en, zh]
+    application:
+      language: ZH
+      name: " Example "
+      source: " https://github.com/acme/example "
+      source_author: " Acme "
+  private:
+    enabled: true
+    name: " Private Example "
+    summary: " Private summary "
+`,
+			check: func(t *testing.T, got config.Config) {
+				if strings.Join(got.Stores.Official.Locales, ",") != "zh,en" {
+					t.Fatalf("official locales=%v", got.Stores.Official.Locales)
+				}
+				if got.Stores.Official.Application.Language != "zh" || got.Stores.Official.Application.Name != "Example" {
+					t.Fatalf("official application=%#v", got.Stores.Official.Application)
+				}
+				if got.Stores.Private.Name != "Private Example" || got.Stores.Private.Summary != "Private summary" {
+					t.Fatalf("private store=%#v", got.Stores.Private)
+				}
 			},
 		},
 		{
@@ -208,6 +245,27 @@ func TestLoadRejectsInvalidImageConfiguration(t *testing.T) {
 				t.Fatalf("err=%v yaml=\n%s", err, yaml)
 			}
 		})
+	}
+}
+
+func TestLoadRejectsUnusedOfficialApplicationMetadata(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "lazycat.yml")
+	data := []byte(`version: 1
+project: {}
+update:
+  version_source:
+    type: git
+stores:
+  official:
+    enabled: true
+    application:
+      name: Example
+`)
+	if err := os.WriteFile(filename, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.Load(filename); err == nil || !strings.Contains(err.Error(), "create_if_missing") {
+		t.Fatalf("err=%v", err)
 	}
 }
 

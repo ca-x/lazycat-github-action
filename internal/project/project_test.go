@@ -71,7 +71,7 @@ services:
 			if got.Kind != test.want {
 				t.Fatalf("kind=%q want=%q", got.Kind, test.want)
 			}
-			if got.PackageID != "cloud.lazycat.example" || got.Version != "1.0.0" {
+			if got.PackageID != "cloud.lazycat.example" || got.Version != "1.0.0" || got.Name != "Example" || got.Description != "Example summary" {
 				t.Fatalf("info=%#v", got)
 			}
 			if !filepath.IsAbs(got.Output) || filepath.Base(got.ManifestFile) != "lzc-manifest.yml" {
@@ -137,7 +137,7 @@ func createProject(t *testing.T, manifest string) string {
 	t.Helper()
 	root := t.TempDir()
 	files := map[string]string{
-		"package.yml":      "package: cloud.lazycat.example\nversion: 1.0.0\nname: Example\n",
+		"package.yml":      "package: cloud.lazycat.example\nversion: 1.0.0\nname: Example\ndescription: Example summary\n",
 		"lzc-build.yml":    "contentdir: content\n",
 		"lzc-manifest.yml": manifest,
 	}

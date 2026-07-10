@@ -65,23 +65,26 @@ type Input struct {
 }
 
 type Result struct {
-	Operation      string          `json:"operation"`
-	Changed        bool            `json:"changed"`
-	PackageID      string          `json:"packageId"`
-	PackageFile    string          `json:"packageFile"`
-	ManifestFile   string          `json:"manifestFile"`
-	Version        string          `json:"version"`
-	Tag            string          `json:"tag"`
-	LPKPath        string          `json:"lpkPath"`
-	SHA256         string          `json:"sha256"`
-	DownloadURL    string          `json:"downloadUrl,omitempty"`
-	ImageResults   json.RawMessage `json:"imageResults"`
-	UpdateStrategy string          `json:"updateStrategy"`
-	Channel        string          `json:"channel,omitempty"`
-	ResultFile     string          `json:"resultFile"`
-	RunnerArch     string          `json:"runnerArch"`
-	TargetPlatform string          `json:"targetPlatform"`
-	Warnings       []lpkgo.Warning `json:"warnings,omitempty"`
+	Operation            string          `json:"operation"`
+	Changed              bool            `json:"changed"`
+	PackageID            string          `json:"packageId"`
+	PackageFile          string          `json:"packageFile"`
+	ManifestFile         string          `json:"manifestFile"`
+	Version              string          `json:"version"`
+	Tag                  string          `json:"tag"`
+	LPKPath              string          `json:"lpkPath"`
+	SHA256               string          `json:"sha256"`
+	DownloadURL          string          `json:"downloadUrl,omitempty"`
+	ImageResults         json.RawMessage `json:"imageResults"`
+	StoreResults         json.RawMessage `json:"storeResults"`
+	UpdateStrategy       string          `json:"updateStrategy"`
+	OfficialStoreEnabled bool            `json:"officialStoreEnabled"`
+	PrivateStoreEnabled  bool            `json:"privateStoreEnabled"`
+	Channel              string          `json:"channel,omitempty"`
+	ResultFile           string          `json:"resultFile"`
+	RunnerArch           string          `json:"runnerArch"`
+	TargetPlatform       string          `json:"targetPlatform"`
+	Warnings             []lpkgo.Warning `json:"warnings,omitempty"`
 }
 
 type Error struct {
@@ -336,17 +339,20 @@ func runCheck(ctx context.Context, input Input, cfg config.Config, info project.
 
 func baseResult(input Input, host platform.Host, info project.Info, cfg config.Config) Result {
 	return Result{
-		PackageID:      info.PackageID,
-		PackageFile:    info.PackageFile,
-		ManifestFile:   info.ManifestFile,
-		Version:        input.Version,
-		Tag:            input.Tag,
-		DownloadURL:    input.DownloadURL,
-		ImageResults:   json.RawMessage("[]"),
-		UpdateStrategy: string(cfg.Update.Strategy),
-		Channel:        input.Channel,
-		RunnerArch:     host.Arch,
-		TargetPlatform: platform.TargetPlatform,
+		PackageID:            info.PackageID,
+		PackageFile:          info.PackageFile,
+		ManifestFile:         info.ManifestFile,
+		Version:              input.Version,
+		Tag:                  input.Tag,
+		DownloadURL:          input.DownloadURL,
+		ImageResults:         json.RawMessage("[]"),
+		StoreResults:         json.RawMessage("{}"),
+		UpdateStrategy:       string(cfg.Update.Strategy),
+		OfficialStoreEnabled: cfg.Stores.Official.Enabled,
+		PrivateStoreEnabled:  cfg.Stores.Private.Enabled,
+		Channel:              input.Channel,
+		RunnerArch:           host.Arch,
+		TargetPlatform:       platform.TargetPlatform,
 	}
 }
 
