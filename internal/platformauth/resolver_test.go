@@ -150,3 +150,27 @@ func TestResolverRedactsLoginFailureSecrets(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
+func TestProviderCachesResolvedLoginToken(t *testing.T) {
+	loginCalls := 0
+	provider := platformauth.NewProvider(platformauth.Resolver{
+		LookupEnv: func(name string) (string, bool) {
+			values := map[string]string{"LAZYCAT_USERNAME": "developer", "LAZYCAT_PASSWORD": "secret"}
+			value, found := values[name]
+			return value, found
+		},
+		Login: func(context.Context, auth.Credentials) (auth.Session, error) {
+			loginCalls++
+			return auth.Session{Token: "login-token"}, nil
+		},
+	}, func() string { return "" })
+	for range 2 {
+		token, err := provider.Token(context.Background())
+		if err != nil || token != "login-token" {
+			t.Fatalf("token=%q err=%v", token, err)
+		}
+	}
+	if loginCalls != 1 {
+		t.Fatalf("login calls=%d", loginCalls)
+	}
+}

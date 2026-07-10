@@ -15,13 +15,13 @@ import (
 	"github.com/ca-x/lazycat-github-action/internal/delivery"
 	"github.com/ca-x/lazycat-github-action/internal/imageflow"
 	"github.com/ca-x/lazycat-github-action/internal/platform"
+	"github.com/ca-x/lazycat-github-action/internal/platformauth"
 	"github.com/ca-x/lazycat-github-action/internal/project"
 	"github.com/ca-x/lazycat-github-action/internal/publishflow"
 	"github.com/ca-x/lazycat-github-action/internal/registry"
 	"github.com/ca-x/lazycat-github-action/internal/yamledit"
 	lpkgo "github.com/lib-x/lzc-toolkit-go"
 	"github.com/lib-x/lzc-toolkit-go/appstore"
-	"github.com/lib-x/lzc-toolkit-go/auth"
 )
 
 const (
@@ -127,10 +127,7 @@ type Dependencies struct {
 func DefaultDependencies(host platform.Host) Dependencies {
 	builder := actionbuild.Builder{}
 	registryClient := registry.New()
-	token := auth.Chain{
-		auth.EnvironmentToken{Name: "LAZYCAT_TOKEN"},
-		auth.EnvironmentToken{Name: "LZC_CLI_TOKEN"},
-	}
+	token := platformauth.NewProvider(platformauth.Resolver{}, func() string { return os.Getenv("INPUT_TOKEN_FILE") })
 	storeClient := appstore.New(appstore.Options{Token: token})
 	imageFlow := imageflow.Flow{
 		Registry:  registryClient,
