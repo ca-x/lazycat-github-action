@@ -122,6 +122,19 @@ build:
 			wantErr: "duplicate toolchain kind",
 		},
 		{
+			name: "unknown toolchain",
+			yaml: `version: 1
+project: {}
+update:
+  version_source:
+    type: git
+build:
+  toolchains:
+    - kind: python
+`,
+			wantErr: "unsupported toolchain kind",
+		},
+		{
 			name: "duplicate image IDs",
 			yaml: `version: 1
 project: {}
@@ -172,6 +185,7 @@ func TestLoadRejectsInvalidImageConfiguration(t *testing.T) {
 		wantErr string
 	}{
 		{name: "missing source", image: "id: web\ntarget: service\nservice: web", wantErr: "source is required"},
+		{name: "unsafe id", image: "id: web/../../main\ntarget: service\nservice: web\nsource: ghcr.io/acme/web", wantErr: "must use letters"},
 		{name: "service missing name", image: "id: web\ntarget: service\nsource: ghcr.io/acme/web", wantErr: "service is required"},
 		{name: "application has service", image: "id: web\ntarget: application\nservice: web\nsource: ghcr.io/acme/web", wantErr: "must be empty"},
 		{name: "nightly missing regex", image: "id: web\ntarget: service\nservice: web\nsource: ghcr.io/acme/web\nchannel: nightly", wantErr: "tag_regex is required"},

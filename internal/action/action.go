@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	actionbuild "github.com/ca-x/lazycat-github-action/internal/build"
@@ -43,23 +44,28 @@ const (
 )
 
 type Input struct {
-	Operation       Operation
-	ConfigPath      string
-	ImageID         string
-	Version         string
-	Tag             string
-	Channel         string
-	Changelog       string
-	LPKPath         string
-	DownloadURL     string
-	EventName       string
-	RefType         string
-	RefName         string
-	SourceDateEpoch int64
-	DryRun          bool
+	Operation             Operation
+	ConfigPath            string
+	ImageID               string
+	Version               string
+	Tag                   string
+	Channel               string
+	Changelog             string
+	LPKPath               string
+	DownloadURL           string
+	EventName             string
+	RefType               string
+	RefName               string
+	SourceDateEpoch       int64
+	WorkflowToolchains    string
+	WorkflowGoVersion     string
+	WorkflowNodeVersion   string
+	WorkflowRustToolchain string
+	DryRun                bool
 }
 
 type Result struct {
+	Operation      string          `json:"operation"`
 	Changed        bool            `json:"changed"`
 	PackageID      string          `json:"packageId"`
 	PackageFile    string          `json:"packageFile"`
@@ -183,6 +189,9 @@ func Run(ctx context.Context, input Input, dependencies Dependencies) (Result, e
 	if err != nil {
 		return Result{}, actionError(CodeConfigInvalid, "unable to load Action configuration", err)
 	}
+	if err := validateWorkflowToolchains(input, cfg.Build.Toolchains); err != nil {
+		return Result{}, actionError(CodeConfigInvalid, "workflow toolchains do not match Action configuration", err)
+	}
 	info, err := dependencies.Inspect(ctx, cfg.Project)
 	if err != nil {
 		return Result{}, actionError(CodeConfigInvalid, "unable to inspect LazyCat project", err)
@@ -210,6 +219,7 @@ func runBuild(ctx context.Context, input Input, cfg config.Config, info project.
 		input.Tag = "v" + input.Version
 	}
 	result := baseResult(input, dependencies.Host, info, cfg)
+	result.Operation = string(OperationBuild)
 	result.Changed = info.Version != input.Version
 	if input.DryRun {
 		if err := writeResult(&result, resultDirectory(dependencies.ResultDir, info.Root)); err != nil {
@@ -261,6 +271,9 @@ func runCheck(ctx context.Context, input Input, cfg config.Config, info project.
 	if cfg.Update.VersionSource.Type != config.VersionSourceImage {
 		return Result{}, actionError(CodeConfigInvalid, "check operation requires update.version_source.type=image", nil)
 	}
+	if cfg.Update.Strategy == config.StrategyPublish && input.ImageID != "" && input.ImageID != cfg.Update.VersionSource.Image {
+		return Result{}, actionError(CodeConfigInvalid, fmt.Sprintf("publish strategy image-id %q must select version-source image %q", input.ImageID, cfg.Update.VersionSource.Image), nil)
+	}
 	if dependencies.CheckImages == nil {
 		return Result{}, actionError(CodeConfigInvalid, "image check dependency is unavailable", nil)
 	}
@@ -274,6 +287,7 @@ func runCheck(ctx context.Context, input Input, cfg config.Config, info project.
 	input.Tag = "v" + checked.Version
 	input.Channel = checked.Channel
 	result := baseResult(input, dependencies.Host, info, cfg)
+	result.Operation = string(OperationCheck)
 	result.Channel = checked.Channel
 	encodedImages, err := json.Marshal(checked.Images)
 	if err != nil {
@@ -354,6 +368,50 @@ func validateDependencies(dependencies Dependencies) error {
 		return errors.New("host, loader, inspector, editor, and builder are required")
 	}
 	return nil
+}
+
+func validateWorkflowToolchains(input Input, configured []config.Toolchain) error {
+	declared := strings.TrimSpace(input.WorkflowToolchains)
+	if declared == "" || len(configured) == 0 {
+		return nil
+	}
+	want := make(map[string]string, len(configured))
+	for _, toolchain := range configured {
+		want[toolchain.Kind] = toolchain.Version
+	}
+	got := make(map[string]struct{})
+	if declared != "none" {
+		for _, kind := range strings.Split(declared, ",") {
+			got[strings.TrimSpace(kind)] = struct{}{}
+		}
+	}
+	if len(got) != len(want) {
+		return fmt.Errorf("workflow declares %q; config declares %v", declared, sortedToolchainKinds(want))
+	}
+	for kind := range want {
+		if _, found := got[kind]; !found {
+			return fmt.Errorf("workflow declares %q; config declares %v", declared, sortedToolchainKinds(want))
+		}
+	}
+	explicitVersions := map[string]string{
+		"go": input.WorkflowGoVersion, "node": input.WorkflowNodeVersion, "rust": input.WorkflowRustToolchain,
+	}
+	for kind, configuredVersion := range want {
+		workflowVersion := strings.TrimSpace(explicitVersions[kind])
+		if configuredVersion != "" && workflowVersion != "" && configuredVersion != workflowVersion {
+			return fmt.Errorf("%s version %q does not match configured version %q", kind, workflowVersion, configuredVersion)
+		}
+	}
+	return nil
+}
+
+func sortedToolchainKinds(toolchains map[string]string) []string {
+	kinds := make([]string, 0, len(toolchains))
+	for kind := range toolchains {
+		kinds = append(kinds, kind)
+	}
+	slices.Sort(kinds)
+	return kinds
 }
 
 func rollbackVersion(dependencies Dependencies, filename string, change yamledit.Change) {

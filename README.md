@@ -183,6 +183,8 @@ with:
   config: .github/lazycat-action.yml
 ```
 
+With `strategy: pull`, selecting a non-version-source image creates a reviewable Manifest change while keeping the current package version. Direct publish requires `image-id` to select the configured version-source image, because a GitHub Release needs a new application version.
+
 ## Channels
 
 | Channel | Selection rule |
@@ -308,6 +310,8 @@ Do not store an account password in GitHub Actions. Log in once from a trusted m
 When lzc-cli 2.0.8 is already logged in locally, it checks `LZC_CLI_TOKEN` first and then the `token` field in `~/.config/lazycat/box-config.json`. `lzc-cli config get token` prints the effective token, so do not run that command in CI logs. A GitHub-hosted Runner cannot read your local login file; add the token as a repository or organization secret.
 
 The underlying toolkit also supports account/password exchange and explicit token stores. See the [lzc-toolkit-go authentication examples](https://github.com/lib-x/lzc-toolkit-go#example-5-log-in-and-submit-an-lpk). The Action itself accepts tokens only in Milestone 2. Account/password login and store submission orchestration arrive in Milestone 3.
+
+Project builds execute repository-controlled `buildscript` commands. The Action removes LazyCat tokens, Registry credentials, GitHub tokens, and GitHub output/control file paths from the buildscript environment. Keep write-permission release workflows on trusted branches, tags, schedules, and manual runs; do not expose inherited secrets to untrusted pull-request code.
 
 ## Pull request and Release workflows
 
@@ -436,6 +440,8 @@ cp -R web-dist/. dist/content/
 
 Use `toolchains: node` and either pass `node-version` or commit `.node-version`.
 
+If `.github/lazycat-action.yml` also declares `build.toolchains`, its toolchain kinds must match the reusable workflow input. Explicit versions must match when both places provide one.
+
 ### Go Exec build
 
 ```bash
@@ -501,6 +507,7 @@ These projects do not need an `images` section. Their version comes from the tag
 
 | Output | Meaning |
 |---|---|
+| `operation` | Resolved `check` or `build` operation |
 | `changed` | Managed project files changed |
 | `package-id` | LazyCat package ID |
 | `package-file` | Absolute `package.yml` path |

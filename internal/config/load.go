@@ -15,6 +15,8 @@ import (
 
 const maxConfigBytes = 1 << 20
 
+var imageIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
 func Load(filename string) (Config, error) {
 	file, err := os.Open(filename)
 	if err != nil {
@@ -148,6 +150,11 @@ func validate(value Config) error {
 		if toolchain.Kind == "" {
 			return errors.New("toolchain kind is required")
 		}
+		switch toolchain.Kind {
+		case "go", "node", "rust", "docker":
+		default:
+			return fmt.Errorf("unsupported toolchain kind %q", toolchain.Kind)
+		}
 		if _, exists := toolchains[toolchain.Kind]; exists {
 			return fmt.Errorf("duplicate toolchain kind %q", toolchain.Kind)
 		}
@@ -158,6 +165,9 @@ func validate(value Config) error {
 	for _, image := range value.Images {
 		if image.ID == "" {
 			return errors.New("image id is required")
+		}
+		if !imageIDPattern.MatchString(image.ID) {
+			return fmt.Errorf("image id %q must use letters, digits, dot, underscore, or hyphen", image.ID)
 		}
 		if _, exists := images[image.ID]; exists {
 			return fmt.Errorf("duplicate image id %q", image.ID)

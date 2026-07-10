@@ -63,7 +63,7 @@ func TestRunBuildCallsDependenciesInOrderAndReturnsStableResult(t *testing.T) {
 	if !reflect.DeepEqual(calls, []string{"load", "inspect", "edit", "inspect", "build"}) {
 		t.Fatalf("calls=%v", calls)
 	}
-	if !result.Changed || result.PackageID != "cloud.lazycat.example" || result.Version != "1.2.3" || result.Tag != "v1.2.3" {
+	if result.Operation != "build" || !result.Changed || result.PackageID != "cloud.lazycat.example" || result.Version != "1.2.3" || result.Tag != "v1.2.3" {
 		t.Fatalf("result=%#v", result)
 	}
 	if result.PackageFile != packageFile || result.ManifestFile != manifestFile {
@@ -129,6 +129,31 @@ func TestRunRejectsSymlinkedResultDirectory(t *testing.T) {
 	_, err := action.Run(context.Background(), action.Input{Operation: action.OperationBuild, Version: "1.2.3", DryRun: true}, deps)
 	if err == nil || !strings.Contains(err.Error(), action.CodeBuildFailed) {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestRunRejectsWorkflowToolchainMismatchBeforeProjectInspection(t *testing.T) {
+	inspected := false
+	cfg := gitConfig()
+	cfg.Build.Toolchains = []config.Toolchain{{Kind: "go", Version: "1.25.x"}, {Kind: "docker"}}
+	deps := action.Dependencies{
+		Host:       platform.Host{OS: "linux", Arch: "amd64"},
+		LoadConfig: func(string) (config.Config, error) { return cfg, nil },
+		Inspect: func(context.Context, config.Project) (project.Info, error) {
+			inspected = true
+			return project.Info{}, nil
+		},
+		SetVersion: func(string, string) (yamledit.Change, error) { return yamledit.Change{}, nil },
+		Build: func(context.Context, actionbuild.Request) (actionbuild.Result, error) {
+			return actionbuild.Result{}, nil
+		},
+	}
+	_, err := action.Run(context.Background(), action.Input{Operation: action.OperationBuild, WorkflowToolchains: "go,node", WorkflowGoVersion: "1.24.x"}, deps)
+	if err == nil || !strings.Contains(err.Error(), "workflow toolchains do not match") {
+		t.Fatalf("err=%v", err)
+	}
+	if inspected {
+		t.Fatal("project inspection ran after toolchain mismatch")
 	}
 }
 
@@ -256,11 +281,44 @@ func TestRunCheckUpdatesVersionBuildsAndReturnsImageResults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Changed || result.Version != "2.0.0" || result.Tag != "v2.0.0" || result.UpdateStrategy != "pull" || result.Channel != "stable" {
+	if result.Operation != "check" || !result.Changed || result.Version != "2.0.0" || result.Tag != "v2.0.0" || result.UpdateStrategy != "pull" || result.Channel != "stable" {
 		t.Fatalf("result=%#v", result)
 	}
 	if built.Version != "2.0.0" || built.Channel != "stable" || !strings.Contains(string(result.ImageResults), `"id":"web"`) {
 		t.Fatalf("built=%#v images=%s", built, result.ImageResults)
+	}
+}
+
+func TestRunCheckRejectsDirectPublishForNonVersionSourceImage(t *testing.T) {
+	checkCalled := false
+	cfg := gitConfig()
+	cfg.Update.Strategy = config.StrategyPublish
+	cfg.Update.VersionSource = config.VersionSource{Type: config.VersionSourceImage, Image: "web"}
+	cfg.Images = []config.Image{
+		{ID: "db", Target: "service", Service: "db", Source: "postgres", Channel: "stable", Sort: "semver", Delivery: config.Delivery{Mode: "lazycat"}},
+		{ID: "web", Target: "service", Service: "web", Source: "example/web", Channel: "stable", Sort: "semver", Delivery: config.Delivery{Mode: "lazycat"}},
+	}
+	deps := action.Dependencies{
+		Host:       platform.Host{OS: "linux", Arch: "amd64"},
+		LoadConfig: func(string) (config.Config, error) { return cfg, nil },
+		Inspect: func(context.Context, config.Project) (project.Info, error) {
+			return project.Info{PackageID: "cloud.lazycat.example", Version: "1.0.0"}, nil
+		},
+		SetVersion: func(string, string) (yamledit.Change, error) { return yamledit.Change{}, nil },
+		Build: func(context.Context, actionbuild.Request) (actionbuild.Result, error) {
+			return actionbuild.Result{}, nil
+		},
+		CheckImages: func(context.Context, imageflow.Request) (imageflow.Result, error) {
+			checkCalled = true
+			return imageflow.Result{}, nil
+		},
+	}
+	_, err := action.Run(context.Background(), action.Input{Operation: action.OperationCheck, ImageID: "db"}, deps)
+	if err == nil || !strings.Contains(err.Error(), "must select version-source image") {
+		t.Fatalf("err=%v", err)
+	}
+	if checkCalled {
+		t.Fatal("image check ran for invalid direct-publish selection")
 	}
 }
 

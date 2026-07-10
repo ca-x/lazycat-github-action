@@ -92,7 +92,7 @@ func (resolver Resolver) Deliver(ctx context.Context, request Request) (Result, 
 		if err != nil {
 			return Result{}, fmt.Errorf("copy image to LazyCat registry: %w", err)
 		}
-		if copied.Platform != platform.TargetArch || strings.TrimSpace(copied.LazyCatImage) == "" || !copied.Progress.Finished {
+		if strings.TrimSpace(copied.SourceImage) != request.SourceRef || copied.Platform != platform.TargetArch || !strings.HasPrefix(strings.TrimSpace(copied.LazyCatImage), "registry.lazycat.cloud/") || !copied.Progress.Finished {
 			return Result{}, fmt.Errorf("invalid LazyCat copy result for %q", request.SourceRef)
 		}
 		result.RuntimeRef = copied.LazyCatImage

@@ -124,6 +124,58 @@ func TestFlowReturnsStructuredLazyCatCopyResult(t *testing.T) {
 	}
 }
 
+func TestFlowRefreshesMutableCreatedLazyCatImageAndRemainsIdempotent(t *testing.T) {
+	candidate := versioning.Candidate{Tag: "nightly", Digest: "sha256:a1b2c3d4e5f6" + strings.Repeat("0", 52), Created: time.Date(2026, 7, 10, 15, 30, 20, 0, time.UTC)}
+	cfg := imageConfig()
+	cfg.Images = cfg.Images[1:]
+	cfg.Images[0].Channel = "nightly"
+	cfg.Images[0].Sort = "created"
+	cfg.Images[0].TagRegex = "^nightly$"
+	cfg.Images[0].Delivery.Mode = "lazycat"
+	newVersion := "0.0.0-nightly.20260710153020.a1b2c3d4e5f6"
+
+	tests := []struct {
+		name           string
+		projectVersion string
+		currentRuntime string
+		wantChanged    bool
+	}{
+		{name: "new digest address", projectVersion: "1.0.0", currentRuntime: "registry.lazycat.cloud/web:old-copy", wantChanged: true},
+		{name: "same digest address", projectVersion: newVersion, currentRuntime: "registry.lazycat.cloud/web:nightly", wantChanged: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			deliverer := &fakeDeliverer{copyResult: true}
+			applied := 0
+			flow := imageflow.Flow{
+				Registry:  &fakeRegistry{bySource: map[string][]versioning.Candidate{"ghcr.io/acme/web": {candidate}}},
+				Deliverer: deliverer,
+				ReadManifest: func(string, []manifestedit.Target) ([]manifestedit.Current, error) {
+					return []manifestedit.Current{{ID: "web", RuntimeRef: test.currentRuntime, UpstreamRef: "ghcr.io/acme/web:nightly"}}, nil
+				},
+				ApplyManifest: func(string, []manifestedit.Update) ([]manifestedit.Change, error) {
+					applied++
+					return []manifestedit.Change{{ID: "web", Changed: true}}, nil
+				},
+			}
+			result, err := flow.Check(context.Background(), imageflow.Request{Config: cfg, Project: project.Info{ManifestFile: "manifest.yml", Version: test.projectVersion}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if deliverer.calls != 1 || result.Changed != test.wantChanged {
+				t.Fatalf("deliveries=%d result=%#v", deliverer.calls, result)
+			}
+			wantApplied := 0
+			if test.wantChanged {
+				wantApplied = 1
+			}
+			if applied != wantApplied {
+				t.Fatalf("applied=%d wantChanged=%t", applied, test.wantChanged)
+			}
+		})
+	}
+}
+
 func TestFlowValidatesManifestTargetsBeforeRegistryCalls(t *testing.T) {
 	registryClient := &fakeRegistry{}
 	flow := imageflow.Flow{
@@ -145,6 +197,22 @@ func TestFlowRejectsUnknownImageID(t *testing.T) {
 	flow := imageflow.Flow{Registry: &fakeRegistry{}, Deliverer: &fakeDeliverer{}}
 	if _, err := flow.Check(context.Background(), imageflow.Request{Config: imageConfig(), ImageID: "missing"}); err == nil {
 		t.Fatal("expected unknown image ID failure")
+	}
+}
+
+func TestFlowDoesNotMisclassifyRegistryAuthenticationFailureAsPlatformMissing(t *testing.T) {
+	flow := imageflow.Flow{
+		Registry:  errorRegistry{err: errors.New("unauthorized")},
+		Deliverer: &fakeDeliverer{},
+		ReadManifest: func(string, []manifestedit.Target) ([]manifestedit.Current, error) {
+			return []manifestedit.Current{{ID: "web", RuntimeRef: "old", UpstreamRef: "old"}}, nil
+		},
+	}
+	cfg := imageConfig()
+	cfg.Images = cfg.Images[1:]
+	_, err := flow.Check(context.Background(), imageflow.Request{Config: cfg, Project: project.Info{ManifestFile: "manifest.yml"}})
+	if err == nil || errors.Is(err, imageflow.ErrPlatformNotFound) || !strings.Contains(err.Error(), "unauthorized") {
+		t.Fatalf("err=%v", err)
 	}
 }
 
@@ -195,6 +263,12 @@ func TestFlowFixtureUpdatesExplicitWebServiceOnly(t *testing.T) {
 type fakeRegistry struct {
 	bySource map[string][]versioning.Candidate
 	calls    int
+}
+
+type errorRegistry struct{ err error }
+
+func (registryClient errorRegistry) Candidates(context.Context, string, ...registry.TagFilter) ([]versioning.Candidate, error) {
+	return nil, registryClient.err
 }
 
 func (registryClient *fakeRegistry) Candidates(_ context.Context, source string, filters ...registry.TagFilter) ([]versioning.Candidate, error) {

@@ -126,7 +126,10 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 		}
 		candidates, err := flow.Registry.Candidates(ctx, image.Source, filter)
 		if err != nil {
-			return Result{}, fmt.Errorf("%w: inspect %q: %v", ErrPlatformNotFound, image.ID, err)
+			if errors.Is(err, registry.ErrPlatformNotFound) {
+				return Result{}, fmt.Errorf("%w: inspect %q: %v", ErrPlatformNotFound, image.ID, err)
+			}
+			return Result{}, fmt.Errorf("inspect image %q: %w", image.ID, err)
 		}
 		selection, err := versioning.Select(rule, candidates)
 		if err != nil {
@@ -141,7 +144,7 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 			deliveryRequest.OnProgress = func(progress appstore.CopyProgress) { request.OnProgress(image.ID, progress) }
 		}
 
-		needsUpdate := current.UpstreamRef != sourceRef
+		needsUpdate := false
 		var delivered delivery.Result
 		switch image.Delivery.Mode {
 		case "direct", "mirror":
@@ -149,16 +152,21 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 			if err != nil {
 				return Result{}, fmt.Errorf("%w for %q: %v", ErrDeliveryFailed, image.ID, err)
 			}
-			needsUpdate = needsUpdate || current.RuntimeRef != delivered.RuntimeRef
+			needsUpdate = current.UpstreamRef != sourceRef || current.RuntimeRef != delivered.RuntimeRef
 		case "lazycat":
-			needsUpdate = needsUpdate || current.RuntimeRef == "" || !strings.HasPrefix(current.RuntimeRef, "registry.lazycat.cloud")
-			if needsUpdate {
+			shouldDeliver := current.UpstreamRef != sourceRef || current.RuntimeRef == "" || !strings.HasPrefix(current.RuntimeRef, "registry.lazycat.cloud/") || image.Sort == "created"
+			if shouldDeliver {
 				delivered, err = flow.Deliverer.Deliver(ctx, deliveryRequest)
 				if err != nil {
 					return Result{}, fmt.Errorf("%w for %q: %v", ErrDeliveryFailed, image.ID, err)
 				}
 			} else {
 				delivered = delivery.Result{Mode: "lazycat", RuntimeRef: current.RuntimeRef}
+			}
+			if request.DryRun {
+				needsUpdate = shouldDeliver
+			} else {
+				needsUpdate = current.UpstreamRef != sourceRef || current.RuntimeRef != delivered.RuntimeRef
 			}
 		default:
 			return Result{}, fmt.Errorf("unsupported delivery mode %q", image.Delivery.Mode)

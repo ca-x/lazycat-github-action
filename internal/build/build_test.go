@@ -15,6 +15,20 @@ import (
 )
 
 func TestBuilderBuildsVerifiesAndHashesLPKForLinuxAMD64(t *testing.T) {
+	for key, value := range map[string]string{
+		"LAZYCAT_TOKEN":         "developer-secret",
+		"LZC_CLI_TOKEN":         "fallback-secret",
+		"REGISTRY_USERNAME":     "registry-user",
+		"REGISTRY_PASSWORD":     "registry-secret",
+		"GITHUB_TOKEN":          "github-secret",
+		"GITHUB_OUTPUT":         "/tmp/untrusted-output",
+		"GITHUB_STEP_SUMMARY":   "/tmp/untrusted-summary",
+		"ACTIONS_RUNTIME_TOKEN": "runtime-secret",
+		"ACTIONS_RESULTS_URL":   "https://results.invalid",
+		"UNRELATED_BUILD_VALUE": "available",
+	} {
+		t.Setenv(key, value)
+	}
 	info := fixtureProject(t)
 	runner := &recordingRunner{}
 	result, err := (actionbuild.Builder{}).Build(context.Background(), actionbuild.Request{
@@ -50,6 +64,14 @@ func TestBuilderBuildsVerifiesAndHashesLPKForLinuxAMD64(t *testing.T) {
 		if runner.command.Env[key] != want {
 			t.Fatalf("env[%s]=%q want=%q", key, runner.command.Env[key], want)
 		}
+	}
+	for _, key := range []string{"LAZYCAT_TOKEN", "LZC_CLI_TOKEN", "REGISTRY_USERNAME", "REGISTRY_PASSWORD", "GITHUB_TOKEN", "GITHUB_OUTPUT", "GITHUB_STEP_SUMMARY", "ACTIONS_RUNTIME_TOKEN", "ACTIONS_RESULTS_URL"} {
+		if _, found := runner.command.Env[key]; found {
+			t.Fatalf("protected environment %s reached buildscript", key)
+		}
+	}
+	if runner.command.Env["UNRELATED_BUILD_VALUE"] != "available" {
+		t.Fatalf("ordinary build environment was not preserved: %#v", runner.command.Env)
 	}
 
 	reader, err := lpk.OpenFile(context.Background(), result.Path)

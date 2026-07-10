@@ -57,7 +57,7 @@ func TestReusableWorkflowContractAndActionPins(t *testing.T) {
 		}
 	}
 	outputs, _ := call["outputs"].(map[string]any)
-	for _, name := range []string{"changed", "package-id", "package-file", "manifest-file", "version", "tag", "lpk-path", "sha256", "download-url", "image-results", "update-strategy", "channel", "result-file", "runner-arch", "target-platform"} {
+	for _, name := range []string{"operation", "changed", "package-id", "package-file", "manifest-file", "version", "tag", "lpk-path", "sha256", "download-url", "image-results", "update-strategy", "channel", "result-file", "runner-arch", "target-platform"} {
 		if _, found := outputs[name]; !found {
 			t.Fatalf("missing workflow output %q", name)
 		}
@@ -83,6 +83,22 @@ func TestReusableWorkflowContractAndActionPins(t *testing.T) {
 			t.Fatalf("third-party Action is not pinned to a commit SHA: %s", value)
 		}
 	}
+	workflow := string(data)
+	for _, condition := range []string{
+		"steps.lazycat.outputs.operation == 'check' && steps.lazycat.outputs.changed == 'true' && steps.lazycat.outputs.update-strategy == 'pull'",
+		"steps.lazycat.outputs.operation == 'check' && steps.lazycat.outputs.changed == 'true' && steps.lazycat.outputs.update-strategy == 'publish'",
+	} {
+		if !strings.Contains(workflow, condition) {
+			t.Fatalf("workflow is missing operation-based update condition %q", condition)
+		}
+	}
+	if strings.Contains(workflow, "outputs.channel != ''") {
+		t.Fatal("workflow must not use channel presence to classify check operations")
+	}
+	managedPaths := "add-paths: |\n            ${{ steps.lazycat.outputs.package-file }}\n            ${{ steps.lazycat.outputs.manifest-file }}"
+	if !strings.Contains(workflow, managedPaths) {
+		t.Fatal("workflow PR does not restrict changes to the managed package and Manifest paths")
+	}
 }
 
 func TestActionMetadataExposesStableContract(t *testing.T) {
@@ -105,7 +121,7 @@ func TestActionMetadataExposesStableContract(t *testing.T) {
 			t.Fatalf("missing input %q", input)
 		}
 	}
-	for _, output := range []string{"changed", "package-id", "package-file", "manifest-file", "version", "tag", "lpk-path", "sha256", "download-url", "image-results", "update-strategy", "channel", "result-file", "runner-arch", "target-platform"} {
+	for _, output := range []string{"operation", "changed", "package-id", "package-file", "manifest-file", "version", "tag", "lpk-path", "sha256", "download-url", "image-results", "update-strategy", "channel", "result-file", "runner-arch", "target-platform"} {
 		if _, exists := document.Outputs[output]; !exists {
 			t.Fatalf("missing output %q", output)
 		}

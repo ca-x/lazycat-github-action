@@ -20,15 +20,19 @@ func ReadInput(getenv func(string) string) (action.Input, error) {
 		return action.Input{}, errors.New("environment lookup is required")
 	}
 	input := action.Input{
-		Operation:   action.Operation(strings.ToLower(strings.TrimSpace(getenv("INPUT_OPERATION")))),
-		ConfigPath:  strings.TrimSpace(getenv("INPUT_CONFIG")),
-		ImageID:     strings.TrimSpace(getenv("INPUT_IMAGE_ID")),
-		Changelog:   getenv("INPUT_CHANGELOG"),
-		LPKPath:     strings.TrimSpace(getenv("INPUT_LPK_PATH")),
-		DownloadURL: strings.TrimSpace(getenv("INPUT_DOWNLOAD_URL")),
-		EventName:   strings.TrimSpace(getenv("GITHUB_EVENT_NAME")),
-		RefType:     strings.TrimSpace(getenv("GITHUB_REF_TYPE")),
-		RefName:     strings.TrimSpace(getenv("GITHUB_REF_NAME")),
+		Operation:             action.Operation(strings.ToLower(strings.TrimSpace(getenv("INPUT_OPERATION")))),
+		ConfigPath:            strings.TrimSpace(getenv("INPUT_CONFIG")),
+		ImageID:               strings.TrimSpace(getenv("INPUT_IMAGE_ID")),
+		Changelog:             getenv("INPUT_CHANGELOG"),
+		LPKPath:               strings.TrimSpace(getenv("INPUT_LPK_PATH")),
+		DownloadURL:           strings.TrimSpace(getenv("INPUT_DOWNLOAD_URL")),
+		EventName:             strings.TrimSpace(getenv("GITHUB_EVENT_NAME")),
+		RefType:               strings.TrimSpace(getenv("GITHUB_REF_TYPE")),
+		RefName:               strings.TrimSpace(getenv("GITHUB_REF_NAME")),
+		WorkflowToolchains:    strings.TrimSpace(getenv("LAZYCAT_WORKFLOW_TOOLCHAINS")),
+		WorkflowGoVersion:     strings.TrimSpace(getenv("LAZYCAT_WORKFLOW_GO_VERSION")),
+		WorkflowNodeVersion:   strings.TrimSpace(getenv("LAZYCAT_WORKFLOW_NODE_VERSION")),
+		WorkflowRustToolchain: strings.TrimSpace(getenv("LAZYCAT_WORKFLOW_RUST_TOOLCHAIN")),
 	}
 	if input.Operation == "" {
 		input.Operation = action.OperationAuto
@@ -88,6 +92,7 @@ func WriteOutputs(writer io.Writer, result action.Result) error {
 		key   string
 		value string
 	}{
+		{key: "operation", value: result.Operation},
 		{key: "changed", value: strconv.FormatBool(result.Changed)},
 		{key: "package-id", value: result.PackageID},
 		{key: "package-file", value: result.PackageFile},
@@ -106,7 +111,7 @@ func WriteOutputs(writer io.Writer, result action.Result) error {
 	}
 	for index, output := range outputs {
 		delimiter := fmt.Sprintf("lazycat_output_%d", index)
-		for strings.Contains(output.value, "\n"+delimiter+"\n") {
+		for containsLine(output.value, delimiter) {
 			delimiter += "_x"
 		}
 		if _, err := fmt.Fprintf(writer, "%s<<%s\n%s\n%s\n", output.key, delimiter, output.value, delimiter); err != nil {
@@ -114,6 +119,15 @@ func WriteOutputs(writer io.Writer, result action.Result) error {
 		}
 	}
 	return nil
+}
+
+func containsLine(value, target string) bool {
+	for _, line := range strings.Split(value, "\n") {
+		if line == target {
+			return true
+		}
+	}
+	return false
 }
 
 func WriteStepSummary(writer io.Writer, result action.Result) error {

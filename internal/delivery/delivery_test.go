@@ -51,6 +51,30 @@ func TestDirectDeliveryUsesSourceWithoutExternalCalls(t *testing.T) {
 	}
 }
 
+func TestLazyCatDeliveryRejectsMismatchedCopyResult(t *testing.T) {
+	tests := []struct {
+		name   string
+		result appstore.CopyImageResult
+	}{
+		{name: "source", result: appstore.CopyImageResult{SourceImage: "ghcr.io/acme/other:v1", Platform: "amd64", LazyCatImage: "registry.lazycat.cloud/acme/web:v1", Progress: appstore.CopyProgress{Finished: true}}},
+		{name: "platform", result: appstore.CopyImageResult{SourceImage: "ghcr.io/acme/web:v1", Platform: "arm64", LazyCatImage: "registry.lazycat.cloud/acme/web:v1", Progress: appstore.CopyProgress{Finished: true}}},
+		{name: "registry", result: appstore.CopyImageResult{SourceImage: "ghcr.io/acme/web:v1", Platform: "amd64", LazyCatImage: "ghcr.io/acme/web:v1", Progress: appstore.CopyProgress{Finished: true}}},
+		{name: "unfinished", result: appstore.CopyImageResult{SourceImage: "ghcr.io/acme/web:v1", Platform: "amd64", LazyCatImage: "registry.lazycat.cloud/acme/web:v1"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolver := delivery.Resolver{Copier: &fakeCopier{result: test.result}}
+			_, err := resolver.Deliver(context.Background(), delivery.Request{
+				Image: config.Image{ID: "web", Delivery: config.Delivery{Mode: "lazycat"}},
+				Tag:   "v1", SourceRef: "ghcr.io/acme/web:v1", SourceDigest: digest("a"),
+			})
+			if err == nil || !strings.Contains(err.Error(), "invalid LazyCat copy result") {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+}
+
 func TestMirrorDeliveryExpandsTemplateAndVerifiesDigest(t *testing.T) {
 	inspector := &fakeInspector{result: registry.Image{Digest: digest("a"), Platform: "linux/amd64"}}
 	resolver := delivery.Resolver{Inspector: inspector}

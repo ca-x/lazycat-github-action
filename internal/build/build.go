@@ -43,6 +43,41 @@ type Result struct {
 
 type Builder struct{}
 
+var protectedBuildEnvironment = map[string]struct{}{
+	"ACTIONS_CACHE_URL":              {},
+	"ACTIONS_ID_TOKEN_REQUEST_TOKEN": {},
+	"ACTIONS_ID_TOKEN_REQUEST_URL":   {},
+	"ACTIONS_RESULTS_URL":            {},
+	"ACTIONS_RUNTIME_TOKEN":          {},
+	"GH_TOKEN":                       {},
+	"GITHUB_ENV":                     {},
+	"GITHUB_OUTPUT":                  {},
+	"GITHUB_PATH":                    {},
+	"GITHUB_STATE":                   {},
+	"GITHUB_STEP_SUMMARY":            {},
+	"GITHUB_TOKEN":                   {},
+	"LAZYCAT_TOKEN":                  {},
+	"LZC_CLI_TOKEN":                  {},
+	"REGISTRY_PASSWORD":              {},
+	"REGISTRY_USERNAME":              {},
+}
+
+type protectedRunner struct {
+	base toolkitbuild.CommandRunner
+}
+
+func (runner protectedRunner) Run(ctx context.Context, command toolkitbuild.Command) error {
+	environment := make(map[string]string, len(command.Env))
+	for key, value := range command.Env {
+		if _, protected := protectedBuildEnvironment[key]; protected {
+			continue
+		}
+		environment[key] = value
+	}
+	command.Env = environment
+	return runner.base.Run(ctx, command)
+}
+
 func (Builder) Build(ctx context.Context, request Request) (result Result, resultErr error) {
 	if ctx == nil {
 		return Result{}, errors.New("build LPK: nil context")
@@ -95,13 +130,17 @@ func (Builder) Build(ctx context.Context, request Request) (result Result, resul
 		"LAZYCAT_TARGET_PLATFORM": platform.TargetPlatform,
 		"SOURCE_DATE_EPOCH":       strconv.FormatInt(request.SourceDateEpoch, 10),
 	}
+	runner := request.Runner
+	if runner == nil {
+		runner = toolkitbuild.ShellRunner{}
+	}
 	toolkitResult, err := toolkitbuild.BuildFile(ctx, temporary, toolkitbuild.Request{
 		Root:               request.Project.Root,
 		ConfigFile:         request.Project.BuildConfig,
 		Environment:        environment,
 		InheritEnvironment: true,
 		RunBuildScript:     request.RunBuildScript,
-		Runner:             request.Runner,
+		Runner:             protectedRunner{base: runner},
 	})
 	if err != nil {
 		return Result{}, fmt.Errorf("build LPK with toolkit: %s: %w", rootCauseMessage(err), err)

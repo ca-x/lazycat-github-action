@@ -2,6 +2,7 @@ package registry_test
 
 import (
 	"context"
+	"errors"
 	"net/http/httptest"
 	"regexp"
 	"sort"
@@ -88,8 +89,25 @@ func TestClientRejectsIndexWithoutLinuxAMD64(t *testing.T) {
 	)
 	writeIndex(t, repository.Tag("latest"), index, server)
 	client := internalregistry.New(remote.WithTransport(server.Client().Transport))
-	if _, err := client.Inspect(context.Background(), repository.Tag("latest").Name()); err == nil || !strings.Contains(err.Error(), "linux/amd64") {
+	if _, err := client.Inspect(context.Background(), repository.Tag("latest").Name()); err == nil || !errors.Is(err, internalregistry.ErrPlatformNotFound) {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestCandidatesSkipsArmOnlyTagsWhenAMD64CandidatesExist(t *testing.T) {
+	server := httptest.NewServer(registryserver.New())
+	defer server.Close()
+	repository := testRepository(t, server.URL, "acme/platforms")
+	writeImage(t, repository.Tag("v1.2.3"), imageAt(t, "amd64", atDay(1)), server)
+	writeImage(t, repository.Tag("v2.0.0-arm64"), imageAt(t, "arm64", atDay(2)), server)
+
+	client := internalregistry.New(remote.WithTransport(server.Client().Transport))
+	candidates, err := client.Candidates(context.Background(), repository.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || candidates[0].Tag != "v1.2.3" {
+		t.Fatalf("candidates=%#v", candidates)
 	}
 }
 

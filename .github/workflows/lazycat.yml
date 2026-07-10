@@ -75,6 +75,8 @@ on:
       REGISTRY_PASSWORD:
         required: false
     outputs:
+      operation:
+        value: ${{ jobs.lazycat.outputs.operation }}
       changed:
         value: ${{ jobs.lazycat.outputs.changed }}
       package-id:
@@ -110,10 +112,15 @@ permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: lazycat-${{ github.repository }}-${{ inputs.image-id != '' && inputs.image-id || 'all' }}
+  cancel-in-progress: false
+
 jobs:
   lazycat:
     runs-on: ${{ inputs.runner }}
     outputs:
+      operation: ${{ steps.lazycat.outputs.operation }}
       changed: ${{ steps.lazycat.outputs.changed }}
       package-id: ${{ steps.lazycat.outputs.package-id }}
       package-file: ${{ steps.lazycat.outputs.package-file }}
@@ -168,6 +175,7 @@ jobs:
             *) echo "unsupported node package manager ${NODE_PACKAGE_MANAGER}" >&2; exit 1 ;;
           esac
           echo "value=,${value}," >>"${GITHUB_OUTPUT}"
+          echo "normalized=${value:-none}" >>"${GITHUB_OUTPUT}"
 
       - name: Set up Go from input
         if: contains(steps.toolchains.outputs.value, ',go,') && inputs.go-version != ''
@@ -188,14 +196,14 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ inputs.node-version }}
-          cache: ${{ inputs.node-package-manager }}
+          cache: ${{ inputs.node-package-manager == 'npm' && 'npm' || '' }}
 
       - name: Set up Node from .node-version
         if: contains(steps.toolchains.outputs.value, ',node,') && inputs.node-version == ''
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .node-version
-          cache: ${{ inputs.node-package-manager }}
+          cache: ${{ inputs.node-package-manager == 'npm' && 'npm' || '' }}
 
       - name: Enable Node package manager
         if: contains(steps.toolchains.outputs.value, ',node,') && inputs.node-package-manager != 'npm'
@@ -253,6 +261,10 @@ jobs:
         env:
           LAZYCAT_TOKEN: ${{ secrets.LAZYCAT_TOKEN }}
           LZC_CLI_TOKEN: ${{ secrets.LZC_CLI_TOKEN }}
+          LAZYCAT_WORKFLOW_TOOLCHAINS: ${{ steps.toolchains.outputs.normalized }}
+          LAZYCAT_WORKFLOW_GO_VERSION: ${{ inputs.go-version }}
+          LAZYCAT_WORKFLOW_NODE_VERSION: ${{ inputs.node-version }}
+          LAZYCAT_WORKFLOW_RUST_TOOLCHAIN: ${{ inputs.rust-toolchain }}
           SOURCE_DATE_EPOCH: ${{ steps.source-date.outputs.epoch }}
         with:
           operation: ${{ inputs.operation }}
@@ -270,11 +282,14 @@ jobs:
           if-no-files-found: error
 
       - name: Create update pull request
-        if: steps.lazycat.outputs.changed == 'true' && steps.lazycat.outputs.channel != '' && steps.lazycat.outputs.update-strategy == 'pull' && !inputs.dry-run
+        if: steps.lazycat.outputs.operation == 'check' && steps.lazycat.outputs.changed == 'true' && steps.lazycat.outputs.update-strategy == 'pull' && !inputs.dry-run
         uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7
         with:
           token: ${{ github.token }}
           branch: lazycat/update-${{ inputs.image-id != '' && inputs.image-id || 'all' }}
+          add-paths: |
+            ${{ steps.lazycat.outputs.package-file }}
+            ${{ steps.lazycat.outputs.manifest-file }}
           delete-branch: true
           commit-message: "chore: update LazyCat images to ${{ steps.lazycat.outputs.version }}"
           title: "chore: update LazyCat images to ${{ steps.lazycat.outputs.version }}"
@@ -289,7 +304,7 @@ jobs:
 
       - name: Commit direct-publish update
         id: direct-commit
-        if: steps.lazycat.outputs.changed == 'true' && steps.lazycat.outputs.channel != '' && steps.lazycat.outputs.update-strategy == 'publish' && !inputs.dry-run
+        if: steps.lazycat.outputs.operation == 'check' && steps.lazycat.outputs.changed == 'true' && steps.lazycat.outputs.update-strategy == 'publish' && !inputs.dry-run
         shell: bash
         env:
           VERSION: ${{ steps.lazycat.outputs.version }}

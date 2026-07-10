@@ -19,6 +19,8 @@ import (
 
 const maxTags = 10000
 
+var ErrPlatformNotFound = errors.New("linux/amd64 image platform not found")
+
 var targetPlatform = v1.Platform{OS: platform.TargetOS, Architecture: platform.TargetArch}
 
 type Image struct {
@@ -58,6 +60,7 @@ func (client *Client) Candidates(ctx context.Context, source string, filters ...
 	}
 	sort.Strings(tags)
 	candidates := make([]versioning.Candidate, 0, len(tags))
+	missingPlatform := 0
 	var filter TagFilter
 	if len(filters) > 0 {
 		filter = filters[0]
@@ -74,9 +77,16 @@ func (client *Client) Candidates(ctx context.Context, source string, filters ...
 		}
 		image, err := client.Inspect(ctx, repository.Tag(tag).Name())
 		if err != nil {
+			if errors.Is(err, ErrPlatformNotFound) {
+				missingPlatform++
+				continue
+			}
 			return nil, fmt.Errorf("inspect image tag %q: %w", tag, err)
 		}
 		candidates = append(candidates, versioning.Candidate{Tag: tag, Digest: image.Digest, Created: image.Created})
+	}
+	if len(candidates) == 0 && missingPlatform > 0 {
+		return nil, fmt.Errorf("%w for repository %q", ErrPlatformNotFound, source)
 	}
 	return candidates, nil
 }
@@ -93,6 +103,30 @@ func (client *Client) Inspect(ctx context.Context, reference string) (Image, err
 	if err != nil {
 		return Image{}, fmt.Errorf("get image manifest %q: %w", reference, err)
 	}
+	if descriptor.MediaType.IsIndex() {
+		index, err := descriptor.ImageIndex()
+		if err != nil {
+			return Image{}, fmt.Errorf("read image index %q: %w", reference, err)
+		}
+		manifest, err := index.IndexManifest()
+		if err != nil {
+			return Image{}, fmt.Errorf("read image index manifest %q: %w", reference, err)
+		}
+		matched := false
+		for _, child := range manifest.Manifests {
+			candidate := v1.Platform{OS: platform.TargetOS, Architecture: platform.TargetArch}
+			if child.Platform != nil {
+				candidate = *child.Platform
+			}
+			if candidate.Satisfies(targetPlatform) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return Image{}, fmt.Errorf("%w: image index %q", ErrPlatformNotFound, reference)
+		}
+	}
 	image, err := descriptor.Image()
 	if err != nil {
 		return Image{}, fmt.Errorf("resolve %s image for %q: %w", platform.TargetPlatform, reference, err)
@@ -102,7 +136,7 @@ func (client *Client) Inspect(ctx context.Context, reference string) (Image, err
 		return Image{}, fmt.Errorf("read image config for %q: %w", reference, err)
 	}
 	if config.OS != platform.TargetOS || config.Architecture != platform.TargetArch {
-		return Image{}, fmt.Errorf("image %q resolved to %s/%s instead of %s", reference, config.OS, config.Architecture, platform.TargetPlatform)
+		return Image{}, fmt.Errorf("%w: image %q resolved to %s/%s", ErrPlatformNotFound, reference, config.OS, config.Architecture)
 	}
 	digest, err := image.Digest()
 	if err != nil {

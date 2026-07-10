@@ -167,14 +167,19 @@ internal/execx/           可测试的外部命令边界
 
 | 输出 | 含义 |
 |---|---|
+| `operation` | 最终执行的 `check` 或 `build` |
 | `changed` | 是否修改了受管文件 |
 | `package-id` | LPK package ID |
+| `package-file` | `package.yml` 绝对路径 |
+| `manifest-file` | Manifest 绝对路径 |
 | `version` | 规范化后的应用版本，不带 `v` |
 | `tag` | Git tag，默认 `v<version>` |
 | `lpk-path` | 构建结果绝对路径 |
 | `sha256` | 64 位小写十六进制 SHA256 |
 | `download-url` | 已确认的 Release Asset URL |
 | `image-results` | 每个镜像的检查、复制和落点结果 JSON |
+| `update-strategy` | `pull` 或 `publish` |
+| `channel` | 驱动应用版本的镜像 Channel |
 | `result-file` | 完整结果 JSON 文件路径 |
 | `runner-arch` | `amd64` 或 `arm64` |
 | `target-platform` | 固定 `linux/amd64` |
@@ -222,6 +227,7 @@ workflow 接受以下显式输入：
 |---|---|---|
 | `config` | `.github/lazycat-action.yml` | Action 配置路径 |
 | `operation` | `auto` | 执行操作 |
+| `runner` | `ubuntu-latest` | Linux Runner 标签，宿主支持 amd64 和 arm64 |
 | `image-id` | 空 | 只处理一个显式镜像 ID |
 | `dry-run` | `false` | 只生成计划 |
 | `toolchains` | `none` | 逗号分隔的 `go`、`node`、`rust`、`docker`，支持组合 |
@@ -232,6 +238,8 @@ workflow 接受以下显式输入：
 | `enable-qemu` | `true` | Docker 构建时是否安装跨架构 QEMU |
 
 reusable workflow 必须在调用核心 Action 前安装工具链，因此不能依赖核心 Action 才解析出的配置来决定 setup step。workflow 输入与项目配置中的 `build.toolchains` 同时存在时必须一致，否则失败。版本输入为空时，setup Action 使用项目的标准版本文件，如 `go.mod`、`.node-version`、`rust-toolchain.toml`；两边都没有版本声明时配置失败，不使用随时间变化的隐式稳定版本。workflow 向调用方返回 `changed`、`version`、`tag`、`lpk-path`、`sha256`、`download-url` 与 `image-results`。
+
+Pull Request 和 direct publish 只提交核心 Action 返回的 `package-file` 与 `manifest-file`，不提交 buildscript 产生的其他工作区变化。buildscript 可以继承普通构建环境，但核心 Action 必须移除 LazyCat token、源 Registry 凭据、GitHub token 和 `GITHUB_OUTPUT` 等 GitHub 控制文件路径。
 
 ## 6. 项目配置
 
@@ -511,7 +519,7 @@ chore: sync package version to 1.2.3 [skip ci]
 
 如果 Action 自己创建 tag，则必须先在默认分支提交版本，再从该提交创建 tag。对于用户已经创建的外部 tag，Action 不移动或 force-push tag。默认分支已是目标版本时不产生空提交。
 
-Release Asset 使用其他成熟 GitHub Action 上传；核心 Go Action只负责产物和校验。PR 模式的 LPK 上传为 Workflow Artifact，不冒充正式 Release Asset。
+Release Asset 使用其他成熟 GitHub Action 上传；核心 Go Action 只负责产物和校验。PR 模式的 LPK 上传为 Workflow Artifact，不冒充正式 Release Asset。
 
 ## 12. 商店发布
 

@@ -41,6 +41,9 @@ inputs:
     default: "false"
 
 outputs:
+  operation:
+    description: Resolved check or build operation.
+    value: ${{ steps.run.outputs.operation }}
   changed:
     description: Whether managed project files changed.
     value: ${{ steps.run.outputs.changed }}
