@@ -19,8 +19,12 @@ type Change struct {
 	New     string `json:"new"`
 }
 
+func IsValidPackageVersion(value string) bool {
+	return semverPattern.MatchString(value)
+}
+
 func SetPackageVersion(filename, value string) (Change, error) {
-	if !semverPattern.MatchString(value) {
+	if !IsValidPackageVersion(value) {
 		return Change{}, fmt.Errorf("invalid package version %q: expected SemVer without a leading v", value)
 	}
 	data, err := os.ReadFile(filename)
