@@ -47,6 +47,12 @@ outputs:
   package-id:
     description: LazyCat package identifier.
     value: ${{ steps.run.outputs['package-id'] }}
+  package-file:
+    description: Absolute path to package.yml.
+    value: ${{ steps.run.outputs['package-file'] }}
+  manifest-file:
+    description: Absolute path to the configured Manifest.
+    value: ${{ steps.run.outputs['manifest-file'] }}
   version:
     description: Normalized application version without a leading v.
     value: ${{ steps.run.outputs.version }}

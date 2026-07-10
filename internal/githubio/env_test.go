@@ -61,14 +61,14 @@ func TestWriteOutputsUsesStableKeysAndDoesNotLeakSecrets(t *testing.T) {
 	}
 	var output bytes.Buffer
 	result := action.Result{
-		Changed: true, PackageID: "cloud.lazycat.example", Version: "1.2.3", Tag: "v1.2.3", LPKPath: "/tmp/app.lpk",
+		Changed: true, PackageID: "cloud.lazycat.example", PackageFile: "/tmp/package.yml", ManifestFile: "/tmp/lzc-manifest.yml", Version: "1.2.3", Tag: "v1.2.3", LPKPath: "/tmp/app.lpk",
 		SHA256: strings.Repeat("a", 64), ImageResults: []byte("[]"), UpdateStrategy: "pull", Channel: "stable", ResultFile: "/tmp/result.json", RunnerArch: "arm64", TargetPlatform: "linux/amd64",
 	}
 	if err := githubio.WriteOutputs(&output, result); err != nil {
 		t.Fatal(err)
 	}
 	got := output.String()
-	for _, key := range []string{"changed", "package-id", "version", "tag", "lpk-path", "sha256", "download-url", "image-results", "update-strategy", "channel", "result-file", "runner-arch", "target-platform"} {
+	for _, key := range []string{"changed", "package-id", "package-file", "manifest-file", "version", "tag", "lpk-path", "sha256", "download-url", "image-results", "update-strategy", "channel", "result-file", "runner-arch", "target-platform"} {
 		if !strings.Contains(got, key+"<<lazycat_output_") {
 			t.Fatalf("missing key %q in:\n%s", key, got)
 		}

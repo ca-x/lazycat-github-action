@@ -62,6 +62,8 @@ type Input struct {
 type Result struct {
 	Changed        bool            `json:"changed"`
 	PackageID      string          `json:"packageId"`
+	PackageFile    string          `json:"packageFile"`
+	ManifestFile   string          `json:"manifestFile"`
 	Version        string          `json:"version"`
 	Tag            string          `json:"tag"`
 	LPKPath        string          `json:"lpkPath"`
@@ -316,6 +318,8 @@ func runCheck(ctx context.Context, input Input, cfg config.Config, info project.
 func baseResult(input Input, host platform.Host, info project.Info, cfg config.Config) Result {
 	return Result{
 		PackageID:      info.PackageID,
+		PackageFile:    info.PackageFile,
+		ManifestFile:   info.ManifestFile,
 		Version:        input.Version,
 		Tag:            input.Tag,
 		DownloadURL:    input.DownloadURL,

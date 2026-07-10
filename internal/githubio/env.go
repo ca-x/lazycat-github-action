@@ -90,6 +90,8 @@ func WriteOutputs(writer io.Writer, result action.Result) error {
 	}{
 		{key: "changed", value: strconv.FormatBool(result.Changed)},
 		{key: "package-id", value: result.PackageID},
+		{key: "package-file", value: result.PackageFile},
+		{key: "manifest-file", value: result.ManifestFile},
 		{key: "version", value: result.Version},
 		{key: "tag", value: result.Tag},
 		{key: "lpk-path", value: result.LPKPath},

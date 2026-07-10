@@ -22,6 +22,7 @@ func TestRunBuildCallsDependenciesInOrderAndReturnsStableResult(t *testing.T) {
 	var calls []string
 	root := t.TempDir()
 	packageFile := filepath.Join(root, "package.yml")
+	manifestFile := filepath.Join(root, "lzc-manifest.yml")
 	deps := action.Dependencies{
 		Host:      platform.Host{OS: "linux", Arch: "arm64"},
 		ResultDir: filepath.Join(root, "results"),
@@ -35,7 +36,7 @@ func TestRunBuildCallsDependenciesInOrderAndReturnsStableResult(t *testing.T) {
 			if len(calls) > 2 {
 				version = "1.2.3"
 			}
-			return project.Info{Root: root, PackageFile: packageFile, Output: filepath.Join(root, "dist", "app.lpk"), PackageID: "cloud.lazycat.example", Version: version}, nil
+			return project.Info{Root: root, PackageFile: packageFile, ManifestFile: manifestFile, Output: filepath.Join(root, "dist", "app.lpk"), PackageID: "cloud.lazycat.example", Version: version}, nil
 		},
 		SetVersion: func(filename, version string) (yamledit.Change, error) {
 			calls = append(calls, "edit")
@@ -64,6 +65,9 @@ func TestRunBuildCallsDependenciesInOrderAndReturnsStableResult(t *testing.T) {
 	}
 	if !result.Changed || result.PackageID != "cloud.lazycat.example" || result.Version != "1.2.3" || result.Tag != "v1.2.3" {
 		t.Fatalf("result=%#v", result)
+	}
+	if result.PackageFile != packageFile || result.ManifestFile != manifestFile {
+		t.Fatalf("managed files=%#v", result)
 	}
 	if result.RunnerArch != "arm64" || result.TargetPlatform != "linux/amd64" || string(result.ImageResults) != "[]" {
 		t.Fatalf("architectures/result=%#v", result)
