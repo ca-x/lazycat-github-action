@@ -626,7 +626,7 @@
   git commit -m "docs: record Milestone 3 completion"
   ```
 
-- [ ] **Step 5: Push the milestone branch, merge to main, and re-run the main gate**
+- [x] **Step 5: Push the milestone branch, merge to main, and re-run the main gate**
 
   ```bash
   git push -u origin milestone/3-stores-and-skill
@@ -639,7 +639,7 @@
 
   Expected: `origin/main` contains the complete Milestone 3 history and all gates pass after merge.
 
-- [ ] **Step 6: Publish the first stable release and floating major tag**
+- [x] **Step 6: Publish the first stable release and floating major tag**
 
   Verify `action.yml` embeds `v1.0.0`, create and push annotated tag `v1.0.0`, wait for the release workflow, verify both Linux architecture assets and checksums with `gh release view v1.0.0`, then create/update annotated `v1` at the same commit and push it. Do not move either tag if the release asset verification fails.
 
@@ -649,7 +649,10 @@
 - GoReleaser 2.17.0 `check` and snapshot release passed. Both archives contain only `lazycat-action`, and `checksums.txt` verifies both artifacts.
 - Security review confirmed bounded remote responses, 30-second HTTP defaults, disabled redirects for login and both store clients, token-file and LPK symlink rejection, GitHub Release Asset URL/SHA256 binding, and no committed token-shaped values.
 - Local toolchain: Go 1.26.5. CI remains pinned to Go 1.25.x and repeats race, vet, workflow, shell, cross-build, fixture, and release-contract checks.
-- Remote merge, stable tag, GitHub Release assets, SBOM, provenance, and floating `v1` verification remain pending in Task 10 Steps 5–6.
+- Milestone branch `62f2719` was pushed and fast-forwarded into `main`; the final release-workflow identity fix is on `main` at `567efd0`, whose GitHub CI run `29121357207` passed.
+- Stable tag `v1.0.0` and annotated floating tag `v1` both resolve to release commit `8f4686c`. Release: <https://github.com/ca-x/lazycat-github-action/releases/tag/v1.0.0>.
+- Downloaded amd64/arm64 archives and both SPDX 2.3 SBOMs passed `checksums.txt`; the amd64 binary reports Action `v1.0.0`, toolkit `v0.1.0`, lzc-cli `2.0.8`, and target `linux/amd64`.
+- GitHub provenance verification passed for both release archives. The first release run completed build, QEMU smoke, SBOM, and attestation but lacked Git tag identity for its last `v1` step; `v1` was created after asset verification and the workflow identity fix was committed for future releases.
 
 ## Plan Self-Review
 
