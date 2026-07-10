@@ -45,19 +45,19 @@ func TestReusableWorkflowContractAndActionPins(t *testing.T) {
 		t.Fatalf("workflow_call=%#v", on["workflow_call"])
 	}
 	inputs, _ := call["inputs"].(map[string]any)
-	for _, name := range []string{"config", "operation", "runner", "image-id", "dry-run", "changelog", "toolchains", "go-version", "node-version", "rust-toolchain", "node-package-manager", "enable-qemu"} {
+	for _, name := range []string{"config", "operation", "runner", "image-id", "dry-run", "changelog", "token-file", "toolchains", "go-version", "node-version", "rust-toolchain", "node-package-manager", "enable-qemu"} {
 		if _, found := inputs[name]; !found {
 			t.Fatalf("missing workflow input %q", name)
 		}
 	}
 	secrets, _ := call["secrets"].(map[string]any)
-	for _, name := range []string{"LAZYCAT_TOKEN", "LZC_CLI_TOKEN", "REGISTRY", "REGISTRY_USERNAME", "REGISTRY_PASSWORD"} {
+	for _, name := range []string{"LAZYCAT_TOKEN", "LZC_CLI_TOKEN", "LAZYCAT_USERNAME", "LAZYCAT_PASSWORD", "APPSTORE_URL", "APPSTORE_TOKEN", "APP_ID", "REGISTRY", "REGISTRY_USERNAME", "REGISTRY_PASSWORD"} {
 		if _, found := secrets[name]; !found {
 			t.Fatalf("missing workflow secret %q", name)
 		}
 	}
 	outputs, _ := call["outputs"].(map[string]any)
-	for _, name := range []string{"operation", "changed", "package-id", "package-file", "manifest-file", "version", "tag", "lpk-path", "sha256", "download-url", "image-results", "update-strategy", "channel", "result-file", "runner-arch", "target-platform"} {
+	for _, name := range []string{"operation", "changed", "package-id", "package-file", "manifest-file", "version", "tag", "lpk-path", "sha256", "download-url", "image-results", "store-results", "official-store-enabled", "private-store-enabled", "update-strategy", "channel", "result-file", "runner-arch", "target-platform"} {
 		if _, found := outputs[name]; !found {
 			t.Fatalf("missing workflow output %q", name)
 		}
@@ -94,6 +94,14 @@ func TestReusableWorkflowContractAndActionPins(t *testing.T) {
 	}
 	if strings.Contains(workflow, "outputs.channel != ''") {
 		t.Fatal("workflow must not use channel presence to classify check operations")
+	}
+	for _, condition := range []string{
+		"steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.official-store-enabled == 'true'",
+		"steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.private-store-enabled == 'true' && steps.asset-url.outputs.download-url != ''",
+	} {
+		if !strings.Contains(workflow, condition) {
+			t.Fatalf("workflow is missing store condition %q", condition)
+		}
 	}
 	managedPaths := "add-paths: |\n            ${{ steps.lazycat.outputs.package-file }}\n            ${{ steps.lazycat.outputs.manifest-file }}"
 	if !strings.Contains(workflow, managedPaths) {

@@ -9,7 +9,7 @@ on:
         required: false
         default: .github/lazycat-action.yml
       operation:
-        description: auto, check, or build.
+        description: auto, check, build, publish-official, or publish-private.
         type: string
         required: false
         default: auto
@@ -30,6 +30,11 @@ on:
         default: false
       changelog:
         description: GitHub Release changelog.
+        type: string
+        required: false
+        default: ""
+      token-file:
+        description: Explicit lzc-cli-compatible token JSON file on a self-hosted runner.
         type: string
         required: false
         default: ""
@@ -68,6 +73,16 @@ on:
         required: false
       LZC_CLI_TOKEN:
         required: false
+      LAZYCAT_USERNAME:
+        required: false
+      LAZYCAT_PASSWORD:
+        required: false
+      APPSTORE_URL:
+        required: false
+      APPSTORE_TOKEN:
+        required: false
+      APP_ID:
+        required: false
       REGISTRY:
         required: false
       REGISTRY_USERNAME:
@@ -97,6 +112,12 @@ on:
         value: ${{ jobs.lazycat.outputs.download-url }}
       image-results:
         value: ${{ jobs.lazycat.outputs.image-results }}
+      store-results:
+        value: ${{ jobs.lazycat.outputs.store-results }}
+      official-store-enabled:
+        value: ${{ jobs.lazycat.outputs.official-store-enabled }}
+      private-store-enabled:
+        value: ${{ jobs.lazycat.outputs.private-store-enabled }}
       update-strategy:
         value: ${{ jobs.lazycat.outputs.update-strategy }}
       channel:
@@ -131,6 +152,9 @@ jobs:
       sha256: ${{ steps.lazycat.outputs.sha256 }}
       download-url: ${{ steps.asset-url.outputs.download-url }}
       image-results: ${{ steps.lazycat.outputs.image-results }}
+      store-results: ${{ steps.store-results.outputs.store-results }}
+      official-store-enabled: ${{ steps.lazycat.outputs.official-store-enabled }}
+      private-store-enabled: ${{ steps.lazycat.outputs.private-store-enabled }}
       update-strategy: ${{ steps.lazycat.outputs.update-strategy }}
       channel: ${{ steps.lazycat.outputs.channel }}
       result-file: ${{ steps.lazycat.outputs.result-file }}
@@ -271,7 +295,30 @@ jobs:
           config: ${{ inputs.config }}
           image-id: ${{ inputs.image-id }}
           changelog: ${{ inputs.changelog }}
+          token-file: ${{ inputs.token-file }}
           dry-run: ${{ inputs.dry-run }}
+
+      - name: Prepare release changelog
+        id: release-notes
+        shell: bash
+        env:
+          INPUT_CHANGELOG: ${{ inputs.changelog }}
+          VERSION: ${{ steps.lazycat.outputs.version }}
+        run: |
+          set -euo pipefail
+          value="${INPUT_CHANGELOG}"
+          if [[ -z "${value}" ]]; then
+            value="Release ${VERSION}"
+          fi
+          delimiter="lazycat_changelog"
+          while grep -Fxq "${delimiter}" <<<"${value}"; do
+            delimiter="${delimiter}_x"
+          done
+          {
+            echo "value<<${delimiter}"
+            echo "${value}"
+            echo "${delimiter}"
+          } >>"${GITHUB_OUTPUT}"
 
       - name: Upload validation Artifact
         if: steps.lazycat.outputs.lpk-path != ''
@@ -448,6 +495,55 @@ jobs:
               return;
             }
             core.setOutput('download-url', asset.browser_download_url);
+
+      - name: Publish to LazyCat official platform
+        id: publish-official
+        if: steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.official-store-enabled == 'true' && steps.asset-url.outputs.download-url != '' && !inputs.dry-run
+        uses: ca-x/lazycat-github-action@v1
+        env:
+          LAZYCAT_TOKEN: ${{ secrets.LAZYCAT_TOKEN }}
+          LZC_CLI_TOKEN: ${{ secrets.LZC_CLI_TOKEN }}
+          LAZYCAT_USERNAME: ${{ secrets.LAZYCAT_USERNAME }}
+          LAZYCAT_PASSWORD: ${{ secrets.LAZYCAT_PASSWORD }}
+        with:
+          operation: publish-official
+          config: ${{ inputs.config }}
+          version: ${{ steps.lazycat.outputs.version }}
+          changelog: ${{ steps.release-notes.outputs.value }}
+          lpk-path: ${{ steps.lazycat.outputs.lpk-path }}
+          token-file: ${{ inputs.token-file }}
+
+      - name: Publish to MiaoMiao private store
+        id: publish-private
+        if: steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.private-store-enabled == 'true' && steps.asset-url.outputs.download-url != '' && !inputs.dry-run
+        uses: ca-x/lazycat-github-action@v1
+        env:
+          APPSTORE_URL: ${{ secrets.APPSTORE_URL }}
+          APPSTORE_TOKEN: ${{ secrets.APPSTORE_TOKEN }}
+          APP_ID: ${{ secrets.APP_ID }}
+        with:
+          operation: publish-private
+          config: ${{ inputs.config }}
+          version: ${{ steps.lazycat.outputs.version }}
+          changelog: ${{ steps.release-notes.outputs.value }}
+          lpk-path: ${{ steps.lazycat.outputs.lpk-path }}
+          download-url: ${{ steps.asset-url.outputs.download-url }}
+
+      - name: Merge store publishing results
+        id: store-results
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          OFFICIAL_RESULT: ${{ steps.publish-official.outputs.store-results }}
+          PRIVATE_RESULT: ${{ steps.publish-private.outputs.store-results }}
+        with:
+          script: |
+            const result = {};
+            for (const raw of [process.env.OFFICIAL_RESULT, process.env.PRIVATE_RESULT]) {
+              if (!raw) continue;
+              const parsed = JSON.parse(raw);
+              Object.assign(result, parsed);
+            }
+            core.setOutput('store-results', JSON.stringify(result));
 
       - name: Sync tag/release version to default branch
         if: steps.asset-url.outputs.download-url != '' && steps.lazycat.outputs.changed == 'true' && (github.ref_type == 'tag' || github.event_name == 'release')
