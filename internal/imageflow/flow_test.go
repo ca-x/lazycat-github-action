@@ -3,6 +3,8 @@ package imageflow_test
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -143,6 +145,50 @@ func TestFlowRejectsUnknownImageID(t *testing.T) {
 	flow := imageflow.Flow{Registry: &fakeRegistry{}, Deliverer: &fakeDeliverer{}}
 	if _, err := flow.Check(context.Background(), imageflow.Request{Config: imageConfig(), ImageID: "missing"}); err == nil {
 		t.Fatal("expected unknown image ID failure")
+	}
+}
+
+func TestFlowFixtureUpdatesExplicitWebServiceOnly(t *testing.T) {
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "image-app")
+	if err := os.CopyFS(root, os.DirFS(filepath.Join("..", "..", "testdata", "image-app"))); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(filepath.Join(root, ".github", "lazycat-action.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Project.Root = root
+	info, err := project.Inspect(ctx, cfg.Project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(info.ManifestFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flow := imageflow.Flow{
+		Registry: &fakeRegistry{bySource: map[string][]versioning.Candidate{
+			"ghcr.io/acme/example-web": {{Tag: "v2.0.0", Digest: digest("f"), Created: created(10)}},
+		}},
+		Deliverer: &fakeDeliverer{copyResult: true},
+	}
+	result, err := flow.Check(ctx, imageflow.Request{Config: cfg, Project: info})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(info.ManifestFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Changed || result.Version != "2.0.0" || len(result.Images) != 1 || result.Images[0].ID != "web" {
+		t.Fatalf("result=%#v", result)
+	}
+	if strings.Count(string(before), "image: postgres:17") != 1 || strings.Count(string(after), "image: postgres:17") != 1 {
+		t.Fatalf("database service changed:\n%s", after)
+	}
+	if strings.Contains(string(after), "registry.lazycat.cloud/acme/example-web:old") || !strings.Contains(string(after), "# upstream: ghcr.io/acme/example-web:v2.0.0") {
+		t.Fatalf("web service was not updated as expected:\n%s", after)
 	}
 }
 

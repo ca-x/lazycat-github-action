@@ -2,23 +2,54 @@
 
 [English](README.md)
 
-`ca-x/lazycat-github-action` 用于在 GitHub Actions 中构建和校验 LazyCat LPK 应用。它使用 [`github.com/lib-x/lzc-toolkit-go`](https://github.com/lib-x/lzc-toolkit-go) `v0.1.0`，该 SDK 的兼容基线是 `@lazycatcloud/lzc-cli` `2.0.8`。
+`ca-x/lazycat-github-action` 用于检查 Docker 镜像版本、精确更新 LazyCat Manifest、构建 LPK、创建更新 Pull Request，并把校验后的 LPK 上传到 GitHub Release。
 
-项目按里程碑交付。Milestone 1 支持以 Git tag/版本驱动的静态 Web 和 Exec 应用；Docker 镜像发现与复制、自动 Pull Request、GitHub Release 和商店发布将在后续里程碑加入。
+Action 使用 [`github.com/lib-x/lzc-toolkit-go`](https://github.com/lib-x/lzc-toolkit-go) `v0.1.0`，兼容基线是 `@lazycatcloud/lzc-cli` `2.0.8`。
 
-## 最重要的架构规则
+当前交付范围：
 
-运行 Action 的机器架构和 LazyCat 应用的目标架构是两件事：
+- Milestone 1：静态 Web 和 Exec 构建、LPK 校验、SHA256、amd64 和 arm64 Action 二进制。
+- Milestone 2：stable、beta、nightly 和 custom OCI 检查；LazyCat、direct 和 mirror 镜像交付；Pull Request；Artifact；tag；Release；Release Asset。
+- Milestone 3：懒猫官方开发者平台提交和喵喵私有商店提交。相关配置字段已经预留，但商店提交操作还未启用。
+
+## 选择使用方式
+
+一般 CI/CD 推荐调用 reusable workflow。它会安装指定工具链，并处理 Pull Request、Artifact、tag、Release 和 Release Asset：
+
+```yaml
+jobs:
+  lazycat:
+    uses: ca-x/lazycat-github-action/.github/workflows/lazycat.yml@v1
+    with:
+      config: .github/lazycat-action.yml
+    secrets: inherit
+```
+
+如果现有 workflow 已经负责 GitHub 写操作，可以直接调用 composite Action：
+
+```yaml
+- uses: ca-x/lazycat-github-action@v1
+  id: lazycat
+  with:
+    operation: build
+    version: ${{ github.ref_name }}
+```
+
+调用方不需要编译本项目。启动脚本会按 Runner 架构下载 Action 二进制，并校验发布包 SHA256。
+
+## Runner 架构和 LazyCat 目标架构
+
+Action 的运行机器和 LazyCat 应用目标是两件事：
 
 | 层次 | 支持值 |
 |---|---|
-| GitHub Runner 系统 | Linux |
-| GitHub Runner CPU | amd64 或 arm64 |
+| Runner 系统 | Linux |
+| Runner CPU | amd64 或 arm64 |
 | LazyCat 目标系统 | Linux |
-| LazyCat 目标 CPU | amd64（x86_64） |
-| OCI 目标平台 | `linux/amd64` |
+| LazyCat 目标 CPU | amd64，也就是 x86_64 |
+| OCI 检查和复制平台 | `linux/amd64` |
 
-ARM64 self-hosted Runner 会下载 ARM64 版本的 Action 二进制，但项目 buildscript 始终收到：
+ARM64 self-hosted Runner 使用 ARM64 版本的 Action 二进制，但 buildscript 仍然收到：
 
 ```text
 LAZYCAT_TARGET_OS=linux
@@ -26,22 +57,57 @@ LAZYCAT_TARGET_ARCH=amd64
 LAZYCAT_TARGET_PLATFORM=linux/amd64
 ```
 
-因此 LPK 内的 Go、Rust、Node.js native addon、嵌入运行时和 Docker 镜像都必须保持 Linux x86_64。Action 会明确打印：
+reusable workflow 支持传入 Linux Runner 标签：
 
-```text
-Action host: linux/arm64; LazyCat target: linux/amd64
+```yaml
+jobs:
+  lazycat:
+    uses: ca-x/lazycat-github-action/.github/workflows/lazycat.yml@v1
+    with:
+      runner: self-hosted-linux-arm64
+      config: .github/lazycat-action.yml
+    secrets: inherit
 ```
+
+上面的标签只是示例，需要在 self-hosted Runner 上自行配置。切换 Runner 不会把 LPK 目标改成 ARM。
 
 ## 基本概念
 
-- `package.yml` 保存 package ID、应用版本、显示信息和 locales。
-- `lzc-manifest.yml` 描述 LazyCat application、routes、可选 application 镜像和 services。
-- `lzc-build.yml` 指定内容目录和项目自己的 `buildscript`。
-- LPK 是以上配置和应用内容共同构造出的安装包。
-- 基础 lint 检查 LPK 是否可用；官方 lint 额外检查懒猫开发者平台偏好，例如 locales、官方镜像 Registry、图标格式/大小和 SemVer。
-- Workflow Artifact 是 CI 产物；GitHub Release Asset 是带正式版本的下载资源。Milestone 1 上传 Artifact，Release Asset 自动化在 Milestone 2 实现。
+- `package.yml` 保存 package ID、版本、显示信息和 locales。
+- `lzc-manifest.yml` 保存应用路由，以及可选的 application 或 service 镜像。
+- `lzc-build.yml` 指向 Manifest、内容目录和可选的项目 `buildscript`。
+- `.github/lazycat-action.yml` 告诉 Action 它负责哪个版本来源和哪些镜像目标。
+- Workflow Artifact 是 GitHub Actions 保留的 CI 产物。
+- Release Asset 是挂在 GitHub Release 下的公开版本文件。
 
-## 最小项目配置
+Action 默认执行基础 LPK lint。设置 `stores.official.enabled: true` 后会执行懒猫官方 lint profile，同时要求所有受管运行时镜像使用 `delivery.mode: lazycat`。
+
+## Docker 镜像应用快速开始
+
+假设应用有数据库服务 `db` 和真正对外显示页面的 Web 服务 `web`：
+
+```yaml
+# lzc-manifest.yml
+application:
+  subdomain: example
+  routes:
+    - /=http://web:8080/
+
+services:
+  db:
+    # upstream: postgres:17
+    image: registry.lazycat.cloud/acme/postgres:copy-id
+  web:
+    # upstream: ghcr.io/acme/example-web:v1.0.0
+    image: registry.lazycat.cloud/acme/example-web:old
+```
+
+Action 不会猜测 `web` 是主服务，需要显式配置两个不同职责：
+
+- `update.version_source.image: web` 表示使用 `web` 的镜像版本更新 `package.yml.version`。
+- `images[].target: service` 和 `service: web` 表示 Manifest 编辑器只能修改 `services.web.image`。
+
+`db` 已经使用 LazyCat Registry 镜像，但没有出现在 `images` 配置中，因此这套自动化不会修改它。
 
 创建 `.github/lazycat-action.yml`：
 
@@ -52,29 +118,302 @@ project:
   root: .
   build_config: lzc-build.yml
   package_file: package.yml
-  output: dist/app.lpk
+  output: dist/example.lpk
 
 update:
   strategy: pull
   version_source:
-    type: git
+    type: image
+    image: web
 
 build:
   run_buildscript: true
+
+images:
+  - id: web
+    target: service
+    service: web
+    source: ghcr.io/acme/example-web
+    channel: stable
+    delivery:
+      mode: lazycat
+
+stores:
+  official:
+    enabled: true
+    create_if_missing: false
+    changelog_locales: [zh, en]
+  private:
+    enabled: false
 ```
 
-未知字段会直接报错。Milestone 1 要求 `version_source.type: git`；镜像驱动的版本检查在 Milestone 2 实现。
+把开发者平台 token 保存为 GitHub Secret `LAZYCAT_TOKEN`，`LZC_CLI_TOKEN` 是兼容回退名称。
 
-## 静态 Web 示例
-
-静态应用可以完全没有 services：
+再添加定时和手动触发 workflow：
 
 ```yaml
-application:
-  subdomain: example
-  routes:
-    - /=file:///lzcapp/pkg/content
+name: Check LazyCat images
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  lazycat:
+    uses: ca-x/lazycat-github-action/.github/workflows/lazycat.yml@v1
+    with:
+      operation: auto
+      config: .github/lazycat-action.yml
+    secrets: inherit
 ```
+
+`strategy: pull` 是默认策略。发现新镜像后，workflow 只更新显式配置的目标，构建并校验 LPK，上传 Workflow Artifact，然后创建或更新 `lazycat/update-all`。
+
+如果只想处理一个镜像，可以传 `image-id`：
+
+```yaml
+with:
+  operation: check
+  image-id: web
+  config: .github/lazycat-action.yml
+```
+
+## Channel 选择规则
+
+| Channel | 选择规则 |
+|---|---|
+| `stable` | 最高正式 SemVer，不包含预发布部分 |
+| `beta` | 最高预发布 SemVer，包括 alpha、beta、rc 和 preview |
+| `nightly` | 在正则匹配结果中选择 `linux/amd64` OCI 创建时间最新的镜像 |
+| `custom` | 使用正则过滤，并显式选择 `semver` 或 `created` 排序 |
+
+Stable 示例：
+
+```yaml
+channel: stable
+tag_regex: '^v?\d+\.\d+\.\d+$'
+exclude_regex: 'windows|arm64'
+```
+
+Beta 示例：
+
+```yaml
+channel: beta
+tag_regex: '^v?\d+\.\d+\.\d+-(alpha|beta|rc|preview)\.'
+```
+
+Nightly 示例：
+
+```yaml
+channel: nightly
+tag_regex: '^nightly(-.*)?$'
+```
+
+nightly 版本由选中镜像的创建时间和 amd64 digest 生成，结果仍是合法 SemVer：
+
+```text
+0.0.0-nightly.20260710153020.a1b2c3d4e5f6
+```
+
+Custom 示例：
+
+```yaml
+channel: custom
+sort: created
+tag_regex: '^edge-'
+version_regex: '^edge-(?P<version>\d+\.\d+\.\d+)$'
+version_template: '{version}'
+```
+
+Action 会先应用 `tag_regex` 和 `exclude_regex`，再拉取单个 manifest。OCI index 和 Docker manifest list 只选择 `linux/amd64`，ARM64 镜像的时间和 digest 不会影响最终结果。
+
+## 镜像交付模式
+
+### 复制到 LazyCat Registry
+
+```yaml
+delivery:
+  mode: lazycat
+```
+
+Action 把选中的源镜像提交给懒猫开发者平台，并显式设置 `Platform: "amd64"`。开发者平台执行远端 Registry-to-Registry 复制，返回最终的 `registry.lazycat.cloud/...` 地址。本地 Docker 不参与这次复制。
+
+该模式需要 `LAZYCAT_TOKEN` 或 `LZC_CLI_TOKEN`。启用官方商店模式时只能使用这种交付方式。
+
+### 显式镜像加速地址
+
+```yaml
+delivery:
+  mode: mirror
+  image_template: ghcr.1ms.run/acme/example-web:{tag}
+  require_digest_match: true
+```
+
+Manifest 会使用展开后的镜像地址。模板支持 `{tag}`、`{digest}` 和 `{source}`。启用 `require_digest_match` 后，Action 会检查 mirror 的 `linux/amd64` 镜像，只有 digest 与源镜像一致才会修改 Manifest。
+
+### 直接使用源镜像
+
+```yaml
+delivery:
+  mode: direct
+```
+
+Manifest 直接使用选中的源镜像，Action 不执行复制。这个模式适合私有商店，或者明确依赖外部 Registry 的部署。
+
+官方商店模式会拒绝 `direct` 和 `mirror`。这两种方式只用于非官方分发。
+
+## Runner 是否需要 Docker
+
+| 场景 | Docker 要求 |
+|---|---|
+| 检查公开 OCI tag 和 manifest | 不需要 |
+| LazyCat 远端镜像复制 | 不需要 |
+| direct 或 mirror 地址更新 | 不需要 |
+| reusable workflow 登录私有源 Registry | 需要 Docker CLI；GitHub 托管 Linux Runner 已安装 |
+| 项目 buildscript 自己构建 Docker 镜像 | 需要 |
+| ARM64 Runner 执行 x64 Dockerfile 的 `RUN` 步骤 | 需要 Docker Buildx 和 QEMU |
+
+只有项目 buildscript 需要 Docker 时才选择 Docker 工具链：
+
+```yaml
+with:
+  toolchains: docker
+  enable-qemu: true
+```
+
+私有源 Registry 检查可以配置以下 GitHub Secrets：
+
+```text
+REGISTRY=ghcr.io
+REGISTRY_USERNAME=<username>
+REGISTRY_PASSWORD=<token or password>
+```
+
+reusable workflow 使用 `docker/login-action` 写入 Docker 凭据，OCI 客户端会读取这些凭据。它们只负责 Action 侧的镜像检查。lzc-cli 2.0.8 对应的 LazyCat `CopyImage` API 没有源 Registry 用户名、密码或 token 字段，因此 `mode: lazycat` 使用私有源镜像时，还要确保开发者平台本身能够拉取该镜像。
+
+## 认证
+
+Milestone 2 的镜像复制使用开发者平台 token。Action 按以下顺序读取：
+
+1. `LAZYCAT_TOKEN`
+2. `LZC_CLI_TOKEN`
+
+不建议把账号密码长期保存到 GitHub Actions。可以在可信机器上登录一次，把返回的 token 保存为 GitHub Actions Secret。
+
+本机已经通过 lzc-cli 2.0.8 登录时，lzc-cli 先读取 `LZC_CLI_TOKEN`，否则读取 `~/.config/lazycat/box-config.json` 的 `token` 字段。`lzc-cli config get token` 会打印当前生效的 token，不要在 CI 日志中运行。GitHub 托管 Runner 无法读取你的本机登录文件，必须把 token 配置为仓库或组织 Secret。
+
+底层 toolkit 同时支持账号密码换 token 和显式 token store，具体见 [lzc-toolkit-go 认证示例](https://github.com/lib-x/lzc-toolkit-go/blob/main/README.zh-CN.md#例子五登录并提交-lpk)。Action 在 Milestone 2 只接受 token，账号密码登录和商店提交编排属于 Milestone 3。
+
+## Pull Request 和 Release 工作流
+
+### 默认安全流程：先创建 PR，合并后发布
+
+定时检查使用前面的 `strategy: pull` 配置。再添加一个默认分支 caller：
+
+```yaml
+name: Publish merged LazyCat update
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  lazycat:
+    uses: ca-x/lazycat-github-action/.github/workflows/lazycat.yml@v1
+    with:
+      operation: auto
+      config: .github/lazycat-action.yml
+    secrets: inherit
+```
+
+更新 PR 合并后，默认分支 workflow 会重新构建 LPK。如果 `v<package version>` 还没有 Release，workflow 会创建 Release 并上传 LPK。同名 Release Asset 只有在 GitHub 返回的 SHA256 digest 一致时才会复用，digest 不同会直接失败。
+
+### 直接发布
+
+设置：
+
+```yaml
+update:
+  strategy: publish
+```
+
+定时或手动镜像检查成功后，workflow 只提交受管的 package 和 Manifest 文件，commit 带 `[skip ci]`，然后推送当前分支、创建 `v<version>` 并上传 LPK。已有 tag 不会被移动；如果同名 tag 指向其他 commit，workflow 会失败。
+
+Milestone 2 的直接发布只包含 Git commit、tag 和 GitHub Release，不会提交到懒猫官方商店或私有商店。
+
+## 静态、Exec、Go、Rust 和 TypeScript 的 tag/release 构建
+
+没有 Docker service 的项目使用 Git 作为版本来源：
+
+```yaml
+update:
+  strategy: pull
+  version_source:
+    type: git
+```
+
+tag 触发和 release 触发二选一。同一个 tag 同时启用两种触发方式会构建两次。
+
+Tag 触发：
+
+```yaml
+name: Build tagged LPK
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  lazycat:
+    uses: ca-x/lazycat-github-action/.github/workflows/lazycat.yml@v1
+    with:
+      operation: auto
+      config: .github/lazycat-action.yml
+      toolchains: go
+    secrets: inherit
+```
+
+Release 触发：
+
+```yaml
+name: Build released LPK
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  lazycat:
+    uses: ca-x/lazycat-github-action/.github/workflows/lazycat.yml@v1
+    with:
+      operation: auto
+      config: .github/lazycat-action.yml
+      changelog: ${{ github.event.release.body }}
+      toolchains: node
+      node-package-manager: pnpm
+    secrets: inherit
+```
+
+Action 会移除一个前导 `v`，更新 `package.yml.version`，运行项目 buildscript，构建并重新打开 LPK，执行 lint，计算 SHA256，然后上传到对应 Release。如果 tag/release checkout 修改了 `package.yml`，Release Asset 上传成功后，workflow 会把该文件同步回默认分支。
+
+### TypeScript 静态 Web 构建
 
 `lzc-build.yml`：
 
@@ -83,7 +422,7 @@ buildscript: ./scripts/build.sh
 contentdir: ./dist/content
 ```
 
-TypeScript 静态站点的 `scripts/build.sh` 可以是：
+`scripts/build.sh`：
 
 ```bash
 #!/usr/bin/env bash
@@ -95,20 +434,9 @@ mkdir -p dist/content
 cp -R web-dist/. dist/content/
 ```
 
-静态 HTML/CSS/JavaScript 通常与 CPU 无关；如果应用运行时包含 Node.js native addon，它仍必须编译为 Linux x86_64。
+workflow 使用 `toolchains: node`，并传 `node-version` 或提交 `.node-version`。
 
-## Exec 示例
-
-Exec 应用也不要求 services：
-
-```yaml
-application:
-  subdomain: example
-  routes:
-    - /=exec://8080,/lzcapp/pkg/content/app
-```
-
-Go buildscript 必须使用 Action 提供的目标变量，不能使用 Runner 自身架构：
+### Go Exec 构建
 
 ```bash
 #!/usr/bin/env bash
@@ -120,69 +448,116 @@ GOARCH="${LAZYCAT_TARGET_ARCH}" \
 go build -trimpath -ldflags='-s -w' -o dist/content/app ./cmd/app
 ```
 
-无论 Runner 是 amd64 还是 ARM64，以上脚本都输出 Linux x86_64 程序。
+workflow 使用 `toolchains: go`，并传 `go-version` 或在 `go.mod` 中声明 Go 版本。
 
-## Git tag Workflow
+### Rust Exec 构建
 
-Action 发布 `v1` 后，调用者不需要编译它：
-
-```yaml
-name: Build LPK
-
-on:
-  push:
-    tags:
-      - "v*"
-
-permissions:
-  contents: read
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: ca-x/lazycat-github-action@v1
-        id: lazycat
-        with:
-          operation: build
-          version: ${{ github.ref_name }}
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: lpk-${{ steps.lazycat.outputs.version }}
-          path: ${{ steps.lazycat.outputs.lpk-path }}
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+cargo build --release --target x86_64-unknown-linux-gnu
+mkdir -p dist/content
+cp target/x86_64-unknown-linux-gnu/release/example dist/content/app
 ```
 
-Action 会去掉一个前导 `v`，更新 `package.yml.version`，运行项目 buildscript，构建 LPK，再次打开 LPK 校验 package ID/版本，执行 lint，计算 SHA256 并返回 outputs。
+workflow 使用 `toolchains: rust`。可以传 `rust-toolchain`，也可以提交包含 `toolchain.channel` 的 `rust-toolchain.toml`。reusable workflow 会安装 `x86_64-unknown-linux-gnu` target。
 
-如需使用 ARM64 Runner，只修改 `runs-on` 为对应 ARM64 标签，不要修改 LazyCat 目标变量。
+### Docker buildscript
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+docker buildx build \
+  --platform "${LAZYCAT_TARGET_PLATFORM}" \
+  --load \
+  -t example-build:local .
+```
+
+workflow 使用 `toolchains: docker`。ARM64 Runner 的 Dockerfile 构建阶段需要执行 x64 程序时，保留 `enable-qemu: true`。
+
+## 静态和 Exec Manifest 可以没有 services
+
+静态 Web：
+
+```yaml
+application:
+  subdomain: example
+  routes:
+    - /=file:///lzcapp/pkg/content
+```
+
+Exec：
+
+```yaml
+application:
+  subdomain: example
+  routes:
+    - /=exec://8080,/lzcapp/pkg/content/app
+```
+
+这类项目不需要 `images` 配置，版本直接来自 tag 或 release。
+
+## Outputs
+
+| Output | 含义 |
+|---|---|
+| `changed` | 受管项目文件是否变化 |
+| `package-id` | LazyCat package ID |
+| `package-file` | `package.yml` 绝对路径 |
+| `manifest-file` | Manifest 绝对路径 |
+| `version` | 去掉前导 `v` 的规范化 SemVer |
+| `tag` | 规范化的 `v<version>` tag |
+| `lpk-path` | 当前 job 中构建出的 LPK 绝对路径 |
+| `sha256` | 64 位小写 LPK SHA256 |
+| `download-url` | 发布后确认过的 GitHub Release Asset URL |
+| `image-results` | 镜像选择和交付结果 JSON 数组 |
+| `update-strategy` | `pull` 或 `publish` |
+| `channel` | 驱动应用版本的镜像 Channel |
+| `result-file` | 完整且不含秘密的 JSON 结果文件 |
+| `runner-arch` | `amd64` 或 `arm64` |
+| `target-platform` | v1 固定为 `linux/amd64` |
+
+`image-results` 单项示例：
+
+```json
+{
+  "id": "web",
+  "target": "service",
+  "service": "web",
+  "platform": "linux/amd64",
+  "tag": "v2.0.0",
+  "sourceRef": "ghcr.io/acme/example-web:v2.0.0",
+  "sourceDigest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "deliveryMode": "lazycat",
+  "deliveredRef": "registry.lazycat.cloud/acme/example-web:copy-id",
+  "copied": true,
+  "copyResult": {
+    "sourceImage": "ghcr.io/acme/example-web:v2.0.0",
+    "platform": "amd64",
+    "lazyCatImage": "registry.lazycat.cloud/acme/example-web:copy-id",
+    "finished": true
+  }
+}
+```
+
+完整结果写入 `.lazycat-action/result.json`。token、密码、Cookie 和 Authorization 请求头不会写入 outputs 或 step summary。
+
+## Artifact 和 Release Asset 的区别
+
+- 只要本次运行生成了 LPK，就会上传 Workflow Artifact，便于 CI 检查。
+- Pull Request 模式到 Artifact 和 PR 为止。
+- Release 流程还会把 LPK 挂到 GitHub Release，并返回 `download-url`。
+- 后续私有商店发布会使用 Release Asset URL 和 SHA256，让私有商店直接信任提供的 digest，不必先下载文件来计算。
 
 ## Dry run
 
 ```yaml
-- uses: ca-x/lazycat-github-action@v1
-  with:
-    operation: build
-    version: v1.2.3
-    dry-run: true
+with:
+  operation: check
+  config: .github/lazycat-action.yml
+  dry-run: true
 ```
 
-Dry run 只读取项目并报告 `package.yml` 是否需要变化；不会修改文件、执行 buildscript 或生成 LPK。
-
-## Outputs
-
-主要 outputs 包括 `changed`、`package-id`、`version`、`tag`、`lpk-path`、`sha256`、`result-file`、`runner-arch` 和 `target-platform`。Milestone 1 的 `image-results` 是空 JSON 数组，Milestone 2 会填入镜像检查和复制结果。
-
-完整且不含秘密的结果写入 `.lazycat-action/result.json`。密码、平台 token、商店 token、Authorization 请求头和 Cookie 不会写入 outputs 或 step summary。
-
-## Runner 是否需要安装 Docker
-
-Milestone 1 的静态和 Exec 构建不需要 Docker，除非项目自己的 `buildscript` 调用 Docker。后续的 Registry 版本检查和 LazyCat 平台远端 Registry-to-Registry 镜像复制同样不要求本地 Docker。ARM64 Runner 如果要执行 x64 Dockerfile 构建步骤，则需要 Buildx/QEMU，并显式构建 `linux/amd64`。
-
-## 当前 Milestone 1 限制
-
-为了保持后续 API 只新增能力，`check`、`publish-official` 和 `publish-private` 输入已经存在，但在相应里程碑完成前会返回 `PROJECT_UNSUPPORTED`。Milestone 1 不创建 Pull Request、tag、Release、Release Asset 或商店提交。
+Dry run 会选择版本并返回计划中的镜像地址，但不会复制镜像、修改文件、运行 buildscript、创建 PR 或创建 Release。
 
 完整目标行为见[设计规格](docs/superpowers/specs/2026-07-10-lazycat-github-action-design.md)。

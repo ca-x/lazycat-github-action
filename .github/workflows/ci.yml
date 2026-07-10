@@ -23,10 +23,13 @@ jobs:
           cache: true
 
       - name: Test
-        run: go test ./...
+        run: go test -race ./...
 
       - name: Vet
         run: go vet ./...
+
+      - name: Validate workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/*.yml
 
   shell:
     runs-on: ubuntu-latest
@@ -41,7 +44,7 @@ jobs:
         run: bash scripts/run-action_test.sh
 
       - name: Run ShellCheck
-        run: shellcheck scripts/*.sh testdata/static-app/scripts/*.sh
+        run: shellcheck scripts/*.sh testdata/*/scripts/*.sh
 
   cross-build:
     runs-on: ubuntu-latest
