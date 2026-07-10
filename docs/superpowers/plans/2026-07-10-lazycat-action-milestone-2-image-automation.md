@@ -508,3 +508,27 @@ Review `main...milestone/2-image-automation`, fix all critical/important finding
 ## Milestone 2 Completion Protocol
 
 Execution is complete only after this plan is amended with the final commit SHA, test/race/vet results, Registry fixture results, amd64/arm64 build results, workflow lint results, and the exact Milestone 3 items intentionally deferred.
+
+## Milestone 2 Completion Record
+
+- Completed on 2026-07-10.
+- Reviewed implementation head: `5e27e32` (`fix: harden image automation workflows`).
+- `go test -race ./...`: passed for all packages, including OCI Registry and two-service image-flow fixtures.
+- `go vet ./...`: passed.
+- `bash scripts/run-action_test.sh`: passed for checksum verification and amd64/arm64 bootstrap selection.
+- ShellCheck `v0.10.0`: passed for `scripts/*.sh` and fixture build scripts.
+- Linux cross-builds: `CGO_ENABLED=0` passed for `GOARCH=amd64` and `GOARCH=arm64`.
+- GoReleaser `v2.17.0 check`: passed.
+- actionlint `v1.7.7`: passed for every repository workflow.
+- English, Chinese, and Chinese design-spec punctuation gates: passed.
+- In-memory OCI Registry verification covers multi-platform selection, ARM-only tag skipping, filtered tag inspection, cancellation, and fixed `linux/amd64` digest/creation metadata.
+- The `testdata/image-app` fixture proves that an explicit `web` target updates without treating the `db` service as the main service.
+
+Milestone 3 intentionally retains these items:
+
+- account/password exchange for a developer-platform token in CI;
+- LazyCat official application creation, Testflight, LPK submission, changelog locales, and typed submission results;
+- Miao private-store create-version and upload flows using `APPSTORE_URL`, `APPSTORE_TOKEN`, Release Asset URL, and SHA256, with optional connection metadata;
+- store publication idempotency, retry policy, and release-to-store output contracts;
+- documentation and tests for local lzc-cli token-file import in CI bootstrap;
+- any source Registry credentials beyond what the actual lzc-cli 2.0.8 `CopyImage` protocol supports.
