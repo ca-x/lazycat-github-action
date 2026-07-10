@@ -39,17 +39,17 @@
 - Produces: project metadata fields `Name` and `Description` for store creation defaults.
 - Produces: additive Action result fields `OfficialStoreEnabled`, `PrivateStoreEnabled`, and `StoreResults`.
 
-- [ ] **Step 1: Write failing configuration and project metadata tests**
+- [x] **Step 1: Write failing configuration and project metadata tests**
 
   Add table cases proving that official locales default to `zh` and `en`, locale values are normalized and unique, official create metadata is rejected when `create_if_missing` is false, and private name/summary fields are trimmed. Extend project fixture assertions to require package `name` and `description` to be returned.
 
-- [ ] **Step 2: Run focused tests and confirm the new expectations fail**
+- [x] **Step 2: Run focused tests and confirm the new expectations fail**
 
   Run: `go test ./internal/config ./internal/project ./internal/action`
 
   Expected: FAIL because the new configuration, project, and result fields do not exist.
 
-- [ ] **Step 3: Add the contract types and boundary validation**
+- [x] **Step 3: Add the contract types and boundary validation**
 
   Implement these additive shapes:
 
@@ -77,13 +77,13 @@
 
   Default official locales to `[]string{"zh", "en"}`. Add `Name` and `Description` to `project.Info`. Extend `action.Result` with JSON fields `officialStoreEnabled`, `privateStoreEnabled`, and `storeResults`, where an unset result serializes as `{}` rather than `null`.
 
-- [ ] **Step 4: Run focused tests and confirm they pass**
+- [x] **Step 4: Run focused tests and confirm they pass**
 
   Run: `go test ./internal/config ./internal/project ./internal/action`
 
   Expected: PASS.
 
-- [ ] **Step 5: Commit the additive contracts**
+- [x] **Step 5: Commit the additive contracts**
 
   ```bash
   git add internal/config internal/project internal/action
@@ -100,17 +100,17 @@
 - Consumes: `auth.StaticToken`, `auth.Client.Login`, and `auth/tokenfile.Store` from `lzc-toolkit-go`.
 - Produces: `platformauth.Resolver.Resolve(context.Context, Request) (Result, error)`.
 
-- [ ] **Step 1: Write failing precedence, login, token-file, and redaction tests**
+- [x] **Step 1: Write failing precedence, login, token-file, and redaction tests**
 
   Cover these cases in a table: `LAZYCAT_TOKEN` wins; `LZC_CLI_TOKEN` is second; complete username/password invokes login once and keeps the token in memory; one missing credential fails; explicit token file is last; missing credentials return unauthenticated; errors never contain token or password values.
 
-- [ ] **Step 2: Run the resolver test and confirm it fails**
+- [x] **Step 2: Run the resolver test and confirm it fails**
 
   Run: `go test ./internal/platformauth`
 
   Expected: FAIL because the package is absent.
 
-- [ ] **Step 3: Implement the resolver contract**
+- [x] **Step 3: Implement the resolver contract**
 
   Use these stable types:
 
@@ -142,13 +142,13 @@
 
   Build the final provider with `auth.StaticToken`; never return the token string in `Result`. Reject token-file paths containing symbolic-link components and require the file to be a regular file not writable by group/other on Unix. Do not automatically read a developer machine path unless `TokenFile` was explicitly provided.
 
-- [ ] **Step 4: Run resolver tests with the race detector**
+- [x] **Step 4: Run resolver tests with the race detector**
 
   Run: `go test -race ./internal/platformauth`
 
   Expected: PASS with no credential values in output.
 
-- [ ] **Step 5: Commit credential resolution**
+- [x] **Step 5: Commit credential resolution**
 
   ```bash
   git add internal/platformauth
@@ -168,17 +168,17 @@
 - Consumes: project root, expected package ID/version, and an LPK path.
 - Returns: package ID, version, SHA256, size, and target platform.
 
-- [ ] **Step 1: Write failing real-LPK validation tests**
+- [x] **Step 1: Write failing real-LPK validation tests**
 
   Build the existing static fixture, then test success, mismatched package, mismatched version, non-LPK input, path outside project root, symbolic-link input, and cancellation.
 
-- [ ] **Step 2: Run focused tests and confirm failure**
+- [x] **Step 2: Run focused tests and confirm failure**
 
   Run: `go test ./internal/lpkcheck ./internal/build`
 
   Expected: FAIL because `lpkcheck` does not exist.
 
-- [ ] **Step 3: Implement a reusable reader-based artifact check**
+- [x] **Step 3: Implement a reusable reader-based artifact check**
 
   Define:
 
@@ -202,13 +202,13 @@
 
   Open the LPK with `lpk.OpenFile`, read its effective manifest, compare expected metadata, stream SHA256 from the file, and return `platform.TargetPlatform`. Extract the common hashing helper from `internal/build` so both build and publish verification use the same implementation.
 
-- [ ] **Step 4: Run focused tests with race detection**
+- [x] **Step 4: Run focused tests with race detection**
 
   Run: `go test -race ./internal/lpkcheck ./internal/build`
 
   Expected: PASS.
 
-- [ ] **Step 5: Commit artifact validation**
+- [x] **Step 5: Commit artifact validation**
 
   ```bash
   git add internal/lpkcheck internal/build
@@ -225,17 +225,17 @@
 - Consumes: an `auth.TokenProvider`, verified LPK metadata, locale list, changelog, and official application-creation options.
 - Produces: `official.Publisher.Publish(context.Context, Request) (Result, error)`.
 
-- [ ] **Step 1: Write failing SDK-adapter tests against `httptest`**
+- [x] **Step 1: Write failing SDK-adapter tests against `httptest`**
 
   Reproduce the actual SDK request sequence: application existence check, optional create, LPK upload, and review creation. Assert `X-User-Token`/cookie authentication is present on the mock server but absent from returned results and failures. Assert every configured locale receives the changelog and response package/version/SHA mismatch is rejected.
 
-- [ ] **Step 2: Run the official-store tests and confirm failure**
+- [x] **Step 2: Run the official-store tests and confirm failure**
 
   Run: `go test ./internal/store/official`
 
   Expected: FAIL because the package is absent.
 
-- [ ] **Step 3: Implement the official adapter using only toolkit APIs**
+- [x] **Step 3: Implement the official adapter using only toolkit APIs**
 
   Define:
 
@@ -266,13 +266,13 @@
 
   Construct `appstore.PublishRequest`, map the single release changelog to every locale, derive application name from package metadata when no override is configured, and call `appstore.Client.Publish`. Treat every remote response as untrusted and compare package, version, and SHA256 before returning success.
 
-- [ ] **Step 4: Run official-store tests with race detection**
+- [x] **Step 4: Run official-store tests with race detection**
 
   Run: `go test -race ./internal/store/official`
 
   Expected: PASS.
 
-- [ ] **Step 5: Commit official publishing**
+- [x] **Step 5: Commit official publishing**
 
   ```bash
   git add internal/store/official
@@ -290,17 +290,17 @@
 - Consumes: `APPSTORE_URL`, `APPSTORE_TOKEN`, optional `APP_ID`, verified LPK metadata, package name/summary, changelog, download URL, and SHA256.
 - Produces: `private.Client.Publish(context.Context, Request) (Result, error)`.
 
-- [ ] **Step 1: Write failing boundary and protocol tests**
+- [x] **Step 1: Write failing boundary and protocol tests**
 
   Use `httptest` to verify: Bearer authentication; JSON create-app request; JSON external-version request; optional APP_ID path; lookup by exact package ID when APP_ID is absent; same version+SHA returns an idempotent existing result; package mismatch fails; response bodies are size-limited; malformed response JSON fails; 401/403 map to authentication errors without echoing the response body; URL validation rejects non-HTTPS, userinfo, fragments, non-GitHub hosts, and paths outside `/releases/download/`; HTTP is accepted only for loopback test servers.
 
-- [ ] **Step 2: Run private-store tests and confirm failure**
+- [x] **Step 2: Run private-store tests and confirm failure**
 
   Run: `go test ./internal/store/private`
 
   Expected: FAIL because the package is absent.
 
-- [ ] **Step 3: Implement the real private-store protocol**
+- [x] **Step 3: Implement the real private-store protocol**
 
   Use a 30-second default HTTP timeout and a 1 MiB response limit. Send:
 
@@ -341,13 +341,13 @@
   }
   ```
 
-- [ ] **Step 4: Run private-store tests with race detection**
+- [x] **Step 4: Run private-store tests with race detection**
 
   Run: `go test -race ./internal/store/private`
 
   Expected: PASS.
 
-- [ ] **Step 5: Commit private-store support**
+- [x] **Step 5: Commit private-store support**
 
   ```bash
   git add internal/store/private
@@ -369,17 +369,17 @@
 - Consumes: Task 2 credential resolver, Task 3 LPK verifier, and Task 4/5 publishers.
 - Produces: `publishflow.Flow.Publish(context.Context, Request) (Result, error)` and Action `store-results` output.
 
-- [ ] **Step 1: Write failing flow and Action operation tests**
+- [x] **Step 1: Write failing flow and Action operation tests**
 
   Test official/private enablement, wrong operation, pull-strategy rejection, disabled store rejection, missing LPK, missing changelog for official, missing private URL, dry-run without remote calls, LPK package/version/SHA verification, credential error mapping, retryable remote error propagation, and JSON output encoding. Confirm existing build/check outputs are unchanged.
 
-- [ ] **Step 2: Run focused tests and confirm failure**
+- [x] **Step 2: Run focused tests and confirm failure**
 
   Run: `go test ./internal/publishflow ./internal/action ./internal/githubio`
 
   Expected: FAIL because store operations are not wired.
 
-- [ ] **Step 3: Implement publish composition and stable error mapping**
+- [x] **Step 3: Implement publish composition and stable error mapping**
 
   Define a discriminated target:
 
@@ -399,17 +399,17 @@
 
   Add Action error codes `RELEASE_ASSET_MISSING`, `STORE_AUTH_FAILED`, and `STORE_PUBLISH_FAILED`. Propagate `Retryable` from typed toolkit or private-client errors. Add `TokenFile` to `action.Input`, read it from `INPUT_TOKEN_FILE`, and wire the operations in `action.Run` instead of returning the Milestone 3 placeholder error.
 
-- [ ] **Step 4: Extend composite inputs and outputs additively**
+- [x] **Step 4: Extend composite inputs and outputs additively**
 
   Add `token-file` input and these outputs to `action.yml`: `official-store-enabled`, `private-store-enabled`, and `store-results`. Add matching `githubio.WriteOutputs` entries while preserving multiline delimiter-injection protection.
 
-- [ ] **Step 5: Run focused tests and metadata checks**
+- [x] **Step 5: Run focused tests and metadata checks**
 
   Run: `go test -race ./internal/publishflow ./internal/action ./internal/githubio ./internal/metadata`
 
   Expected: PASS.
 
-- [ ] **Step 6: Commit publish orchestration**
+- [x] **Step 6: Commit publish orchestration**
 
   ```bash
   git add internal/publishflow internal/action internal/githubio action.yml
@@ -428,31 +428,31 @@
 - Consumes: build outputs, confirmed GitHub Release Asset URL, and GitHub secrets.
 - Produces: reusable-workflow outputs `official-store-enabled`, `private-store-enabled`, and `store-results`.
 
-- [ ] **Step 1: Add failing workflow contract assertions**
+- [x] **Step 1: Add failing workflow contract assertions**
 
   Extend shell/metadata tests to require optional secrets `LAZYCAT_USERNAME`, `LAZYCAT_PASSWORD`, `APPSTORE_URL`, `APPSTORE_TOKEN`, and `APP_ID`; token-file input; store outputs; conditions that require `update-strategy == 'publish'`; and private publishing only after `asset-url` produced a non-empty URL.
 
-- [ ] **Step 2: Run workflow contract tests and confirm failure**
+- [x] **Step 2: Run workflow contract tests and confirm failure**
 
   Run: `go test ./internal/metadata && bash scripts/run-action_test.sh`
 
   Expected: FAIL because the workflow does not expose store publication.
 
-- [ ] **Step 3: Add official and private publication steps**
+- [x] **Step 3: Add official and private publication steps**
 
   Pass all credentials only to their specific publish step. Invoke the composite Action with `operation: publish-official` or `publish-private`, the built `lpk-path`, changelog, and private `download-url`. Never pass store credentials to buildscript execution. Merge the two operation results into one deterministic `store-results` JSON output with `jq -cS` or an equivalent checked script.
 
-- [ ] **Step 4: Preserve Docker and non-service behavior**
+- [x] **Step 4: Preserve Docker and non-service behavior**
 
   Keep toolchain setup before build, retain x64 target declarations on ARM64 runners, and ensure static/Exec projects with `images: []` reach the same Release and store steps. Keep pull-request jobs free of all store calls.
 
-- [ ] **Step 5: Run actionlint and workflow tests**
+- [x] **Step 5: Run actionlint and workflow tests**
 
   Run: `go test ./internal/metadata && bash scripts/run-action_test.sh && actionlint .github/workflows/*.yml`
 
   Expected: PASS.
 
-- [ ] **Step 6: Commit workflow publication**
+- [x] **Step 6: Commit workflow publication**
 
   ```bash
   git add .github/workflows scripts/run-action_test.sh internal/metadata
@@ -482,31 +482,31 @@
 - Documents every stable Action input/output, configuration field, permission, secret, architecture rule, and store result.
 - Corrects the private-store design section to use the real JSON external-version protocol.
 
-- [ ] **Step 1: Add documentation gate assertions before prose**
+- [x] **Step 1: Add documentation gate assertions before prose**
 
   Extend the existing documentation test script to require reciprocal language links and searchable headings/phrases for authentication precedence, local lzc-cli token location, Docker installation rules, image copy results, official lint restrictions, private URL+SHA256, APP_ID behavior, static/Exec projects, ARM64 host versus x64 target, and every example directory.
 
-- [ ] **Step 2: Run the documentation gate and confirm failure**
+- [x] **Step 2: Run the documentation gate and confirm failure**
 
   Run the repository's README/documentation checks from `.github/workflows/ci.yml`.
 
   Expected: FAIL on missing Milestone 3 sections and examples.
 
-- [ ] **Step 3: Write Chinese and English end-to-end documentation**
+- [x] **Step 3: Write Chinese and English end-to-end documentation**
 
   Explain that GitHub-hosted runners do not inherit local login state. Document token extraction as `LZC_CLI_TOKEN` first and `~/.config/lazycat/box-config.json` field `token` second; warn that `lzc-cli config get token` prints a secret and must not be logged. Show account/password login as a temporary in-memory CI fallback. Include full YAML for official publishing and both private create-app and add-version paths.
 
-- [ ] **Step 4: Add runnable build examples**
+- [x] **Step 4: Add runnable build examples**
 
   Go uses `GOOS=linux GOARCH=amd64`; Rust installs and builds `x86_64-unknown-linux-gnu`; TypeScript static emits architecture-neutral assets; TypeScript Exec packages a Linux x64 runtime/binary. Docker examples state that remote LazyCat copying does not require local Docker, while Dockerfile/buildscript builds do and ARM64 runners require Buildx/QEMU.
 
-- [ ] **Step 5: Run documentation and shell checks**
+- [x] **Step 5: Run documentation and shell checks**
 
   Run: `git diff --check && shellcheck examples/*/scripts/*.sh scripts/*.sh`
 
   Expected: PASS.
 
-- [ ] **Step 6: Commit documentation and examples**
+- [x] **Step 6: Commit documentation and examples**
 
   ```bash
   git add README.md README.zh-CN.md docs/superpowers/specs examples
@@ -528,11 +528,11 @@
 - Produces: a discoverable skill named `lazycat-github-action` that generates or audits project configuration and workflows.
 - Covers: Docker service binding, channels, delivery modes, static/Exec builds, official/private stores, permissions, secrets, and host/target architecture separation.
 
-- [ ] **Step 1: Write baseline evals before creating the skill**
+- [x] **Step 1: Write baseline evals before creating the skill**
 
   Create at least six eval prompts and expected assertions: multi-service Docker with explicit web service; nightly image; mirror/private-only publication; Go Exec on ARM64 runner targeting x64; TypeScript static release; and rejection of official publication with direct images. Run the repository eval validator before the skill exists and record the expected missing-skill failure.
 
-- [ ] **Step 2: Initialize the skill with the standard generator**
+- [x] **Step 2: Initialize the skill with the standard generator**
 
   Run:
 
@@ -545,11 +545,11 @@
     --interface default_prompt="Use $lazycat-github-action to configure this repository for LazyCat LPK builds and publishing."
   ```
 
-- [ ] **Step 3: Replace generated placeholders with concise operational guidance**
+- [x] **Step 3: Replace generated placeholders with concise operational guidance**
 
   Keep `SKILL.md` below 500 lines, put detailed schemas and full workflow variants in one-level references, and provide copyable configuration/workflow assets. Make the skill require inspection of `package.yml`, `lzc-build.yml`, and the manifest before choosing a project type; never infer a main service; and reject architecture/store combinations that violate the Action contract.
 
-- [ ] **Step 4: Validate the skill and eval schema**
+- [x] **Step 4: Validate the skill and eval schema**
 
   Run:
 
@@ -561,11 +561,11 @@
 
   Expected: validation passes, JSON parses, and no placeholder text remains.
 
-- [ ] **Step 5: Execute deterministic eval assertions locally**
+- [x] **Step 5: Execute deterministic eval assertions locally**
 
   Add a small Go or shell validator only if required to check `evals.json`; run every expected structural assertion without invoking remote systems or subagents. Confirm each scenario points to the correct reference/assets and encodes explicit service, delivery, store, and architecture decisions.
 
-- [ ] **Step 6: Commit the Agent Skill**
+- [x] **Step 6: Commit the Agent Skill**
 
   ```bash
   git add skills
@@ -585,11 +585,11 @@
 **Interfaces:**
 - Produces: a release-ready `main`, signed/checksummed Linux amd64 and arm64 Action assets, and floating `v1` tag behavior.
 
-- [ ] **Step 1: Add fixed real-project compatibility fixtures**
+- [x] **Step 1: Add fixed real-project compatibility fixtures**
 
   Use `gh` to inspect selected `lazycat-contrib` repositories, record repository and commit SHA in fixture comments, and copy only minimal package/build/manifest shapes. Cover one multi-service Docker project and one no-service static or Exec project without depending on a live default branch during tests.
 
-- [ ] **Step 2: Run the complete local verification gate**
+- [x] **Step 2: Run the complete local verification gate**
 
   Run fresh:
 
@@ -607,7 +607,7 @@
 
   Expected: every command exits zero.
 
-- [ ] **Step 3: Perform the security and compatibility review**
+- [x] **Step 3: Perform the security and compatibility review**
 
   Inspect all diffs for secrets and sensitive headers, confirm remote response bodies are not surfaced, confirm every HTTP client has context/timeouts/size limits, confirm URL and file boundaries are validated, and compare Action inputs/outputs against the design spec. Run:
 
@@ -617,9 +617,9 @@
 
   Expected: no committed credential values.
 
-- [ ] **Step 4: Mark every plan item complete and commit the milestone record**
+- [x] **Step 4: Mark completed implementation items and commit the milestone record**
 
-  Update all checkboxes in this file to `[x]`, add a concise verification record with tool versions and results, then commit:
+  Update completed implementation and local-verification checkboxes to `[x]`, leave remote merge/release checks open, add a concise verification record with tool versions and results, then commit:
 
   ```bash
   git add docs/superpowers/plans/2026-07-10-lazycat-action-milestone-3-stores-and-skill.md
@@ -642,6 +642,14 @@
 - [ ] **Step 6: Publish the first stable release and floating major tag**
 
   Verify `action.yml` embeds `v1.0.0`, create and push annotated tag `v1.0.0`, wait for the release workflow, verify both Linux architecture assets and checksums with `gh release view v1.0.0`, then create/update annotated `v1` at the same commit and push it. Do not move either tag if the release asset verification fails.
+
+## Verification Record
+
+- 2026-07-11 local release gate: `go test -count=1 -race ./...`, `go vet ./...`, bootstrap tests, ShellCheck 0.10.0, Linux amd64/arm64 cross-builds, actionlint 1.7.7, Skill validation/evals, and `govulncheck` all passed.
+- GoReleaser 2.17.0 `check` and snapshot release passed. Both archives contain only `lazycat-action`, and `checksums.txt` verifies both artifacts.
+- Security review confirmed bounded remote responses, 30-second HTTP defaults, disabled redirects for login and both store clients, token-file and LPK symlink rejection, GitHub Release Asset URL/SHA256 binding, and no committed token-shaped values.
+- Local toolchain: Go 1.26.5. CI remains pinned to Go 1.25.x and repeats race, vet, workflow, shell, cross-build, fixture, and release-contract checks.
+- Remote merge, stable tag, GitHub Release assets, SBOM, provenance, and floating `v1` verification remain pending in Task 10 Steps 5–6.
 
 ## Plan Self-Review
 
