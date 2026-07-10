@@ -511,6 +511,7 @@ jobs:
           version: ${{ steps.lazycat.outputs.version }}
           changelog: ${{ steps.release-notes.outputs.value }}
           lpk-path: ${{ steps.lazycat.outputs.lpk-path }}
+          sha256: ${{ steps.lazycat.outputs.sha256 }}
           token-file: ${{ inputs.token-file }}
 
       - name: Publish to MiaoMiao private store
@@ -528,6 +529,7 @@ jobs:
           changelog: ${{ steps.release-notes.outputs.value }}
           lpk-path: ${{ steps.lazycat.outputs.lpk-path }}
           download-url: ${{ steps.asset-url.outputs.download-url }}
+          sha256: ${{ steps.lazycat.outputs.sha256 }}
 
       - name: Merge store publishing results
         id: store-results

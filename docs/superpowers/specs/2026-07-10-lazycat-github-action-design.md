@@ -154,6 +154,7 @@ internal/execx/           可测试的外部命令边界
 | `changelog` | 空 | 发布说明；release 事件时自动取得 |
 | `lpk-path` | 空 | 发布操作使用的现有 LPK 路径 |
 | `download-url` | 空 | 私有商店发布所需的真实 Release Asset URL |
+| `sha256` | 空 | 商店发布时由 GitHub Release Asset 校验步骤确认的 SHA256 |
 | `dry-run` | `false` | 只计算计划，不修改文件或远端状态 |
 
 `operation=auto` 根据事件选择行为：

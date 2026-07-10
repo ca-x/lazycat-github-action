@@ -20,6 +20,7 @@ func TestReadInputNormalizesTagVersionAndActionFields(t *testing.T) {
 		"INPUT_CHANGELOG":                 "Release notes",
 		"INPUT_LPK_PATH":                  "dist/app.lpk",
 		"INPUT_DOWNLOAD_URL":              "https://github.com/acme/app/releases/download/v1.2.3/app.lpk",
+		"INPUT_SHA256":                    strings.Repeat("a", 64),
 		"INPUT_TOKEN_FILE":                "/run/secrets/lazycat.json",
 		"INPUT_DRY_RUN":                   "true",
 		"GITHUB_EVENT_NAME":               "push",
@@ -43,6 +44,9 @@ func TestReadInputNormalizesTagVersionAndActionFields(t *testing.T) {
 	}
 	if input.TokenFile != "/run/secrets/lazycat.json" {
 		t.Fatalf("token file=%q", input.TokenFile)
+	}
+	if input.ExpectedSHA256 != strings.Repeat("a", 64) {
+		t.Fatalf("expected sha256=%q", input.ExpectedSHA256)
 	}
 	if input.WorkflowToolchains != "go,docker" || input.WorkflowGoVersion != "1.25.x" || input.WorkflowNodeVersion != "22.x" || input.WorkflowRustToolchain != "stable" {
 		t.Fatalf("workflow toolchains=%#v", input)

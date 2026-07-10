@@ -13,6 +13,7 @@ import (
 	"github.com/ca-x/lazycat-github-action/internal/publishflow"
 	"github.com/ca-x/lazycat-github-action/internal/store/official"
 	private "github.com/ca-x/lazycat-github-action/internal/store/private"
+	lpkgo "github.com/lib-x/lzc-toolkit-go"
 	"github.com/lib-x/lzc-toolkit-go/auth"
 )
 
@@ -68,7 +69,7 @@ func TestFlowPublishesPrivateStoreWithEnvironmentAndMetadataDefaults(t *testing.
 	cfg.Stores.Private.Enabled = true
 	result, err := flow.Publish(context.Background(), publishflow.Request{
 		Target: publishflow.TargetPrivate, Config: cfg, Project: projectInfo(), LPKPath: "/repo/dist/app.lpk",
-		Version: "1.2.3", Changelog: "Release notes", DownloadURL: "https://github.com/acme/example/releases/download/v1.2.3/app.lpk",
+		Version: "1.2.3", Changelog: "Release notes", DownloadURL: "https://github.com/acme/example/releases/download/v1.2.3/app.lpk", ExpectedSHA256: artifactSHA,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -92,7 +93,7 @@ func TestFlowRejectsUnsafePublishingStatesAndDryRunSkipsRemoteCalls(t *testing.T
 		t.Run(test.name, func(t *testing.T) {
 			cfg := publishConfig()
 			cfg.Stores.Private.Enabled = true
-			request := publishflow.Request{Target: publishflow.TargetPrivate, Config: cfg, Project: projectInfo(), LPKPath: "/repo/dist/app.lpk", Version: "1.2.3", DownloadURL: "https://github.com/acme/example/releases/download/v1.2.3/app.lpk"}
+			request := publishflow.Request{Target: publishflow.TargetPrivate, Config: cfg, Project: projectInfo(), LPKPath: "/repo/dist/app.lpk", Version: "1.2.3", DownloadURL: "https://github.com/acme/example/releases/download/v1.2.3/app.lpk", ExpectedSHA256: artifactSHA}
 			test.mutate(&request.Config, &request)
 			_, err := (publishflow.Flow{}).Publish(context.Background(), request)
 			if !errors.Is(err, test.wantErr) {
@@ -118,10 +119,24 @@ func TestFlowRejectsUnsafePublishingStatesAndDryRunSkipsRemoteCalls(t *testing.T
 	cfg.Stores.Private.Enabled = true
 	result, err := flow.Publish(context.Background(), publishflow.Request{
 		Target: publishflow.TargetPrivate, Config: cfg, Project: projectInfo(), LPKPath: "/repo/dist/app.lpk",
-		Version: "1.2.3", DownloadURL: "https://github.com/acme/example/releases/download/v1.2.3/app.lpk", DryRun: true,
+		Version: "1.2.3", DownloadURL: "https://github.com/acme/example/releases/download/v1.2.3/app.lpk", ExpectedSHA256: artifactSHA, DryRun: true,
 	})
 	if err != nil || remoteCalled || result.Private == nil || result.Private.Published {
 		t.Fatalf("result=%#v remoteCalled=%v err=%v", result, remoteCalled, err)
+	}
+}
+
+func TestFlowRejectsReleaseAssetSHA256Mismatch(t *testing.T) {
+	flow := publishflow.Flow{Verify: func(context.Context, lpkcheck.Request) (lpkcheck.Result, error) { return verifiedArtifact(), nil }}
+	cfg := publishConfig()
+	cfg.Stores.Private.Enabled = true
+	_, err := flow.Publish(context.Background(), publishflow.Request{
+		Target: publishflow.TargetPrivate, Config: cfg, Project: projectInfo(), LPKPath: "/repo/dist/app.lpk",
+		Version: "1.2.3", DownloadURL: "https://github.com/acme/example/releases/download/v1.2.3/app.lpk",
+		ExpectedSHA256: strings.Repeat("b", 64),
+	})
+	if !errors.Is(err, lpkgo.ErrIntegrityMismatch) {
+		t.Fatalf("err=%v", err)
 	}
 }
 

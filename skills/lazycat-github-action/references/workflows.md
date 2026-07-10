@@ -108,6 +108,7 @@ Use the composite Action directly only when another workflow owns GitHub Release
     version: 1.2.3
     lpk-path: dist/application.lpk
     download-url: https://github.com/acme/example/releases/download/v1.2.3/application.lpk
+    sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     changelog: Release notes
 ```
 

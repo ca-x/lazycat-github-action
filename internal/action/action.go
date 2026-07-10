@@ -57,6 +57,7 @@ type Input struct {
 	Changelog             string
 	LPKPath               string
 	DownloadURL           string
+	ExpectedSHA256        string
 	TokenFile             string
 	EventName             string
 	RefType               string
@@ -232,7 +233,8 @@ func runPublish(ctx context.Context, input Input, operation Operation, cfg confi
 	}
 	published, err := dependencies.Publish(ctx, publishflow.Request{
 		Target: target, Config: cfg, Project: info, LPKPath: input.LPKPath, Version: input.Version,
-		Changelog: input.Changelog, DownloadURL: input.DownloadURL, TokenFile: input.TokenFile, DryRun: input.DryRun,
+		Changelog: input.Changelog, DownloadURL: input.DownloadURL, ExpectedSHA256: input.ExpectedSHA256,
+		TokenFile: input.TokenFile, DryRun: input.DryRun,
 	})
 	if err != nil {
 		return Result{}, mapPublishError(err)
@@ -421,7 +423,7 @@ func mapPublishError(err error) *Error {
 	}
 	switch {
 	case errors.Is(err, publishflow.ErrReleaseAssetMissing):
-		return actionErrorRetryable(CodeReleaseAssetMissing, "private publishing requires a confirmed GitHub Release Asset URL", err, false)
+		return actionErrorRetryable(CodeReleaseAssetMissing, "private publishing requires a confirmed GitHub Release Asset URL and SHA256", err, false)
 	case errors.Is(err, publishflow.ErrPublishStrategyRequired), errors.Is(err, publishflow.ErrStoreDisabled), errors.Is(err, lpkgo.ErrInvalidArgument), errors.Is(err, lpkgo.ErrInvalidConfig):
 		return actionErrorRetryable(CodeConfigInvalid, "store publishing configuration is invalid", err, false)
 	case errors.Is(err, lpkgo.ErrUnauthenticated), errors.Is(err, lpkgo.ErrPermissionDenied):

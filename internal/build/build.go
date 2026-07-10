@@ -63,6 +63,7 @@ var protectedBuildEnvironment = map[string]struct{}{
 	"LAZYCAT_PASSWORD":               {},
 	"LZC_CLI_TOKEN":                  {},
 	"INPUT_TOKEN_FILE":               {},
+	"INPUT_SHA256":                   {},
 	"REGISTRY_PASSWORD":              {},
 	"REGISTRY_USERNAME":              {},
 }

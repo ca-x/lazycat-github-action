@@ -26,6 +26,7 @@ func ReadInput(getenv func(string) string) (action.Input, error) {
 		Changelog:             getenv("INPUT_CHANGELOG"),
 		LPKPath:               strings.TrimSpace(getenv("INPUT_LPK_PATH")),
 		DownloadURL:           strings.TrimSpace(getenv("INPUT_DOWNLOAD_URL")),
+		ExpectedSHA256:        strings.ToLower(strings.TrimSpace(getenv("INPUT_SHA256"))),
 		TokenFile:             strings.TrimSpace(getenv("INPUT_TOKEN_FILE")),
 		EventName:             strings.TrimSpace(getenv("GITHUB_EVENT_NAME")),
 		RefType:               strings.TrimSpace(getenv("GITHUB_REF_TYPE")),

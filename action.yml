@@ -35,6 +35,10 @@ inputs:
     description: GitHub Release Asset URL used by private-store publishing.
     required: false
     default: ""
+  sha256:
+    description: Confirmed GitHub Release Asset SHA256 required by publish operations.
+    required: false
+    default: ""
   token-file:
     description: Explicit lzc-cli-compatible token JSON file for self-hosted runners.
     required: false
@@ -118,6 +122,7 @@ runs:
         INPUT_CHANGELOG: ${{ inputs.changelog }}
         INPUT_LPK_PATH: ${{ inputs['lpk-path'] }}
         INPUT_DOWNLOAD_URL: ${{ inputs['download-url'] }}
+        INPUT_SHA256: ${{ inputs.sha256 }}
         INPUT_TOKEN_FILE: ${{ inputs['token-file'] }}
         INPUT_DRY_RUN: ${{ inputs['dry-run'] }}
       run: "${{ github.action_path }}/scripts/run-action.sh"

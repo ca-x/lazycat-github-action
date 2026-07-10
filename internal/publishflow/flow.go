@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/ca-x/lazycat-github-action/internal/config"
@@ -21,8 +22,10 @@ import (
 var (
 	ErrPublishStrategyRequired = errors.New("publish strategy is required")
 	ErrStoreDisabled           = errors.New("requested store is disabled")
-	ErrReleaseAssetMissing     = errors.New("private publishing requires a GitHub Release Asset URL")
+	ErrReleaseAssetMissing     = errors.New("private publishing requires a GitHub Release Asset URL and confirmed SHA256")
 )
+
+var sha256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 type Target string
 
@@ -32,15 +35,16 @@ const (
 )
 
 type Request struct {
-	Target      Target
-	Config      config.Config
-	Project     project.Info
-	LPKPath     string
-	Version     string
-	Changelog   string
-	DownloadURL string
-	TokenFile   string
-	DryRun      bool
+	Target         Target
+	Config         config.Config
+	Project        project.Info
+	LPKPath        string
+	Version        string
+	Changelog      string
+	DownloadURL    string
+	ExpectedSHA256 string
+	TokenFile      string
+	DryRun         bool
 }
 
 type Result struct {
@@ -94,6 +98,9 @@ func (flow Flow) Publish(ctx context.Context, request Request) (Result, error) {
 		if strings.TrimSpace(request.DownloadURL) == "" {
 			return Result{}, ErrReleaseAssetMissing
 		}
+		if strings.TrimSpace(request.ExpectedSHA256) == "" {
+			return Result{}, ErrReleaseAssetMissing
+		}
 	default:
 		return Result{}, fmt.Errorf("unsupported publish target %q", request.Target)
 	}
@@ -117,6 +124,15 @@ func (flow Flow) Publish(ctx context.Context, request Request) (Result, error) {
 	}
 	if artifact.TargetPlatform != platform.TargetPlatform {
 		return Result{}, fmt.Errorf("verify publish artifact: target %q does not match %q", artifact.TargetPlatform, platform.TargetPlatform)
+	}
+	expectedSHA256 := strings.ToLower(strings.TrimSpace(request.ExpectedSHA256))
+	if expectedSHA256 != "" {
+		if !sha256Pattern.MatchString(expectedSHA256) {
+			return Result{}, &lpkgo.Error{Code: lpkgo.CodeInvalidArgument, Op: "publishflow.verify", Cause: errors.New("expected Release Asset SHA256 must be 64 lowercase hexadecimal characters")}
+		}
+		if artifact.SHA256 != expectedSHA256 {
+			return Result{}, &lpkgo.Error{Code: lpkgo.CodeIntegrityMismatch, Op: "publishflow.verify", Cause: errors.New("local LPK SHA256 does not match the confirmed Release Asset SHA256")}
+		}
 	}
 	result := Result{Artifact: artifact}
 	switch request.Target {
