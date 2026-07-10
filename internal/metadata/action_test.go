@@ -105,6 +105,11 @@ func TestReusableWorkflowContractAndActionPins(t *testing.T) {
 	if strings.Contains(workflow, "outputs.channel != ''") {
 		t.Fatal("workflow must not use channel presence to classify check operations")
 	}
+	privateIndex := strings.Index(workflow, "- name: Publish to MiaoMiao private store")
+	officialIndex := strings.Index(workflow, "- name: Publish to LazyCat official platform")
+	if privateIndex < 0 || officialIndex < 0 || privateIndex > officialIndex {
+		t.Fatal("idempotent private-store publishing must run before official publishing")
+	}
 	for _, condition := range []string{
 		"steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.official-store-enabled == 'true'",
 		"steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.private-store-enabled == 'true' && steps.asset-url.outputs.download-url != ''",

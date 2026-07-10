@@ -496,6 +496,23 @@ jobs:
             }
             core.setOutput('download-url', asset.browser_download_url);
 
+      - name: Publish to MiaoMiao private store
+        id: publish-private
+        if: steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.private-store-enabled == 'true' && steps.asset-url.outputs.download-url != '' && !inputs.dry-run
+        uses: ca-x/lazycat-github-action@v1
+        env:
+          APPSTORE_URL: ${{ secrets.APPSTORE_URL }}
+          APPSTORE_TOKEN: ${{ secrets.APPSTORE_TOKEN }}
+          APP_ID: ${{ secrets.APP_ID }}
+        with:
+          operation: publish-private
+          config: ${{ inputs.config }}
+          version: ${{ steps.lazycat.outputs.version }}
+          changelog: ${{ steps.release-notes.outputs.value }}
+          lpk-path: ${{ steps.lazycat.outputs.lpk-path }}
+          download-url: ${{ steps.asset-url.outputs.download-url }}
+          sha256: ${{ steps.lazycat.outputs.sha256 }}
+
       - name: Publish to LazyCat official platform
         id: publish-official
         if: steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.official-store-enabled == 'true' && steps.asset-url.outputs.download-url != '' && !inputs.dry-run
@@ -513,23 +530,6 @@ jobs:
           lpk-path: ${{ steps.lazycat.outputs.lpk-path }}
           sha256: ${{ steps.lazycat.outputs.sha256 }}
           token-file: ${{ inputs.token-file }}
-
-      - name: Publish to MiaoMiao private store
-        id: publish-private
-        if: steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.private-store-enabled == 'true' && steps.asset-url.outputs.download-url != '' && !inputs.dry-run
-        uses: ca-x/lazycat-github-action@v1
-        env:
-          APPSTORE_URL: ${{ secrets.APPSTORE_URL }}
-          APPSTORE_TOKEN: ${{ secrets.APPSTORE_TOKEN }}
-          APP_ID: ${{ secrets.APP_ID }}
-        with:
-          operation: publish-private
-          config: ${{ inputs.config }}
-          version: ${{ steps.lazycat.outputs.version }}
-          changelog: ${{ steps.release-notes.outputs.value }}
-          lpk-path: ${{ steps.lazycat.outputs.lpk-path }}
-          download-url: ${{ steps.asset-url.outputs.download-url }}
-          sha256: ${{ steps.lazycat.outputs.sha256 }}
 
       - name: Merge store publishing results
         id: store-results

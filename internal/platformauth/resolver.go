@@ -56,7 +56,7 @@ func (resolver Resolver) Resolve(ctx context.Context, request Request) (Result, 
 	}
 
 	username := environmentValue(lookup, "LAZYCAT_USERNAME")
-	password := environmentValue(lookup, "LAZYCAT_PASSWORD")
+	password, _ := lookup("LAZYCAT_PASSWORD")
 	if username != "" || password != "" {
 		if username == "" || password == "" {
 			return Result{}, authError(lpkgo.CodeUnauthenticated, errors.New("both LAZYCAT_USERNAME and LAZYCAT_PASSWORD are required"))

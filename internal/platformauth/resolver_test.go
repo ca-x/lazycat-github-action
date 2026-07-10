@@ -52,7 +52,7 @@ func TestResolverSupportsFallbackLoginAndExplicitTokenFile(t *testing.T) {
 		wantErr   bool
 	}{
 		{name: "lzc cli token", env: map[string]string{"LZC_CLI_TOKEN": "cli-token"}, want: "cli-token", wantSrc: platformauth.SourceLZCCLIToken},
-		{name: "account login", env: map[string]string{"LAZYCAT_USERNAME": "developer", "LAZYCAT_PASSWORD": "secret-password"}, want: "login-token", wantSrc: platformauth.SourceLogin},
+		{name: "account login", env: map[string]string{"LAZYCAT_USERNAME": "developer", "LAZYCAT_PASSWORD": " secret-password "}, want: "login-token", wantSrc: platformauth.SourceLogin},
 		{name: "partial login", env: map[string]string{"LAZYCAT_USERNAME": "developer"}, wantErr: true},
 		{name: "token file", tokenFile: true, want: "file-token", wantSrc: platformauth.SourceTokenFile},
 		{name: "missing credentials", wantErr: true},
@@ -74,7 +74,7 @@ func TestResolverSupportsFallbackLoginAndExplicitTokenFile(t *testing.T) {
 				},
 				Login: func(_ context.Context, credentials auth.Credentials) (auth.Session, error) {
 					loginCalls++
-					if credentials.Username != "developer" || credentials.Password != "secret-password" {
+					if credentials.Username != "developer" || credentials.Password != " secret-password " {
 						t.Fatalf("credentials=%#v", credentials)
 					}
 					return auth.Session{Token: "login-token"}, nil
