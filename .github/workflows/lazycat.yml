@@ -13,6 +13,11 @@ on:
         type: string
         required: false
         default: auto
+      runner:
+        description: Linux Runner label; amd64 and arm64 hosts are supported.
+        type: string
+        required: false
+        default: ubuntu-latest
       image-id:
         description: Optional configured image ID.
         type: string
@@ -107,7 +112,7 @@ permissions:
 
 jobs:
   lazycat:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     outputs:
       changed: ${{ steps.lazycat.outputs.changed }}
       package-id: ${{ steps.lazycat.outputs.package-id }}

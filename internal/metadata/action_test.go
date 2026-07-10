@@ -45,7 +45,7 @@ func TestReusableWorkflowContractAndActionPins(t *testing.T) {
 		t.Fatalf("workflow_call=%#v", on["workflow_call"])
 	}
 	inputs, _ := call["inputs"].(map[string]any)
-	for _, name := range []string{"config", "operation", "image-id", "dry-run", "changelog", "toolchains", "go-version", "node-version", "rust-toolchain", "node-package-manager", "enable-qemu"} {
+	for _, name := range []string{"config", "operation", "runner", "image-id", "dry-run", "changelog", "toolchains", "go-version", "node-version", "rust-toolchain", "node-package-manager", "enable-qemu"} {
 		if _, found := inputs[name]; !found {
 			t.Fatalf("missing workflow input %q", name)
 		}

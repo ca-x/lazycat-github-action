@@ -201,7 +201,8 @@ func TestResolveOperation(t *testing.T) {
 	}{
 		{name: "release", input: action.Input{Operation: action.OperationAuto, EventName: "release"}, want: action.OperationBuild},
 		{name: "tag", input: action.Input{Operation: action.OperationAuto, EventName: "push", RefType: "tag", RefName: "v1.2.3"}, want: action.OperationBuild},
-		{name: "manual", input: action.Input{Operation: action.OperationAuto, EventName: "workflow_dispatch"}, want: action.OperationBuild},
+		{name: "manual image check", input: action.Input{Operation: action.OperationAuto, EventName: "workflow_dispatch"}, want: action.OperationCheck},
+		{name: "manual version build", input: action.Input{Operation: action.OperationAuto, EventName: "workflow_dispatch", Version: "1.2.3"}, want: action.OperationBuild},
 		{name: "schedule", input: action.Input{Operation: action.OperationAuto, EventName: "schedule"}, want: action.OperationCheck},
 	}
 	for _, test := range tests {

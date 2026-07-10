@@ -145,7 +145,12 @@ func ResolveOperation(input Input) (Operation, error) {
 		}
 	}
 	switch input.EventName {
-	case "release", "workflow_dispatch":
+	case "release":
+		return OperationBuild, nil
+	case "workflow_dispatch":
+		if input.Version == "" {
+			return OperationCheck, nil
+		}
 		return OperationBuild, nil
 	case "push":
 		if input.RefType == "tag" || strings.HasPrefix(input.RefName, "v") {
