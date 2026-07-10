@@ -43,6 +43,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          scripts/verify-release-artifacts.sh
           root="$(mktemp -d)"
           trap 'rm -rf "${root}"' EXIT
           for arch in amd64 arm64; do

@@ -23,7 +23,8 @@ archives:
     formats:
       - tar.gz
     name_template: lazycat-action_{{ .Os }}_{{ .Arch }}
-    files: []
+    files:
+      - none*
 
 checksum:
   name_template: checksums.txt

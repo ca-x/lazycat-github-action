@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/ca-x/lazycat-github-action/internal/httpx"
 	lpkgo "github.com/lib-x/lzc-toolkit-go"
 	"github.com/lib-x/lzc-toolkit-go/auth"
 	"github.com/lib-x/lzc-toolkit-go/auth/tokenfile"
@@ -32,9 +35,11 @@ type Result struct {
 }
 
 type Resolver struct {
-	LookupEnv func(string) (string, bool)
-	Login     func(context.Context, auth.Credentials) (auth.Session, error)
-	LoadFile  func(context.Context, string) (string, error)
+	AccountBaseURL string
+	HTTPClient     *http.Client
+	LookupEnv      func(string) (string, bool)
+	Login          func(context.Context, auth.Credentials) (auth.Session, error)
+	LoadFile       func(context.Context, string) (string, error)
 }
 
 func (resolver Resolver) Resolve(ctx context.Context, request Request) (Result, error) {
@@ -63,7 +68,9 @@ func (resolver Resolver) Resolve(ctx context.Context, request Request) (Result, 
 		}
 		login := resolver.Login
 		if login == nil {
-			login = auth.NewClient(auth.ClientOptions{}).Login
+			login = auth.NewClient(auth.ClientOptions{
+				BaseURL: resolver.AccountBaseURL, HTTPClient: httpx.NoRedirect(resolver.HTTPClient, 30*time.Second),
+			}).Login
 		}
 		session, err := login(ctx, auth.Credentials{Username: username, Password: password})
 		if err != nil {

@@ -104,6 +104,30 @@ func TestPublisherRejectsUntrustedUploadMetadata(t *testing.T) {
 	}
 }
 
+func TestPublisherDoesNotForwardTokenAcrossRedirect(t *testing.T) {
+	path, digest := publishLPK(t)
+	reached := false
+	forwarded := false
+	target := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		reached = true
+		forwarded = request.Header.Get("X-User-Token") != "" || request.Header.Get("Cookie") != ""
+		_, _ = response.Write([]byte(`{"exist":true}`))
+	}))
+	defer target.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		http.Redirect(response, request, target.URL+request.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	defer origin.Close()
+
+	_, err := (official.Publisher{BaseURL: origin.URL, HTTPClient: origin.Client()}).Publish(context.Background(), official.Request{
+		Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+	})
+	if err == nil || reached || forwarded {
+		t.Fatalf("err=%v reached=%v forwarded=%v", err, reached, forwarded)
+	}
+}
+
 func publishLPK(t *testing.T) (string, string) {
 	t.Helper()
 	root := fstest.MapFS{

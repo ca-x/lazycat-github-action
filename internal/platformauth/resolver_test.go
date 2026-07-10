@@ -3,6 +3,9 @@ package platformauth_test
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -158,6 +161,36 @@ func TestResolverRedactsLoginFailureSecrets(t *testing.T) {
 	_, err := resolver.Resolve(context.Background(), platformauth.Request{})
 	if err == nil || strings.Contains(err.Error(), password) || !errors.Is(err, lpkgo.ErrUnauthenticated) {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestResolverDoesNotForwardPasswordAcrossRedirect(t *testing.T) {
+	reached := false
+	forwarded := false
+	target := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		reached = true
+		body, _ := io.ReadAll(request.Body)
+		forwarded = strings.Contains(string(body), "must-not-forward")
+		_, _ = response.Write([]byte(`{"success":true,"data":{"token":"wrong-server-token"}}`))
+	}))
+	defer target.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		http.Redirect(response, request, target.URL+request.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	defer origin.Close()
+
+	resolver := platformauth.Resolver{
+		AccountBaseURL: origin.URL,
+		HTTPClient:     origin.Client(),
+		LookupEnv: func(name string) (string, bool) {
+			values := map[string]string{"LAZYCAT_USERNAME": "developer", "LAZYCAT_PASSWORD": "must-not-forward"}
+			value, found := values[name]
+			return value, found
+		},
+	}
+	_, err := resolver.Resolve(context.Background(), platformauth.Request{})
+	if err == nil || reached || forwarded {
+		t.Fatalf("err=%v reached=%v forwarded=%v", err, reached, forwarded)
 	}
 }
 

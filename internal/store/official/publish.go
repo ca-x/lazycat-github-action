@@ -9,8 +9,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/ca-x/lazycat-github-action/internal/config"
+	"github.com/ca-x/lazycat-github-action/internal/httpx"
 	lpkgo "github.com/lib-x/lzc-toolkit-go"
 	"github.com/lib-x/lzc-toolkit-go/appstore"
 	"github.com/lib-x/lzc-toolkit-go/auth"
@@ -96,7 +98,7 @@ func (publisher Publisher) Publish(ctx context.Context, request Request) (Result
 	if filename == "" {
 		filename = filepath.Base(request.LPKPath)
 	}
-	client := appstore.New(appstore.Options{BaseURL: publisher.BaseURL, HTTPClient: publisher.HTTPClient, Token: request.Provider})
+	client := appstore.New(appstore.Options{BaseURL: publisher.BaseURL, HTTPClient: httpx.NoRedirect(publisher.HTTPClient, 30*time.Second), Token: request.Provider})
 	published, err := client.Publish(ctx, appstore.PublishRequest{
 		Package: file, FileName: filename, Changelogs: changelogs,
 		CreateIfMissing: request.CreateIfMissing, Application: application,

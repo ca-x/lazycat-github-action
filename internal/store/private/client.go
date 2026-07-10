@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ca-x/lazycat-github-action/internal/httpx"
 	lpkgo "github.com/lib-x/lzc-toolkit-go"
 )
 
@@ -43,26 +44,7 @@ func New(options Options) (*Client, error) {
 	if token == "" {
 		return nil, clientError(lpkgo.CodeUnauthenticated, 0, false, errors.New("private store token is required"))
 	}
-	httpClient := options.HTTPClient
-	if httpClient == nil {
-		httpClient = &http.Client{
-			Timeout: 30 * time.Second,
-			CheckRedirect: func(*http.Request, []*http.Request) error {
-				return errors.New("private store redirects are disabled")
-			},
-		}
-	} else {
-		clone := *httpClient
-		if clone.Timeout <= 0 {
-			clone.Timeout = 30 * time.Second
-		}
-		if clone.CheckRedirect == nil {
-			clone.CheckRedirect = func(*http.Request, []*http.Request) error {
-				return errors.New("private store redirects are disabled")
-			}
-		}
-		httpClient = &clone
-	}
+	httpClient := httpx.NoRedirect(options.HTTPClient, 30*time.Second)
 	return &Client{baseURL: baseURL, token: token, httpClient: httpClient}, nil
 }
 

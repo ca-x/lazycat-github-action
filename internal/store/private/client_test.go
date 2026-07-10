@@ -158,6 +158,30 @@ func TestClientDoesNotExposeRemoteAuthenticationBody(t *testing.T) {
 	}
 }
 
+func TestClientDoesNotForwardTokenAcrossRedirect(t *testing.T) {
+	reached := false
+	forwarded := false
+	target := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		reached = true
+		forwarded = request.Header.Get("Authorization") != ""
+		_, _ = response.Write([]byte(`{"apps":[]}`))
+	}))
+	defer target.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		http.Redirect(response, request, target.URL+request.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	defer origin.Close()
+
+	client, err := private.New(private.Options{BaseURL: origin.URL, Token: "lcst_test", HTTPClient: origin.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Publish(context.Background(), private.Request{PackageID: packageID, Name: "Example", Version: version, DownloadURL: downloadURL, SHA256: digest})
+	if err == nil || reached || forwarded {
+		t.Fatalf("err=%v reached=%v forwarded=%v", err, reached, forwarded)
+	}
+}
+
 func TestClientRejectsOversizedAndMalformedResponses(t *testing.T) {
 	for _, test := range []struct {
 		name string

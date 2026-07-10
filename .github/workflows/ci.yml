@@ -70,6 +70,24 @@ jobs:
           CGO_ENABLED: "0"
         run: go build -o "dist/lazycat-action_linux_${GOARCH}" ./cmd/lazycat-action
 
+  release-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+
+      - name: Build snapshot release
+        run: go run github.com/goreleaser/goreleaser/v2@v2.17.0 release --snapshot --clean --skip=publish,sbom
+
+      - name: Verify release archives
+        run: scripts/verify-release-artifacts.sh
+
   fixture:
     runs-on: ubuntu-latest
     steps:
