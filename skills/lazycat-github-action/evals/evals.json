@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "multi-service-web-version-source",
+      "prompt": "Configure scheduled updates for a manifest with db and web services; web is the visible application and drives versions.",
+      "mustInclude": ["version_source", "image: web", "target: service", "service: web", "strategy: pull"],
+      "mustNotInclude": ["service: db", "target: application"]
+    },
+    {
+      "id": "nightly-amd64",
+      "prompt": "Track a mutable nightly container tag on an ARM64 self-hosted runner.",
+      "mustInclude": ["channel: nightly", "tag_regex", "linux/amd64", "runner"],
+      "mustNotInclude": ["LAZYCAT_TARGET_ARCH=arm64"]
+    },
+    {
+      "id": "mirror-private-only",
+      "prompt": "Use an explicit Docker accelerator and publish only to a MiaoMiao private store.",
+      "mustInclude": ["mode: mirror", "enabled: false", "enabled: true", "APPSTORE_TOKEN"],
+      "mustNotInclude": ["official:\n    enabled: true"]
+    },
+    {
+      "id": "go-exec-arm-runner",
+      "prompt": "Build a Go Exec application on Linux ARM64 and publish an x64 LPK from tags.",
+      "mustInclude": ["toolchains: go", "GOOS", "GOARCH", "amd64", "tags"],
+      "mustNotInclude": ["GOARCH=arm64"]
+    },
+    {
+      "id": "typescript-static-release",
+      "prompt": "Build a service-free TypeScript static Web application when a GitHub Release is published.",
+      "mustInclude": ["type: git", "toolchains: node", "release", "file:///lzcapp/pkg/content"],
+      "mustNotInclude": ["images:"]
+    },
+    {
+      "id": "reject-official-direct",
+      "prompt": "Review a configuration that enables the official store while using direct delivery.",
+      "mustInclude": ["invalid", "lazycat", "official"],
+      "mustNotInclude": ["configuration is valid"]
+    }
+  ]
+}
