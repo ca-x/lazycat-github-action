@@ -27,6 +27,11 @@ go.work.sum
 # Isolated development worktrees
 .worktrees/
 
+# LazyCat Action generated files
+/dist/
+/.lazycat-action/
+*.lpk
+
 # env file
 .env
 

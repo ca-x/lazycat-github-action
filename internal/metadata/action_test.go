@@ -10,7 +10,7 @@ import (
 
 func TestActionAndReleaseMetadataAreValidYAML(t *testing.T) {
 	root := filepath.Join("..", "..")
-	for _, name := range []string{"action.yml", ".goreleaser.yml", ".github/workflows/release.yml"} {
+	for _, name := range []string{"action.yml", ".goreleaser.yml", ".github/workflows/ci.yml", ".github/workflows/release.yml"} {
 		data, err := os.ReadFile(filepath.Join(root, name))
 		if err != nil {
 			t.Fatal(err)
