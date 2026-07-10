@@ -26,6 +26,7 @@ func ReadInput(getenv func(string) string) (action.Input, error) {
 		Changelog:             getenv("INPUT_CHANGELOG"),
 		LPKPath:               strings.TrimSpace(getenv("INPUT_LPK_PATH")),
 		DownloadURL:           strings.TrimSpace(getenv("INPUT_DOWNLOAD_URL")),
+		TokenFile:             strings.TrimSpace(getenv("INPUT_TOKEN_FILE")),
 		EventName:             strings.TrimSpace(getenv("GITHUB_EVENT_NAME")),
 		RefType:               strings.TrimSpace(getenv("GITHUB_REF_TYPE")),
 		RefName:               strings.TrimSpace(getenv("GITHUB_REF_NAME")),
@@ -88,6 +89,10 @@ func WriteOutputs(writer io.Writer, result action.Result) error {
 	if imageResults == "" {
 		imageResults = "[]"
 	}
+	storeResults := string(result.StoreResults)
+	if storeResults == "" {
+		storeResults = "{}"
+	}
 	outputs := []struct {
 		key   string
 		value string
@@ -103,6 +108,9 @@ func WriteOutputs(writer io.Writer, result action.Result) error {
 		{key: "sha256", value: result.SHA256},
 		{key: "download-url", value: result.DownloadURL},
 		{key: "image-results", value: imageResults},
+		{key: "store-results", value: storeResults},
+		{key: "official-store-enabled", value: strconv.FormatBool(result.OfficialStoreEnabled)},
+		{key: "private-store-enabled", value: strconv.FormatBool(result.PrivateStoreEnabled)},
 		{key: "update-strategy", value: result.UpdateStrategy},
 		{key: "channel", value: result.Channel},
 		{key: "result-file", value: result.ResultFile},

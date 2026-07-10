@@ -17,7 +17,13 @@ import (
 func TestBuilderBuildsVerifiesAndHashesLPKForLinuxAMD64(t *testing.T) {
 	for key, value := range map[string]string{
 		"LAZYCAT_TOKEN":         "developer-secret",
+		"LAZYCAT_USERNAME":      "developer@example.com",
+		"LAZYCAT_PASSWORD":      "account-secret",
 		"LZC_CLI_TOKEN":         "fallback-secret",
+		"APPSTORE_TOKEN":        "store-secret",
+		"APPSTORE_URL":          "https://store.example.com",
+		"APP_ID":                "42",
+		"INPUT_TOKEN_FILE":      "/run/secrets/lazycat.json",
 		"REGISTRY_USERNAME":     "registry-user",
 		"REGISTRY_PASSWORD":     "registry-secret",
 		"GITHUB_TOKEN":          "github-secret",
@@ -65,7 +71,7 @@ func TestBuilderBuildsVerifiesAndHashesLPKForLinuxAMD64(t *testing.T) {
 			t.Fatalf("env[%s]=%q want=%q", key, runner.command.Env[key], want)
 		}
 	}
-	for _, key := range []string{"LAZYCAT_TOKEN", "LZC_CLI_TOKEN", "REGISTRY_USERNAME", "REGISTRY_PASSWORD", "GITHUB_TOKEN", "GITHUB_OUTPUT", "GITHUB_STEP_SUMMARY", "ACTIONS_RUNTIME_TOKEN", "ACTIONS_RESULTS_URL"} {
+	for _, key := range []string{"LAZYCAT_TOKEN", "LAZYCAT_USERNAME", "LAZYCAT_PASSWORD", "LZC_CLI_TOKEN", "APPSTORE_TOKEN", "APPSTORE_URL", "APP_ID", "INPUT_TOKEN_FILE", "REGISTRY_USERNAME", "REGISTRY_PASSWORD", "GITHUB_TOKEN", "GITHUB_OUTPUT", "GITHUB_STEP_SUMMARY", "ACTIONS_RUNTIME_TOKEN", "ACTIONS_RESULTS_URL"} {
 		if _, found := runner.command.Env[key]; found {
 			t.Fatalf("protected environment %s reached buildscript", key)
 		}

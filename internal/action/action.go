@@ -16,6 +16,7 @@ import (
 	"github.com/ca-x/lazycat-github-action/internal/imageflow"
 	"github.com/ca-x/lazycat-github-action/internal/platform"
 	"github.com/ca-x/lazycat-github-action/internal/project"
+	"github.com/ca-x/lazycat-github-action/internal/publishflow"
 	"github.com/ca-x/lazycat-github-action/internal/registry"
 	"github.com/ca-x/lazycat-github-action/internal/yamledit"
 	lpkgo "github.com/lib-x/lzc-toolkit-go"
@@ -24,13 +25,16 @@ import (
 )
 
 const (
-	CodeConfigInvalid      = "CONFIG_INVALID"
-	CodeProjectUnsupported = "PROJECT_UNSUPPORTED"
-	CodeVersionNotFound    = "VERSION_NOT_FOUND"
-	CodeBuildFailed        = "BUILD_FAILED"
-	CodeLPKInvalid         = "LPK_INVALID"
-	CodePlatformNotFound   = "PLATFORM_NOT_FOUND"
-	CodeImageCopyFailed    = "IMAGE_COPY_FAILED"
+	CodeConfigInvalid       = "CONFIG_INVALID"
+	CodeProjectUnsupported  = "PROJECT_UNSUPPORTED"
+	CodeVersionNotFound     = "VERSION_NOT_FOUND"
+	CodeBuildFailed         = "BUILD_FAILED"
+	CodeLPKInvalid          = "LPK_INVALID"
+	CodePlatformNotFound    = "PLATFORM_NOT_FOUND"
+	CodeImageCopyFailed     = "IMAGE_COPY_FAILED"
+	CodeReleaseAssetMissing = "RELEASE_ASSET_MISSING"
+	CodeStoreAuthFailed     = "STORE_AUTH_FAILED"
+	CodeStorePublishFailed  = "STORE_PUBLISH_FAILED"
 )
 
 type Operation string
@@ -53,6 +57,7 @@ type Input struct {
 	Changelog             string
 	LPKPath               string
 	DownloadURL           string
+	TokenFile             string
 	EventName             string
 	RefType               string
 	RefName               string
@@ -116,6 +121,7 @@ type Dependencies struct {
 	SetVersion  func(string, string) (yamledit.Change, error)
 	Build       func(context.Context, actionbuild.Request) (actionbuild.Result, error)
 	CheckImages func(context.Context, imageflow.Request) (imageflow.Result, error)
+	Publish     func(context.Context, publishflow.Request) (publishflow.Result, error)
 }
 
 func DefaultDependencies(host platform.Host) Dependencies {
@@ -130,6 +136,7 @@ func DefaultDependencies(host platform.Host) Dependencies {
 		Registry:  registryClient,
 		Deliverer: delivery.Resolver{Copier: storeClient, Inspector: registryClient},
 	}
+	publishFlow := publishflow.Default()
 	return Dependencies{
 		Host:        host,
 		LoadConfig:  config.Load,
@@ -137,6 +144,7 @@ func DefaultDependencies(host platform.Host) Dependencies {
 		SetVersion:  yamledit.SetPackageVersion,
 		Build:       builder.Build,
 		CheckImages: imageFlow.Check,
+		Publish:     publishFlow.Publish,
 	}
 }
 
@@ -205,10 +213,49 @@ func Run(ctx context.Context, input Input, dependencies Dependencies) (Result, e
 	case OperationCheck:
 		return runCheck(ctx, input, cfg, info, dependencies)
 	case OperationPublishOfficial, OperationPublishPrivate:
-		return Result{}, actionError(CodeProjectUnsupported, fmt.Sprintf("operation %q is not available until milestone 3", operation), nil)
+		return runPublish(ctx, input, operation, cfg, info, dependencies)
 	default:
 		return Result{}, actionError(CodeConfigInvalid, fmt.Sprintf("unsupported operation %q", operation), nil)
 	}
+}
+
+func runPublish(ctx context.Context, input Input, operation Operation, cfg config.Config, info project.Info, dependencies Dependencies) (Result, error) {
+	if dependencies.Publish == nil {
+		return Result{}, actionError(CodeConfigInvalid, "store publisher dependency is unavailable", nil)
+	}
+	if input.Version == "" {
+		input.Version = info.Version
+	}
+	if input.Tag == "" && input.Version != "" {
+		input.Tag = "v" + input.Version
+	}
+	target := publishflow.TargetOfficial
+	if operation == OperationPublishPrivate {
+		target = publishflow.TargetPrivate
+	}
+	published, err := dependencies.Publish(ctx, publishflow.Request{
+		Target: target, Config: cfg, Project: info, LPKPath: input.LPKPath, Version: input.Version,
+		Changelog: input.Changelog, DownloadURL: input.DownloadURL, TokenFile: input.TokenFile, DryRun: input.DryRun,
+	})
+	if err != nil {
+		return Result{}, mapPublishError(err)
+	}
+	encodedStores, err := json.Marshal(published)
+	if err != nil {
+		return Result{}, actionError(CodeStorePublishFailed, "unable to encode store publishing result", err)
+	}
+	result := baseResult(input, dependencies.Host, info, cfg)
+	result.Operation = string(operation)
+	result.PackageID = published.Artifact.PackageID
+	result.Version = published.Artifact.Version
+	result.LPKPath = published.Artifact.Path
+	result.SHA256 = published.Artifact.SHA256
+	result.TargetPlatform = published.Artifact.TargetPlatform
+	result.StoreResults = encodedStores
+	if err := writeResult(&result, resultDirectory(dependencies.ResultDir, info.Root)); err != nil {
+		return Result{}, actionError(CodeStorePublishFailed, "unable to write store publishing result", err)
+	}
+	return result, nil
 }
 
 func runBuild(ctx context.Context, input Input, cfg config.Config, info project.Info, dependencies Dependencies) (Result, error) {
@@ -369,6 +416,26 @@ func mapImageError(err error) *Error {
 	}
 }
 
+func mapPublishError(err error) *Error {
+	retryable := false
+	var toolkitError *lpkgo.Error
+	if errors.As(err, &toolkitError) {
+		retryable = toolkitError.Retryable
+	}
+	switch {
+	case errors.Is(err, publishflow.ErrReleaseAssetMissing):
+		return actionErrorRetryable(CodeReleaseAssetMissing, "private publishing requires a confirmed GitHub Release Asset URL", err, false)
+	case errors.Is(err, publishflow.ErrPublishStrategyRequired), errors.Is(err, publishflow.ErrStoreDisabled), errors.Is(err, lpkgo.ErrInvalidArgument), errors.Is(err, lpkgo.ErrInvalidConfig):
+		return actionErrorRetryable(CodeConfigInvalid, "store publishing configuration is invalid", err, false)
+	case errors.Is(err, lpkgo.ErrUnauthenticated), errors.Is(err, lpkgo.ErrPermissionDenied):
+		return actionErrorRetryable(CodeStoreAuthFailed, "store authentication failed", err, retryable)
+	case errors.Is(err, lpkgo.ErrInvalidManifest), errors.Is(err, lpkgo.ErrUnsupportedFormat), errors.Is(err, lpkgo.ErrIntegrityMismatch):
+		return actionErrorRetryable(CodeLPKInvalid, "LPK validation failed before store publishing", err, false)
+	default:
+		return actionErrorRetryable(CodeStorePublishFailed, "store publishing failed", err, retryable)
+	}
+}
+
 func validateDependencies(dependencies Dependencies) error {
 	if dependencies.Host.OS == "" || dependencies.Host.Arch == "" || dependencies.LoadConfig == nil || dependencies.Inspect == nil || dependencies.SetVersion == nil || dependencies.Build == nil {
 		return errors.New("host, loader, inspector, editor, and builder are required")
@@ -481,4 +548,8 @@ func writeResult(result *Result, directory string) (resultErr error) {
 
 func actionError(code, message string, cause error) *Error {
 	return &Error{Code: code, Message: message, Cause: cause}
+}
+
+func actionErrorRetryable(code, message string, cause error, retryable bool) *Error {
+	return &Error{Code: code, Message: message, Cause: cause, Retryable: retryable}
 }

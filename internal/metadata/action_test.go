@@ -116,12 +116,12 @@ func TestActionMetadataExposesStableContract(t *testing.T) {
 	if err := yaml.Unmarshal(data, &document); err != nil {
 		t.Fatal(err)
 	}
-	for _, input := range []string{"operation", "config", "image-id", "version", "changelog", "lpk-path", "download-url", "dry-run"} {
+	for _, input := range []string{"operation", "config", "image-id", "version", "changelog", "lpk-path", "download-url", "token-file", "dry-run"} {
 		if _, exists := document.Inputs[input]; !exists {
 			t.Fatalf("missing input %q", input)
 		}
 	}
-	for _, output := range []string{"operation", "changed", "package-id", "package-file", "manifest-file", "version", "tag", "lpk-path", "sha256", "download-url", "image-results", "update-strategy", "channel", "result-file", "runner-arch", "target-platform"} {
+	for _, output := range []string{"operation", "changed", "package-id", "package-file", "manifest-file", "version", "tag", "lpk-path", "sha256", "download-url", "image-results", "store-results", "official-store-enabled", "private-store-enabled", "update-strategy", "channel", "result-file", "runner-arch", "target-platform"} {
 		if _, exists := document.Outputs[output]; !exists {
 			t.Fatalf("missing output %q", output)
 		}
@@ -145,6 +145,7 @@ func TestActionMetadataUsesBracketSyntaxForHyphenatedNames(t *testing.T) {
 		"steps.run.outputs['update-strategy']",
 		"inputs['image-id']",
 		"inputs['download-url']",
+		"inputs['token-file']",
 	} {
 		if !strings.Contains(text, expression) {
 			t.Fatalf("action.yml is missing safe expression %q", expression)

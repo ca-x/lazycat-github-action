@@ -13,9 +13,13 @@ import (
 	actionbuild "github.com/ca-x/lazycat-github-action/internal/build"
 	"github.com/ca-x/lazycat-github-action/internal/config"
 	"github.com/ca-x/lazycat-github-action/internal/imageflow"
+	"github.com/ca-x/lazycat-github-action/internal/lpkcheck"
 	"github.com/ca-x/lazycat-github-action/internal/platform"
 	"github.com/ca-x/lazycat-github-action/internal/project"
+	"github.com/ca-x/lazycat-github-action/internal/publishflow"
+	"github.com/ca-x/lazycat-github-action/internal/store/official"
 	"github.com/ca-x/lazycat-github-action/internal/yamledit"
+	lpkgo "github.com/lib-x/lzc-toolkit-go"
 )
 
 func TestRunBuildCallsDependenciesInOrderAndReturnsStableResult(t *testing.T) {
@@ -81,6 +85,73 @@ func TestRunBuildCallsDependenciesInOrderAndReturnsStableResult(t *testing.T) {
 	if _, err := os.Stat(result.ResultFile); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestRunPublishesOfficialStoreAndReturnsStableJSON(t *testing.T) {
+	root := t.TempDir()
+	cfg := gitConfig()
+	cfg.Update.Strategy = config.StrategyPublish
+	cfg.Stores.Official.Enabled = true
+	deps := action.Dependencies{
+		Host:       platform.Host{OS: "linux", Arch: "amd64"},
+		ResultDir:  filepath.Join(root, "results"),
+		LoadConfig: func(string) (config.Config, error) { return cfg, nil },
+		Inspect: func(context.Context, config.Project) (project.Info, error) {
+			return project.Info{Root: root, PackageID: "cloud.lazycat.example", Version: "1.2.3", Name: "Example"}, nil
+		},
+		SetVersion: func(string, string) (yamledit.Change, error) { return yamledit.Change{}, nil },
+		Build: func(context.Context, actionbuild.Request) (actionbuild.Result, error) {
+			return actionbuild.Result{}, nil
+		},
+		Publish: func(_ context.Context, request publishflow.Request) (publishflow.Result, error) {
+			if request.Target != publishflow.TargetOfficial || request.TokenFile != "/run/secrets/lazycat.json" || request.LPKPath != filepath.Join(root, "dist", "app.lpk") {
+				t.Fatalf("request=%#v", request)
+			}
+			return publishflow.Result{
+				Artifact: lpkcheckResult(filepath.Join(root, "dist", "app.lpk")),
+				Official: &official.Result{Published: true, PackageID: "cloud.lazycat.example", Version: "1.2.3", SHA256: strings.Repeat("a", 64)},
+			}, nil
+		},
+	}
+	result, err := action.Run(context.Background(), action.Input{
+		Operation: action.OperationPublishOfficial, Version: "1.2.3", LPKPath: filepath.Join(root, "dist", "app.lpk"),
+		Changelog: "Release notes", TokenFile: "/run/secrets/lazycat.json",
+	}, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Operation != "publish-official" || result.SHA256 != strings.Repeat("a", 64) || !result.OfficialStoreEnabled || string(result.StoreResults) == "{}" || !strings.Contains(string(result.StoreResults), `"published":true`) {
+		t.Fatalf("result=%#v", result)
+	}
+}
+
+func TestRunMapsStoreAuthenticationFailure(t *testing.T) {
+	cfg := gitConfig()
+	cfg.Update.Strategy = config.StrategyPublish
+	cfg.Stores.Official.Enabled = true
+	deps := action.Dependencies{
+		Host:       platform.Host{OS: "linux", Arch: "amd64"},
+		LoadConfig: func(string) (config.Config, error) { return cfg, nil },
+		Inspect: func(context.Context, config.Project) (project.Info, error) {
+			return project.Info{Root: t.TempDir(), PackageID: "cloud.lazycat.example", Version: "1.2.3"}, nil
+		},
+		SetVersion: func(string, string) (yamledit.Change, error) { return yamledit.Change{}, nil },
+		Build: func(context.Context, actionbuild.Request) (actionbuild.Result, error) {
+			return actionbuild.Result{}, nil
+		},
+		Publish: func(context.Context, publishflow.Request) (publishflow.Result, error) {
+			return publishflow.Result{}, &lpkgo.Error{Code: lpkgo.CodeUnauthenticated, Retryable: false}
+		},
+	}
+	_, err := action.Run(context.Background(), action.Input{Operation: action.OperationPublishOfficial, Version: "1.2.3", LPKPath: "dist/app.lpk"}, deps)
+	var actionErr *action.Error
+	if !errors.As(err, &actionErr) || actionErr.Code != action.CodeStoreAuthFailed || actionErr.Retryable {
+		t.Fatalf("err=%#v", err)
+	}
+}
+
+func lpkcheckResult(path string) lpkcheck.Result {
+	return lpkcheck.Result{Path: path, PackageID: "cloud.lazycat.example", Version: "1.2.3", SHA256: strings.Repeat("a", 64), TargetPlatform: "linux/amd64"}
 }
 
 func TestRunDryRunSkipsEditsAndBuild(t *testing.T) {

@@ -20,6 +20,7 @@ func TestReadInputNormalizesTagVersionAndActionFields(t *testing.T) {
 		"INPUT_CHANGELOG":                 "Release notes",
 		"INPUT_LPK_PATH":                  "dist/app.lpk",
 		"INPUT_DOWNLOAD_URL":              "https://github.com/acme/app/releases/download/v1.2.3/app.lpk",
+		"INPUT_TOKEN_FILE":                "/run/secrets/lazycat.json",
 		"INPUT_DRY_RUN":                   "true",
 		"GITHUB_EVENT_NAME":               "push",
 		"GITHUB_REF_TYPE":                 "tag",
@@ -39,6 +40,9 @@ func TestReadInputNormalizesTagVersionAndActionFields(t *testing.T) {
 	}
 	if input.Version != "1.2.3" || input.Tag != "v1.2.3" || !input.DryRun || input.SourceDateEpoch != 1783641600 {
 		t.Fatalf("input=%#v", input)
+	}
+	if input.TokenFile != "/run/secrets/lazycat.json" {
+		t.Fatalf("token file=%q", input.TokenFile)
 	}
 	if input.WorkflowToolchains != "go,docker" || input.WorkflowGoVersion != "1.25.x" || input.WorkflowNodeVersion != "22.x" || input.WorkflowRustToolchain != "stable" {
 		t.Fatalf("workflow toolchains=%#v", input)
@@ -69,13 +73,13 @@ func TestWriteOutputsUsesStableKeysAndDoesNotLeakSecrets(t *testing.T) {
 	var output bytes.Buffer
 	result := action.Result{
 		Operation: "check", Changed: true, PackageID: "cloud.lazycat.example", PackageFile: "/tmp/package.yml", ManifestFile: "/tmp/lzc-manifest.yml", Version: "1.2.3", Tag: "v1.2.3", LPKPath: "/tmp/app.lpk",
-		SHA256: strings.Repeat("a", 64), ImageResults: []byte("[]"), UpdateStrategy: "pull", Channel: "stable", ResultFile: "/tmp/result.json", RunnerArch: "arm64", TargetPlatform: "linux/amd64",
+		SHA256: strings.Repeat("a", 64), ImageResults: []byte("[]"), StoreResults: []byte(`{"official":{"published":true}}`), UpdateStrategy: "pull", Channel: "stable", ResultFile: "/tmp/result.json", RunnerArch: "arm64", TargetPlatform: "linux/amd64", OfficialStoreEnabled: true,
 	}
 	if err := githubio.WriteOutputs(&output, result); err != nil {
 		t.Fatal(err)
 	}
 	got := output.String()
-	for _, key := range []string{"operation", "changed", "package-id", "package-file", "manifest-file", "version", "tag", "lpk-path", "sha256", "download-url", "image-results", "update-strategy", "channel", "result-file", "runner-arch", "target-platform"} {
+	for _, key := range []string{"operation", "changed", "package-id", "package-file", "manifest-file", "version", "tag", "lpk-path", "sha256", "download-url", "image-results", "store-results", "official-store-enabled", "private-store-enabled", "update-strategy", "channel", "result-file", "runner-arch", "target-platform"} {
 		if !strings.Contains(got, key+"<<lazycat_output_") {
 			t.Fatalf("missing key %q in:\n%s", key, got)
 		}

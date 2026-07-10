@@ -35,6 +35,10 @@ inputs:
     description: GitHub Release Asset URL used by private-store publishing.
     required: false
     default: ""
+  token-file:
+    description: Explicit lzc-cli-compatible token JSON file for self-hosted runners.
+    required: false
+    default: ""
   dry-run:
     description: Calculate the plan without changing files or remote state.
     required: false
@@ -74,6 +78,15 @@ outputs:
   image-results:
     description: JSON array of image inspection and copy results.
     value: ${{ steps.run.outputs['image-results'] }}
+  store-results:
+    description: JSON object containing official and private store publication results.
+    value: ${{ steps.run.outputs['store-results'] }}
+  official-store-enabled:
+    description: Whether official store publishing is enabled by project configuration.
+    value: ${{ steps.run.outputs['official-store-enabled'] }}
+  private-store-enabled:
+    description: Whether private store publishing is enabled by project configuration.
+    value: ${{ steps.run.outputs['private-store-enabled'] }}
   update-strategy:
     description: Normalized pull or publish update strategy.
     value: ${{ steps.run.outputs['update-strategy'] }}
@@ -105,5 +118,6 @@ runs:
         INPUT_CHANGELOG: ${{ inputs.changelog }}
         INPUT_LPK_PATH: ${{ inputs['lpk-path'] }}
         INPUT_DOWNLOAD_URL: ${{ inputs['download-url'] }}
+        INPUT_TOKEN_FILE: ${{ inputs['token-file'] }}
         INPUT_DRY_RUN: ${{ inputs['dry-run'] }}
       run: "${{ github.action_path }}/scripts/run-action.sh"
