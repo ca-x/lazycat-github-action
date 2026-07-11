@@ -74,7 +74,7 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(workflow), "PRIVATE_STORE_GROUP_CODES") || !strings.Contains(string(workflow), "GitHub Secret") {
+	if !strings.Contains(string(workflow), "PRIVATE_STORE_GROUP_CODES") || !strings.Contains(string(workflow), "GitHub Secret") || !strings.Contains(string(workflow), "Repository overrides Organization") {
 		t.Fatal("workflow reference must document private group codes as a GitHub Secret")
 	}
 }

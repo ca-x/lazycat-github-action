@@ -424,6 +424,12 @@ PRIVATE_STORE_GROUP_CODES=ABC123,LATE23
 
 With `skip_if_version_exists: true`, the Action queries the exact package through the public Miaomiao latest-version API before reading `APPSTORE_TOKEN`. An equal version returns a successful skipped result. Not-found continues publishing; other lookup failures stop the operation. If `APP_ID` is absent during a real publish, the write client searches for an exact `packageId`; it reuses that application or creates it when no match exists. If it is present, the client verifies that the application's `packageId` matches the LPK before adding a version.
 
+### GitHub Secret scope and precedence
+
+The reusable workflow reads ordinary GitHub Actions Secrets by name, regardless of whether they are defined for the organization or the repository. Organization Secrets must grant the current repository access through their repository policy.
+
+When the same Secret name exists at multiple levels, the most specific value wins: an Environment Secret takes precedence over a Repository Secret, and a Repository Secret takes precedence over an Organization Secret. For example, a repository-level `APPSTORE_URL` overrides an organization-level `APPSTORE_URL`. Use organization Secrets for shared defaults and repository Secrets only for intentional per-repository overrides. Do not define the same name at several levels unless that override is deliberate.
+
 The Action sends JSON to `POST /api/v1/apps` for a new application or `POST /api/v1/apps/{APP_ID}/versions` for an external version. Both `downloadUrl` and the confirmed 64-character lowercase `sha256` are required. The reusable workflow passes the SHA verified against GitHub to the publish operation, which recomputes the local LPK and rejects any mismatch. The URL must be a real `https://github.com/<owner>/<repo>/releases/download/...` asset URL. The store can record the supplied checksum without downloading the LPK merely to recompute it. The same version and SHA256 is returned as an idempotent existing result; different content under the same version fails.
 
 The private store supports Docker `lazycat`, `direct`, and `mirror` delivery, plus applications with no Docker images. `direct` and `mirror` applications are intentionally not publishable to the official store.

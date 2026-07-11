@@ -424,6 +424,12 @@ PRIVATE_STORE_GROUP_CODES=ABC123,LATE23
 
 启用 `skip_if_version_exists: true` 后，Action 会在读取 `APPSTORE_TOKEN` 前通过精确包名查询喵喵商店。版本相同则成功跳过；应用不存在时继续发布；其他查询错误直接失败。真正发布时，如果没有 APP_ID，写客户端会按 `packageId` 精确查找，找到就复用，找不到才创建应用。提供 APP_ID 时，会先确认该应用的 `packageId` 与 LPK 一致，再增加版本。
 
+### GitHub Secret 作用域和优先级
+
+reusable workflow 只按名称读取 GitHub Actions Secret，不区分它来自组织还是仓库。组织级 Secret 必须通过 repository access policy 授权给当前仓库，否则工作流无法读取。
+
+同名 Secret 同时存在于多个层级时，更具体的层级优先：Environment Secret 覆盖 Repository Secret，Repository Secret 覆盖 Organization Secret。例如仓库级 `APPSTORE_URL` 会覆盖组织级同名值。组织 Secret 适合提供多个仓库共享的默认值；只有确实需要单仓库覆盖时才创建仓库级同名 Secret。不要在多个层级重复定义同名 Secret，除非这是有意的覆盖关系。
+
 新建应用调用 `POST /api/v1/apps`；已有应用的外部版本调用 `POST /api/v1/apps/{APP_ID}/versions`，两者都发送 JSON。`downloadUrl` 和确认过的 64 位小写 `sha256` 都是必填项。reusable workflow 会把 GitHub 校验过的 SHA 传给发布操作，发布操作重新计算本地 LPK，任何不一致都会失败。URL 必须是真实的 `https://github.com/<owner>/<repo>/releases/download/...` Release Asset 地址。私有商店可以直接记录 Action 提供的 checksum，不需要仅为了重新计算 SHA256 而下载 LPK。相同版本和 SHA256 会幂等返回已有结果；同版本内容不同会失败。
 
 私有商店支持 Docker 的 `lazycat`、`direct`、`mirror` 三种模式，也支持完全没有 Docker 镜像的应用。`direct` 和 `mirror` 应用不能误发官方商店。

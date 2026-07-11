@@ -80,6 +80,8 @@ PRIVATE_STORE_GROUP_CODES
 
 Only configure the credential family actually needed. Prefer a LazyCat token over username/password. `APP_ID` is optional. `PRIVATE_STORE_GROUP_CODES` is an optional comma-separated GitHub Secret; never expose it as a normal workflow input.
 
+Organization and repository Secrets use the same names in the reusable workflow. The organization Secret must authorize the repository. For duplicate names, GitHub uses the most specific scope: Environment overrides Repository, and Repository overrides Organization. Treat organization Secrets as shared defaults and repository Secrets as deliberate overrides.
+
 ## Source build mapping
 
 | Source | Config toolchain | Workflow input | Required target |
