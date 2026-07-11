@@ -144,7 +144,7 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 			}
 		}
 	}
-	for _, name := range []string{"references/configuration.md", "references/workflows.md", "assets/lazycat-workflow.yml"} {
+	for _, name := range []string{"references/configuration.md", "references/workflows.md"} {
 		data, err := os.ReadFile(filepath.Join(root, name))
 		if err != nil {
 			t.Fatal(err)
@@ -152,6 +152,13 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 		if !strings.Contains(string(data), "versioned-release-asset") {
 			t.Fatalf("%s is missing versioned-release-asset", name)
 		}
+	}
+	starter, err := os.ReadFile(filepath.Join(root, "assets", "lazycat-workflow.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(starter), "versioned-release-asset: true") {
+		t.Fatal("scheduled pull workflow starter must not enable versioned-release-asset")
 	}
 	for _, name := range []string{"references/configuration.md", "references/workflows.md"} {
 		data, err := os.ReadFile(filepath.Join(root, name))
