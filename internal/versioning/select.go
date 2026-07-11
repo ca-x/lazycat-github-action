@@ -76,7 +76,40 @@ func Select(rule Rule, candidates []Candidate) (Selection, error) {
 	if rule.Channel == ChannelNightly {
 		return selectNightly(filtered)
 	}
+	rankedCandidates, err := rankMappedCandidates(rule, filtered)
+	if err != nil {
+		return Selection{}, err
+	}
+	return rankedCandidates[0], nil
+}
 
+// RankSemVer maps and orders tag-only candidates without requiring image
+// manifests. Callers can inspect the ranked tags until a usable platform is
+// found instead of fetching metadata for every matching release.
+func RankSemVer(rule Rule, candidates []Candidate) ([]Selection, error) {
+	if err := validateRule(rule); err != nil {
+		return nil, err
+	}
+	if rule.Sort != SortSemVer || rule.Channel == ChannelNightly {
+		return nil, errors.New("SemVer ranking requires a stable, beta, or custom semver rule")
+	}
+	filtered := make([]Candidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if rule.TagRegex != nil && !rule.TagRegex.MatchString(candidate.Tag) {
+			continue
+		}
+		if rule.ExcludeRegex != nil && rule.ExcludeRegex.MatchString(candidate.Tag) {
+			continue
+		}
+		filtered = append(filtered, candidate)
+	}
+	if len(filtered) == 0 {
+		return nil, errors.New("no image tag matches the configured channel")
+	}
+	return rankMappedCandidates(rule, filtered)
+}
+
+func rankMappedCandidates(rule Rule, filtered []Candidate) ([]Selection, error) {
 	rankedCandidates := make([]ranked, 0, len(filtered))
 	for _, candidate := range filtered {
 		mapped, err := mapVersion(rule, candidate.Tag)
@@ -84,11 +117,11 @@ func Select(rule Rule, candidates []Candidate) (Selection, error) {
 			if rule.Channel == ChannelStable || rule.Channel == ChannelBeta {
 				continue
 			}
-			return Selection{}, err
+			return nil, err
 		}
 		parsed, err := semver.NewVersion(mapped)
 		if err != nil {
-			return Selection{}, fmt.Errorf("parse mapped version %q: %w", mapped, err)
+			return nil, fmt.Errorf("parse mapped version %q: %w", mapped, err)
 		}
 		switch rule.Channel {
 		case ChannelStable:
@@ -103,7 +136,7 @@ func Select(rule Rule, candidates []Candidate) (Selection, error) {
 		rankedCandidates = append(rankedCandidates, ranked{candidate: candidate, version: mapped, semver: parsed})
 	}
 	if len(rankedCandidates) == 0 {
-		return Selection{}, errors.New("no valid image version matches the configured channel")
+		return nil, errors.New("no valid image version matches the configured channel")
 	}
 	sort.SliceStable(rankedCandidates, func(i, j int) bool {
 		if rule.Sort == SortCreated {
@@ -118,8 +151,11 @@ func Select(rule Rule, candidates []Candidate) (Selection, error) {
 		}
 		return comparison > 0
 	})
-	selected := rankedCandidates[0]
-	return Selection{Candidate: selected.candidate, Version: selected.version}, nil
+	selections := make([]Selection, 0, len(rankedCandidates))
+	for _, selected := range rankedCandidates {
+		selections = append(selections, Selection{Candidate: selected.candidate, Version: selected.version})
+	}
+	return selections, nil
 }
 
 func validateRule(rule Rule) error {

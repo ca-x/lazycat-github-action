@@ -11,6 +11,7 @@ project:
   output: dist/application.lpk
 update:
   strategy: pull
+  allow_downgrade: false
   version_source:
     type: image
     image: web
@@ -56,6 +57,8 @@ The version source answers “which upstream version changes package.yml.” The
 Use `exclude_regex` to remove Windows/ARM tags. `version_regex` must contain `(?P<version>...)`; `version_template` defaults to `{version}`. Every named capture is available as an exact placeholder. For example, `^(?P<version>\d{8})\.0*(?P<build>[1-9]\d*)$` plus `{version}.{build}.0` maps `20260603.01` to `20260603.1.0`. Unknown placeholders and non-SemVer expanded values fail closed.
 
 Nightly mutable tags become deterministic SemVer values based on creation time and the `linux/amd64` digest.
+
+Registry discovery uses `github.com/google/go-containerregistry`. SemVer rules rank filtered tag names before manifest inspection and stop at the first usable `linux/amd64` candidate, falling back past platform-incompatible higher tags. `created` rules inspect all eligible manifests because their `linux/amd64` creation timestamps determine the result.
 
 ## Image target examples
 

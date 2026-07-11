@@ -111,6 +111,8 @@ Set `require_digest_match: true` for mirrors when the accelerator must contain e
 
 When a tag needs normalization, reference named `version_regex` groups directly in `version_template`, for example `(?P<version>\d{8})\.0*(?P<build>[1-9]\d*)` with `{version}.{build}.0`. Keep the required `version` group. Unknown placeholders and non-SemVer results fail closed; do not add repository-specific rewriting when this mapping is sufficient.
 
+For SemVer sorting, rank filtered tag names before manifest inspection and stop after the first usable `linux/amd64` candidate; continue past a higher tag only when that tag lacks the target platform. Keep full manifest inspection for `created` sorting because creation time is required for ranking.
+
 Keep `update.allow_downgrade: false` or omit it for the safe default. Compare the mapped version-source image SemVer with the current package version before delivery. Equal versions may refresh an image reference or digest. Set `allow_downgrade: true` only after the user explicitly confirms an intentional rollback.
 
 ## 🔴 CHECKPOINT — before enabling version downgrades

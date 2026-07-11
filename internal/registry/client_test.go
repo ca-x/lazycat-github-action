@@ -11,6 +11,7 @@ import (
 	"time"
 
 	internalregistry "github.com/ca-x/lazycat-github-action/internal/registry"
+	"github.com/ca-x/lazycat-github-action/internal/versioning"
 	"github.com/google/go-containerregistry/pkg/name"
 	registryserver "github.com/google/go-containerregistry/pkg/registry"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -133,6 +134,27 @@ func TestCandidatesFiltersTagsBeforePlatformInspection(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(candidates) != 1 || candidates[0].Tag != "v1.2.3" {
+		t.Fatalf("candidates=%#v", candidates)
+	}
+}
+
+func TestCandidatesInspectsSemVerTagsInRankOrderUntilPlatformMatches(t *testing.T) {
+	server := httptest.NewServer(registryserver.New())
+	defer server.Close()
+	repository := testRepository(t, server.URL, "acme/ranked")
+	writeImage(t, repository.Tag("v1.0.0"), imageAt(t, "amd64", atDay(1)), server)
+	writeImage(t, repository.Tag("v2.0.0"), imageAt(t, "amd64", atDay(2)), server)
+	writeImage(t, repository.Tag("v3.0.0"), imageAt(t, "arm64", atDay(3)), server)
+
+	rule := versioning.Rule{Channel: versioning.ChannelStable, Sort: versioning.SortSemVer, VersionTemplate: "{version}"}
+	client := internalregistry.New(remote.WithTransport(server.Client().Transport))
+	candidates, err := client.Candidates(context.Background(), repository.Name(), internalregistry.TagFilter{
+		Include: regexp.MustCompile(`^v\d+\.\d+\.\d+$`), SemVerRule: &rule,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || candidates[0].Tag != "v2.0.0" {
 		t.Fatalf("candidates=%#v", candidates)
 	}
 }

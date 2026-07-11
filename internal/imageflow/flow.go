@@ -262,10 +262,15 @@ func imageRule(image config.Image) (versioning.Rule, registry.TagFilter, error) 
 	if err != nil {
 		return versioning.Rule{}, registry.TagFilter{}, err
 	}
-	return versioning.Rule{
+	rule := versioning.Rule{
 		Channel: versioning.Channel(image.Channel), Sort: versioning.Sort(image.Sort), TagRegex: tagRegex,
 		ExcludeRegex: excludeRegex, VersionRegex: versionRegex, VersionTemplate: image.VersionTemplate,
-	}, registry.TagFilter{Include: tagRegex, Exclude: excludeRegex}, nil
+	}
+	filter := registry.TagFilter{Include: tagRegex, Exclude: excludeRegex}
+	if rule.Sort == versioning.SortSemVer {
+		filter.SemVerRule = &rule
+	}
+	return rule, filter, nil
 }
 
 func copyResult(value *appstore.CopyImageResult) *CopyResult {

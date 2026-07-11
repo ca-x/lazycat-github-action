@@ -254,7 +254,7 @@ version_template: '{version}.{build}.0' # 20260603.01 -> 20260603.1.0
 
 The `version` group remains required. Unknown placeholders and expanded values that are not valid SemVer fail closed.
 
-Registry discovery uses `github.com/google/go-containerregistry`. `tag_regex` and `exclude_regex` run before the Action fetches individual manifests. OCI indexes and Docker manifest lists are reduced to `linux/amd64`; ARM64 metadata cannot win selection. Creation-time sorting still follows the inspected `linux/amd64` manifest, so the default downgrade guard prevents a recently rebuilt older tag from lowering the application version.
+Registry discovery uses `github.com/google/go-containerregistry`. `tag_regex` and `exclude_regex` run before the Action fetches individual manifests. For SemVer sorting, the Action ranks tag names first and inspects manifests in order only until the first usable `linux/amd64` image is found. Creation-time sorting must inspect every eligible manifest because the timestamp is part of the ordering. OCI indexes and Docker manifest lists are reduced to `linux/amd64`; ARM64 metadata cannot win selection. The default downgrade guard prevents a recently rebuilt older tag from lowering the application version.
 
 ## Image delivery modes
 

@@ -254,7 +254,7 @@ version_template: '{version}.{build}.0' # 20260603.01 -> 20260603.1.0
 
 `version` 捕获组仍然必填。未知占位符或展开后不是合法 SemVer 时会直接失败。
 
-镜像仓库发现使用 `github.com/google/go-containerregistry`。Action 会先应用 `tag_regex` 和 `exclude_regex`，再拉取单个 manifest。OCI index 和 Docker manifest list 只选择 `linux/amd64`，ARM64 镜像的时间和 digest 不会影响最终结果。按创建时间排序仍以检查到的 `linux/amd64` manifest 为准，因此默认降级保护可以防止最近重建的旧标签降低应用版本。
+镜像仓库发现使用 `github.com/google/go-containerregistry`。Action 会先应用 `tag_regex` 和 `exclude_regex`。对于 SemVer 排序，先只按标签完成排名，再按顺序检查 manifest，找到第一个可用的 `linux/amd64` 镜像就停止；按创建时间排序因为时间参与排名，仍必须检查全部候选 manifest。OCI index 和 Docker manifest list 只选择 `linux/amd64`，ARM64 镜像的时间和 digest 不会影响最终结果。默认降级保护可以防止最近重建的旧标签降低应用版本。
 
 ## 镜像交付模式
 

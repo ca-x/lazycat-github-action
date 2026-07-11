@@ -35,8 +35,9 @@ type Client struct {
 }
 
 type TagFilter struct {
-	Include *regexp.Regexp
-	Exclude *regexp.Regexp
+	Include    *regexp.Regexp
+	Exclude    *regexp.Regexp
+	SemVerRule *versioning.Rule
 }
 
 func New(options ...remote.Option) *Client {
@@ -59,12 +60,11 @@ func (client *Client) Candidates(ctx context.Context, source string, filters ...
 		return nil, fmt.Errorf("image repository %q returned %d tags; limit is %d", source, len(tags), maxTags)
 	}
 	sort.Strings(tags)
-	candidates := make([]versioning.Candidate, 0, len(tags))
-	missingPlatform := 0
 	var filter TagFilter
 	if len(filters) > 0 {
 		filter = filters[0]
 	}
+	eligibleTags := make([]string, 0, len(tags))
 	for _, tag := range tags {
 		if filter.Include != nil && !filter.Include.MatchString(tag) {
 			continue
@@ -72,6 +72,43 @@ func (client *Client) Candidates(ctx context.Context, source string, filters ...
 		if filter.Exclude != nil && filter.Exclude.MatchString(tag) {
 			continue
 		}
+		eligibleTags = append(eligibleTags, tag)
+	}
+	if filter.SemVerRule != nil {
+		tagCandidates := make([]versioning.Candidate, 0, len(eligibleTags))
+		for _, tag := range eligibleTags {
+			tagCandidates = append(tagCandidates, versioning.Candidate{Tag: tag})
+		}
+		ranked, err := versioning.RankSemVer(*filter.SemVerRule, tagCandidates)
+		if err != nil {
+			// Preserve version-selection error semantics in imageflow. SemVer
+			// ranking does not need manifest metadata, so tag-only candidates
+			// are sufficient for the caller to report the original rule error.
+			return tagCandidates, nil
+		}
+		missingPlatform := 0
+		for _, selection := range ranked {
+			if err := checkContext(ctx); err != nil {
+				return nil, err
+			}
+			image, err := client.Inspect(ctx, repository.Tag(selection.Candidate.Tag).Name())
+			if err != nil {
+				if errors.Is(err, ErrPlatformNotFound) {
+					missingPlatform++
+					continue
+				}
+				return nil, fmt.Errorf("inspect image tag %q: %w", selection.Candidate.Tag, err)
+			}
+			return []versioning.Candidate{{Tag: selection.Candidate.Tag, Digest: image.Digest, Created: image.Created}}, nil
+		}
+		if missingPlatform > 0 {
+			return nil, fmt.Errorf("%w for repository %q", ErrPlatformNotFound, source)
+		}
+		return nil, nil
+	}
+	candidates := make([]versioning.Candidate, 0, len(eligibleTags))
+	missingPlatform := 0
+	for _, tag := range eligibleTags {
 		if err := checkContext(ctx); err != nil {
 			return nil, err
 		}
