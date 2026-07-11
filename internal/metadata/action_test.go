@@ -115,7 +115,7 @@ func TestReusableWorkflowContractAndActionRefs(t *testing.T) {
 	}
 	for _, condition := range []string{
 		"steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.official-store-enabled == 'true'",
-		"steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.private-store-enabled == 'true' && steps.asset-url.outputs.download-url != ''",
+		"steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.private-store-enabled == 'true' && steps.store-artifact.outputs.download-url != ''",
 	} {
 		if !strings.Contains(workflow, condition) {
 			t.Fatalf("workflow is missing store condition %q", condition)
@@ -211,8 +211,6 @@ func TestReusableWorkflowPreparesVersionedReleaseAssets(t *testing.T) {
 		"- name: Inspect existing Release Asset",
 		"- name: Upload GitHub Release Asset",
 		"- name: Resolve Release Asset URL",
-		"- name: Publish to MiaoMiao private store",
-		"- name: Publish to LazyCat official platform",
 	} {
 		start := strings.Index(workflow, name)
 		if start < 0 {
@@ -225,6 +223,22 @@ func TestReusableWorkflowPreparesVersionedReleaseAssets(t *testing.T) {
 		}
 		if !strings.Contains(rest[:end], preparedPath) {
 			t.Fatalf("workflow step %q does not use the prepared Release asset", name)
+		}
+	}
+	for _, contract := range []string{
+		"- name: Locate existing Release Asset for store reconciliation",
+		"const assetName = `${packageId}-v${version}.lpk`;",
+		"/^sha256:[0-9a-f]{64}$/",
+		"- name: Download existing Release Asset for store reconciliation",
+		`gh release download "${RELEASE_TAG}" --pattern "${ASSET_NAME}"`,
+		`if [[ "${actual_sha256}" != "${EXPECTED_SHA256}" ]]`,
+		"- name: Select verified store artifact",
+		"lpk-path: ${{ steps.store-artifact.outputs.lpk-path }}",
+		"download-url: ${{ steps.store-artifact.outputs.download-url }}",
+		"sha256: ${{ steps.store-artifact.outputs.sha256 }}",
+	} {
+		if !strings.Contains(workflow, contract) {
+			t.Fatalf("Release/store reconciliation is missing contract %q", contract)
 		}
 	}
 	artifactIndex := strings.Index(workflow, "- name: Upload validation Artifact")

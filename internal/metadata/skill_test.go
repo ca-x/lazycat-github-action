@@ -33,7 +33,7 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 			t.Fatalf("SKILL.md frontmatter missing trigger %q", required)
 		}
 	}
-	for _, required := range []string{"name: lazycat-github-action", "automatically inspect", "Primary outcome: working GitHub workflows", "Do not stop after printing sample YAML", "Do not infer", "linux/amd64", "APPSTORE_TOKEN", "token-file", "skip_if_version_exists", "PRIVATE_STORE_GROUP_CODES", "onlineVersion", "Repository overrides Organization"} {
+	for _, required := range []string{"name: lazycat-github-action", "automatically inspect", "Primary outcome: working GitHub workflows", "Do not stop after printing sample YAML", "Do not infer", "linux/amd64", "APPSTORE_TOKEN", "token-file", "skip_if_version_exists", "PRIVATE_STORE_GROUP_CODES", "onlineVersion", "Repository overrides Organization", "delivery source of truth"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("SKILL.md missing %q", required)
 		}
@@ -72,6 +72,9 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	}
 	if _, found := seen["automatic-workflow-generation"]; !found {
 		t.Fatal("evals are missing automatic workflow generation coverage")
+	}
+	if _, found := seen["release-store-reconciliation"]; !found {
+		t.Fatal("evals are missing Release/store reconciliation coverage")
 	}
 	for _, name := range []string{"references/configuration.md", "references/workflows.md", "assets/lazycat-action.yml"} {
 		data, err := os.ReadFile(filepath.Join(root, name))
@@ -183,8 +186,8 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	if err := json.Unmarshal(prompts, &promptCases); err != nil {
 		t.Fatal(err)
 	}
-	if len(promptCases) != 6 {
-		t.Fatalf("test-prompts.json cases=%d, want 6", len(promptCases))
+	if len(promptCases) != 7 {
+		t.Fatalf("test-prompts.json cases=%d, want 7", len(promptCases))
 	}
 	promptIDs := make(map[string]string, len(promptCases))
 	for _, prompt := range promptCases {
@@ -199,6 +202,7 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	for id, required := range map[string][]string{
 		"historical-lpk-migration":          {"git ls-files '*.lpk'", "总字节", "yes/no", "拒绝", "versioned-release-asset: true", "<package-id>-v<version>.lpk"},
 		"go-template-manifest-preservation": {"绝不执行或求值", "if/else/end/with/range", "逐字节", "fail closed"},
+		"release-store-reconciliation":      {"精确命名", "GitHub sha256 digest", "本地 SHA256", "官方商店补交", "喵喵商店", "独立跳过", "不重建", "不改名", "不猜测"},
 	} {
 		expected, found := promptIDs[id]
 		if !found {
@@ -226,6 +230,18 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	for _, required := range []string{"private store uses the verified GitHub Release Asset URL and SHA256", "official store uploads the same locally verified LPK bytes and SHA256 without receiving the Release URL"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("SKILL.md missing store asset contract %q", required)
+		}
+	}
+	for _, name := range contractFiles {
+		data, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		contract := string(data)
+		for _, required := range []string{"<package-id>-v<version>.lpk", "sha256", "store"} {
+			if !strings.Contains(contract, required) {
+				t.Fatalf("%s is missing Release/store reconciliation contract %q", name, required)
+			}
 		}
 	}
 }

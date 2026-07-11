@@ -48,6 +48,12 @@
       "prompt": "Inspect this LazyCat repository and automatically create the GitHub Actions files needed for scheduled image updates and release publishing. Do not just explain what I should write.",
       "mustInclude": [".github/lazycat-action.yml", ".github/workflows/", "actionlint", "secrets"],
       "mustNotInclude": ["Here is an example only", "I cannot edit files"]
+    },
+    {
+      "id": "release-store-reconciliation",
+      "prompt": "The versioned GitHub Release LPK already exists. Reconcile an official store that is missing this version while the private store is already current.",
+      "mustInclude": ["<package-id>-v<version>.lpk", "sha256", "official", "skip"],
+      "mustNotInclude": ["rebuild", "use any .lpk", "publish both stores unconditionally"]
     }
   ]
 }

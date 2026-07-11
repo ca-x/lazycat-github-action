@@ -538,9 +538,105 @@ jobs:
             }
             core.setOutput('download-url', asset.browser_download_url);
 
+      - name: Locate existing Release Asset for store reconciliation
+        id: existing-asset
+        if: steps.asset-url.outputs.download-url == '' && steps.lazycat.outputs.update-strategy == 'publish' && (steps.lazycat.outputs.official-store-enabled == 'true' || steps.lazycat.outputs.private-store-enabled == 'true') && !inputs.dry-run
+        uses: actions/github-script@v8
+        env:
+          RELEASE_TAG: ${{ steps.lazycat.outputs.tag }}
+          PACKAGE_ID: ${{ steps.lazycat.outputs.package-id }}
+          VERSION: ${{ steps.lazycat.outputs.version }}
+        with:
+          script: |
+            const packageId = process.env.PACKAGE_ID;
+            const version = process.env.VERSION;
+            if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(packageId) || !/^[0-9][0-9A-Za-z.+-]*$/.test(version)) {
+              core.setFailed('Package ID or version is unsafe for Release reconciliation');
+              return;
+            }
+            const assetName = `${packageId}-v${version}.lpk`;
+            try {
+              const release = await github.rest.repos.getReleaseByTag({...context.repo, tag: process.env.RELEASE_TAG});
+              const asset = release.data.assets.find(item => item.name === assetName);
+              if (!asset) return;
+              if (!/^sha256:[0-9a-f]{64}$/.test(asset.digest || '')) {
+                core.setFailed(`Release asset ${assetName} has no trusted SHA256 digest`);
+                return;
+              }
+              core.setOutput('asset-id', String(asset.id));
+              core.setOutput('asset-name', assetName);
+              core.setOutput('download-url', asset.browser_download_url);
+              core.setOutput('sha256', asset.digest.slice('sha256:'.length));
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+
+      - name: Download existing Release Asset for store reconciliation
+        id: recovered-asset
+        if: steps.existing-asset.outputs.asset-id != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.lazycat.outputs.tag }}
+          ASSET_NAME: ${{ steps.existing-asset.outputs.asset-name }}
+          EXPECTED_SHA256: ${{ steps.existing-asset.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          directory="${GITHUB_WORKSPACE}/.lazycat-action/release-assets"
+          mkdir -p -- "${directory}"
+          gh release download "${RELEASE_TAG}" --pattern "${ASSET_NAME}" --dir "${directory}" --clobber
+          path="${directory}/${ASSET_NAME}"
+          actual_sha256="$(sha256sum "${path}" | cut -d' ' -f1)"
+          if [[ "${actual_sha256}" != "${EXPECTED_SHA256}" ]]; then
+            echo "Downloaded Release asset SHA256 does not match GitHub digest" >&2
+            exit 1
+          fi
+          delimiter="lazycat_recovered_asset"
+          {
+            echo "lpk-path<<${delimiter}"
+            printf '%s\n' "${path}"
+            echo "${delimiter}"
+          } >>"${GITHUB_OUTPUT}"
+
+      - name: Select verified store artifact
+        id: store-artifact
+        if: steps.asset-url.outputs.download-url != '' || steps.recovered-asset.outputs.lpk-path != ''
+        shell: bash
+        env:
+          BUILT_LPK_PATH: ${{ steps.release-asset.outputs.lpk-path }}
+          BUILT_DOWNLOAD_URL: ${{ steps.asset-url.outputs.download-url }}
+          BUILT_SHA256: ${{ steps.lazycat.outputs.sha256 }}
+          RECOVERED_LPK_PATH: ${{ steps.recovered-asset.outputs.lpk-path }}
+          RECOVERED_DOWNLOAD_URL: ${{ steps.existing-asset.outputs.download-url }}
+          RECOVERED_SHA256: ${{ steps.existing-asset.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          lpk_path="${BUILT_LPK_PATH}"
+          download_url="${BUILT_DOWNLOAD_URL}"
+          sha256="${BUILT_SHA256}"
+          if [[ -z "${download_url}" ]]; then
+            lpk_path="${RECOVERED_LPK_PATH}"
+            download_url="${RECOVERED_DOWNLOAD_URL}"
+            sha256="${RECOVERED_SHA256}"
+          fi
+          if [[ -z "${lpk_path}" || -z "${download_url}" || ! "${sha256}" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Verified LPK path, Release URL, and SHA256 are required for store publishing" >&2
+            exit 1
+          fi
+          delimiter="lazycat_store_artifact"
+          {
+            echo "lpk-path<<${delimiter}"
+            printf '%s\n' "${lpk_path}"
+            echo "${delimiter}"
+            echo "download-url<<${delimiter}"
+            printf '%s\n' "${download_url}"
+            echo "${delimiter}"
+            echo "sha256=${sha256}"
+          } >>"${GITHUB_OUTPUT}"
+
       - name: Publish to MiaoMiao private store
         id: publish-private
-        if: steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.private-store-enabled == 'true' && steps.asset-url.outputs.download-url != '' && !inputs.dry-run
+        if: steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.private-store-enabled == 'true' && steps.store-artifact.outputs.download-url != '' && !inputs.dry-run
         uses: ca-x/lazycat-github-action@v1
         env:
           APPSTORE_URL: ${{ secrets.APPSTORE_URL }}
@@ -552,13 +648,13 @@ jobs:
           config: ${{ inputs.config }}
           version: ${{ steps.lazycat.outputs.version }}
           changelog: ${{ steps.release-notes.outputs.value }}
-          lpk-path: ${{ steps.release-asset.outputs.lpk-path }}
-          download-url: ${{ steps.asset-url.outputs.download-url }}
-          sha256: ${{ steps.lazycat.outputs.sha256 }}
+          lpk-path: ${{ steps.store-artifact.outputs.lpk-path }}
+          download-url: ${{ steps.store-artifact.outputs.download-url }}
+          sha256: ${{ steps.store-artifact.outputs.sha256 }}
 
       - name: Publish to LazyCat official platform
         id: publish-official
-        if: steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.official-store-enabled == 'true' && steps.asset-url.outputs.download-url != '' && !inputs.dry-run
+        if: steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.official-store-enabled == 'true' && steps.store-artifact.outputs.download-url != '' && !inputs.dry-run
         uses: ca-x/lazycat-github-action@v1
         env:
           LAZYCAT_TOKEN: ${{ secrets.LAZYCAT_TOKEN }}
@@ -570,8 +666,8 @@ jobs:
           config: ${{ inputs.config }}
           version: ${{ steps.lazycat.outputs.version }}
           changelog: ${{ steps.release-notes.outputs.value }}
-          lpk-path: ${{ steps.release-asset.outputs.lpk-path }}
-          sha256: ${{ steps.lazycat.outputs.sha256 }}
+          lpk-path: ${{ steps.store-artifact.outputs.lpk-path }}
+          sha256: ${{ steps.store-artifact.outputs.sha256 }}
           token-file: ${{ inputs.token-file }}
 
       - name: Merge store publishing results
@@ -591,7 +687,7 @@ jobs:
             core.setOutput('store-results', JSON.stringify(result));
 
       - name: Sync tag/release version to default branch
-        if: steps.asset-url.outputs.download-url != '' && steps.lazycat.outputs.changed == 'true' && (github.ref_type == 'tag' || github.event_name == 'release')
+        if: steps.store-artifact.outputs.download-url != '' && steps.lazycat.outputs.changed == 'true' && (github.ref_type == 'tag' || github.event_name == 'release')
         uses: actions/github-script@v8
         env:
           PACKAGE_FILE: ${{ steps.lazycat.outputs.package-file }}

@@ -143,4 +143,6 @@ Secrets: `APPSTORE_URL`, `APPSTORE_TOKEN`, optional `APP_ID`, and optional comma
 
 `skip_if_version_exists` has the same default-off, exact-equality, not-found, fail-closed, and network-free dry-run behavior as the official option. The write client creates an application with `POST /api/v1/apps` or creates an external version with JSON `POST /api/v1/apps/{id}/versions`. It always sends `sourceType: GITHUB`, GitHub Release Asset `downloadUrl`, and locally computed `sha256`.
 
+With scheduled `publish` automation, an existing exact `<package-id>-v<version>.lpk` Release Asset can repair a missing store submission. The workflow verifies the GitHub asset digest and downloaded bytes before either store call; it never substitutes an unversioned or differently named LPK.
+
 Secret scope is a workflow concern, not a configuration field. An organization Secret must authorize the repository. If the same name is defined more than once, Environment overrides Repository and Repository overrides Organization.

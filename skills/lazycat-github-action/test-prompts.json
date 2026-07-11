@@ -28,5 +28,10 @@
     "id": "go-template-manifest-preservation",
     "prompt": "Manifest 有 Go Template 条件块。请自动创建 GitHub workflows 更新两个镜像并发布商店，不要破坏模板。",
     "expected": "在 YAML 处理前识别独立 if/else/end/with/range 控制行；绝不执行或求值模板；逐字节保护并恢复控制行、缩进和 trim marker，内联表达式保持原样；marker 冲突、丢失/重复、受保护 YAML 无效、镜像目标歧义或模板 diff 异常时 fail closed；对比前后控制行并运行真实 LazyCat build/validation；仍须确认无法从仓库证明的版本来源镜像和商店集合。"
+  },
+  {
+    "id": "release-store-reconciliation",
+    "prompt": "GitHub Release 已经有 community.example-v1.2.3.lpk，但官方商店缺 1.2.3，喵喵商店已经是 1.2.3。每天的 Action 应该怎么自动补偿？",
+    "expected": "只下载当前 Tag 下精确命名的版本化 LPK，验证 GitHub sha256 digest 和本地 SHA256；官方商店补交，喵喵商店按 skip_if_version_exists 独立跳过；不重建、不改名、不猜测其他 asset。"
   }
 ]

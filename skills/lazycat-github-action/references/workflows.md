@@ -91,6 +91,10 @@ Only configure the credential family actually needed. Prefer a LazyCat token ove
 
 Organization and repository Secrets use the same names in the reusable workflow. The organization Secret must authorize the repository. For duplicate names, GitHub uses the most specific scope: Environment overrides Repository, and Repository overrides Organization. Treat organization Secrets as shared defaults and repository Secrets as deliberate overrides.
 
+## Existing Release/store reconciliation
+
+A scheduled workflow with `update.strategy: publish`, `versioned-release-asset: true`, and store `skip_if_version_exists: true` is also a repair loop. When the current tag already contains exact asset `<package-id>-v<version>.lpk`, the reusable workflow may download it and fill a missing official or private-store version without rebuilding. It must require the GitHub `sha256:` asset digest, recompute SHA256 after download, keep the file beneath the project root, and let each store independently publish or skip. Missing Release/tag, a different filename, or a missing/mismatched digest is not recoverable by guessing; stop that publication path.
+
 ## Source build mapping
 
 | Source | Config toolchain | Workflow input | Required target |

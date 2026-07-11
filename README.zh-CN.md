@@ -434,6 +434,10 @@ PRIVATE_STORE_GROUP_CODES=ABC123,LATE23
 
 启用 `skip_if_version_exists: true` 后，Action 会在读取 `APPSTORE_TOKEN` 前通过精确包名查询喵喵商店。版本相同则成功跳过；应用不存在时继续发布；其他查询错误直接失败。真正发布时，如果没有 APP_ID，写客户端会按 `packageId` 精确查找，找到就复用，找不到才创建应用。提供 APP_ID 时，会先确认该应用的 `packageId` 与 LPK 一致，再增加版本。
 
+### Release/商店对账
+
+定时 `publish` workflow 也会对账已有的版本化 GitHub Release 与两个商店。如果当前 Tag 已有精确命名的 `<package-id>-v<version>.lpk`，但某个商店还没有该版本，reusable workflow 会把该 Asset 下载到项目根目录下，同时校验 GitHub 返回的 `sha256:` digest 与本地重新计算的 SHA256，再用同一份字节补交。已经存在该版本的商店会独立跳过。Release、精确 Asset 名称或 digest 缺失时，不会猜测其他文件或版本；仍由正常的镜像更新和构建流程创建新 Release。
+
 ### GitHub Secret 作用域和优先级
 
 reusable workflow 只按名称读取 GitHub Actions Secret，不区分它来自组织还是仓库。组织级 Secret 必须通过 repository access policy 授权给当前仓库，否则工作流无法读取。

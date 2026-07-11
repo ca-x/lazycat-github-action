@@ -163,6 +163,8 @@ Private stores support `lazycat`, `direct`, `mirror`, static Web, and Exec appli
 
 Both skip options default to false. When enabled, exact string equality between the verified LPK version and `onlineVersion` returns `published: false` and `skipped: true`. Not-found continues publishing; every other lookup failure stops. `dry-run` never queries stores. Group codes are secrets: do not put them in Action YAML, ordinary inputs, generated outputs, summaries, or examples with real values.
 
+For scheduled `publish` workflows, treat the exact versioned GitHub Release Asset as the delivery source of truth. If `<package-id>-v<version>.lpk` already exists for the current tag and a store lacks that version, download that exact asset beneath `project.root`, require a GitHub `sha256:` digest, recompute local SHA256, and publish the verified bytes. If a store already has the version, skip it independently. If the Release, exact asset name, or digest is missing, do not select another asset or infer another version; continue only through the normal build/Release path.
+
 Organization Secrets must authorize the target repository. For the same Secret name, GitHub applies the most specific scope: Environment overrides Repository, and Repository overrides Organization. Use organization Secrets as shared defaults and repository Secrets only for intentional overrides; state the effective scope when reviewing a workflow with duplicate names.
 
 ## Verify the generated result
@@ -179,7 +181,8 @@ Before finishing:
 8. Confirm `PRIVATE_STORE_GROUP_CODES` is a GitHub Secret when private groups are required.
 9. Confirm standalone Go Template control lines are byte-identical and were never evaluated.
 10. Confirm the private store uses the verified versioned Release URL/SHA256 and official publication uploads the same verified bytes/SHA256 without that URL.
-11. Run `actionlint` and the project's build/test commands.
+11. Confirm an existing exact Release Asset can reconcile either missing store version without rebuilding or republishing the store that is already current.
+12. Run `actionlint` and the project's build/test commands.
 
 ## Common failures
 
@@ -195,6 +198,7 @@ Before finishing:
 | ARM64 Runner produced ARM app | Honor `LAZYCAT_TARGET_ARCH=amd64` | STOP until the build proves Linux x86_64 output |
 | Private publish has no URL | Resolve the verified GitHub Release Asset | STOP before `publish-private` |
 | Equal store version is submitted again | Enable `skip_if_version_exists` and inspect `onlineVersion` | STOP on lookup errors other than not-found |
+| Release exists but a store is behind | Recover only `<package-id>-v<version>.lpk` and verify both GitHub/local SHA256 | STOP if tag, exact asset, or digest is missing |
 | Private application is invisible | Add `PRIVATE_STORE_GROUP_CODES` as a GitHub Secret | STOP rather than commit or print group codes |
 
 ## Do Not
@@ -205,5 +209,6 @@ Before finishing:
 - Do not execute, render, or evaluate a Go Template Manifest with invented values.
 - Do not round-trip a raw templated Manifest through an ordinary YAML serializer.
 - Do not publish an unversioned final asset when versioned naming was requested.
+- Do not rebuild, rename, or substitute a different Release asset during store reconciliation.
 - Do not overwrite pre-existing or untracked `.github/` work.
 - Do not expose Secret values in configuration, logs, outputs, summaries, or examples.
