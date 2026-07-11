@@ -19,6 +19,18 @@ Read these files when present:
 
 Do not infer a “main service” from route order, service order, or the first image. Ask for or identify the exact image that drives the application version and the exact service/application field each image updates.
 
+## 🔴 CHECKPOINT — before writing project files
+
+Confirm all repository-specific decisions that affect generated files:
+
+- exact package, build, and Manifest paths;
+- version source and every managed image target;
+- `pull` versus `publish` strategy and enabled stores;
+- required build toolchains and fixed `linux/amd64` application target;
+- Secret names and transport paths, without reading or reproducing Secret values.
+
+If any required decision cannot be proven from inspected files or the user's request, **STOP before editing** and ask for that missing fact. If the user explicitly requests a template, use conspicuous placeholders and list every unresolved value; never describe that template as deployment-ready.
+
 ## Choose the project path
 
 | Project shape | Version source | Images | Workflow toolchain |

@@ -1,0 +1,17 @@
+[
+  {
+    "id": "dual-store-deduplication",
+    "prompt": "这个项目通过 release 同时发布到懒猫官方商店和喵喵私有商店。请配置 Action：如果精确包名对应的线上最新版本已经等于本次 LPK 版本，就不要重复提交。喵喵应用只对两个私有分组可见。给出配置和 Secret 设置方式。",
+    "expected": "同时启用两个 skip_if_version_exists 开关；把分组码作为逗号分隔的 PRIVATE_STORE_GROUP_CODES GitHub Secret；说明相同版本跳过、NotFound 继续、其他查询错误失败，且不把分组码写入 YAML 或普通 input。"
+  },
+  {
+    "id": "official-image-project",
+    "prompt": "为一个包含 db 和 web 两个 service 的 LazyCat Docker 项目生成定时更新配置。web 驱动应用版本并发布官方商店，db 不受 Action 管理。希望避免官方商店已存在相同版本时再次提交。",
+    "expected": "显式把 web 设为 version_source 和 service target；只配置 web image；使用 lazycat delivery；官方商店启用 skip_if_version_exists；保持 linux/amd64 目标，不错误管理 db。"
+  },
+  {
+    "id": "private-secret-boundary-review",
+    "prompt": "评审下面的想法：把喵喵商店分组码直接写进 .github/lazycat-action.yml，再通过 private-group-codes Action input 传入，这样最方便。项目使用 mirror 镜像并只发布喵喵商店。请指出问题并给出安全配置。",
+    "expected": "明确拒绝把分组码写入仓库 YAML 或普通 Action input；改用 PRIVATE_STORE_GROUP_CODES GitHub Secret/环境变量；保留 private-only、mirror 合法性；说明 Cookie 和重定向隔离及避免输出泄露。"
+  }
+]
