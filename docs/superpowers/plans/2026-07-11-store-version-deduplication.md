@@ -427,7 +427,11 @@ Update this plan with CI run ID, release URL, asset verification, tag commit, an
 - GoReleaser 2.17.0 snapshot release and `scripts/verify-release-artifacts.sh` passed; both archives contain only `lazycat-action`, and `dist/checksums.txt` verifies both archives.
 - Local ShellCheck is unavailable in this environment. The exact-head GitHub CI ShellCheck job remains a mandatory release gate.
 - Credential scan found only GitHub `${{ secrets.* }}` references and documented placeholder values; no concrete credential was committed.
-- Remote push/tag/Release gates remain pending.
+- Exact-head CI run [29138296024](https://github.com/ca-x/lazycat-github-action/actions/runs/29138296024) passed at commit `008b3aacbdba6820132cbf158679961c5931c45e`: race tests, vet, actionlint, ShellCheck, Linux amd64/arm64 cross-builds, fixture LPK, and release-contract all succeeded.
+- Release workflow [29138387767](https://github.com/ca-x/lazycat-github-action/actions/runs/29138387767) completed successfully, including GoReleaser, amd64/arm64 smoke tests, provenance attestation, and the annotated floating `v1` update.
+- The non-draft, non-prerelease [`v1.1.0` Release](https://github.com/ca-x/lazycat-github-action/releases/tag/v1.1.0) contains `checksums.txt`, amd64/arm64 archives, and an SBOM for each archive. Fresh downloads passed `sha256sum -c checksums.txt`; each archive contains only `lazycat-action`.
+- The downloaded amd64 binary reports Action `v1.1.0`, toolkit `v0.2.0`, and target `linux/amd64`, and `file` identifies it as a statically linked x86-64 ELF. `gh attestation verify` succeeded for both release archives.
+- Remote annotated tags `v1.1.0` and `v1` both dereference to `008b3aacbdba6820132cbf158679961c5931c45e`.
 
 ## Darwin Verification Record
 
