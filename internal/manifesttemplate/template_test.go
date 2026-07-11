@@ -2,6 +2,7 @@ package manifesttemplate_test
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/ca-x/lazycat-github-action/internal/manifesttemplate"
@@ -49,11 +50,11 @@ services:
 func TestRestorePreservesExactControlLinesAfterYAMLRoundTrip(t *testing.T) {
 	source := []byte(`application:
   subdomain: templated
-{{- if .U.multi_instance }}
+  {{- if .U.multi_instance -}}
   multi_instance: true
-{{- else }}
+  {{- else -}}
   multi_instance: false
-{{- end }}
+  {{- end -}}
 `)
 	protected, err := manifesttemplate.Protect(source)
 	if err != nil {
@@ -72,11 +73,18 @@ func TestRestorePreservesExactControlLinesAfterYAMLRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, control := range [][]byte{
-		[]byte("{{- if .U.multi_instance }}"),
-		[]byte("{{- else }}"),
-		[]byte("{{- end }}"),
+		[]byte("  {{- if .U.multi_instance -}}"),
+		[]byte("  {{- else -}}"),
+		[]byte("  {{- end -}}"),
 	} {
-		if !bytes.Contains(restored, control) {
+		found := false
+		for _, line := range bytes.Split(restored, []byte("\n")) {
+			if bytes.Equal(line, control) {
+				found = true
+				break
+			}
+		}
+		if !found {
 			t.Fatalf("restored YAML missing exact control %q:\n%s", control, restored)
 		}
 	}
@@ -145,6 +153,15 @@ func TestProtectRejectsReservedMarkerPrefix(t *testing.T) {
 	source := []byte("# lazycat-action-template-control-user-content\napplication: {}\n")
 	if _, err := manifesttemplate.Protect(source); err == nil {
 		t.Fatal("expected reserved marker prefix to be rejected")
+	}
+}
+
+func TestProtectRejectsYAMLThatRemainsInvalidAfterProtection(t *testing.T) {
+	source := []byte("{{ if .U.enabled }}\napplication:\n  valid: true\n invalid: false\n{{ end }}\n")
+	if _, err := manifesttemplate.Protect(source); err == nil {
+		t.Fatal("expected invalid protected YAML to be rejected")
+	} else if !strings.Contains(err.Error(), "validating protected manifest YAML") {
+		t.Fatalf("error lacks validation context: %v", err)
 	}
 }
 

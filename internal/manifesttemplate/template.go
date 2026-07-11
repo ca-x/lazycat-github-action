@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+
+	"go.yaml.in/yaml/v3"
 )
 
 const markerPrefix = "lazycat-action-template-control-"
@@ -37,7 +39,13 @@ func Protect(input []byte) (Protected, error) {
 		controls = append(controls, control{marker: marker, original: original})
 	}
 
-	return Protected{data: bytes.Join(lines, []byte("\n")), controls: controls}, nil
+	data := bytes.Join(lines, []byte("\n"))
+	var node yaml.Node
+	if err := yaml.Unmarshal(data, &node); err != nil {
+		return Protected{}, fmt.Errorf("validating protected manifest YAML: %w", err)
+	}
+
+	return Protected{data: data, controls: controls}, nil
 }
 
 func (protected Protected) Bytes() []byte {
