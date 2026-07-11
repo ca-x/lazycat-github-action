@@ -433,8 +433,7 @@ jobs:
           fi
           asset_path="${LPK_PATH}"
           if [[ "${VERSIONED_RELEASE_ASSET}" == "true" ]]; then
-            asset_dir="${GITHUB_WORKSPACE}/.lazycat-action/release-assets"
-            mkdir -p "${asset_dir}"
+            asset_dir="$(dirname -- "${LPK_PATH}")"
             asset_path="${asset_dir}/${PACKAGE_ID}-v${VERSION}.lpk"
             cp -- "${LPK_PATH}" "${asset_path}"
           fi

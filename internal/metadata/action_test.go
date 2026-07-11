@@ -178,7 +178,7 @@ func TestReusableWorkflowPreparesVersionedReleaseAssets(t *testing.T) {
 		`if [[ ! "${PACKAGE_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ || ! "${VERSION}" =~ ^[0-9][0-9A-Za-z.+-]*$ ]]`,
 		`asset_path="${LPK_PATH}"`,
 		`if [[ "${VERSIONED_RELEASE_ASSET}" == "true" ]]`,
-		`asset_dir="${GITHUB_WORKSPACE}/.lazycat-action/release-assets"`,
+		`asset_dir="$(dirname -- "${LPK_PATH}")"`,
 		`asset_path="${asset_dir}/${PACKAGE_ID}-v${VERSION}.lpk"`,
 		`cp -- "${LPK_PATH}" "${asset_path}"`,
 		`delimiter="lazycat_release_asset"`,
@@ -192,8 +192,8 @@ func TestReusableWorkflowPreparesVersionedReleaseAssets(t *testing.T) {
 			t.Fatalf("Release asset preparation is missing contract %q", contract)
 		}
 	}
-	if strings.Contains(prepareStep, "RUNNER_TEMP") || strings.Contains(prepareStep, `echo "lpk-path=${asset_path}"`) {
-		t.Fatal("Release asset preparation must stay beneath the project root and use multiline outputs")
+	if strings.Contains(prepareStep, "GITHUB_WORKSPACE") || strings.Contains(prepareStep, "RUNNER_TEMP") || strings.Contains(prepareStep, `echo "lpk-path=${asset_path}"`) {
+		t.Fatal("Release asset preparation must stay beside the verified LPK and use multiline outputs")
 	}
 	for _, name := range []string{
 		"- name: Inspect existing Release Asset",
