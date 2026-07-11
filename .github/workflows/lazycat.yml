@@ -33,6 +33,11 @@ on:
         type: string
         required: false
         default: ""
+      versioned-release-asset:
+        description: Copy the verified LPK to <package-id>-v<version>.lpk for GitHub Release and store publication.
+        type: boolean
+        required: false
+        default: false
       token-file:
         description: Explicit lzc-cli-compatible token JSON file on a self-hosted runner.
         type: string
@@ -407,6 +412,30 @@ jobs:
               throw error;
             }
 
+      - name: Prepare Release asset
+        id: release-asset
+        if: steps.release-state.outputs.should-release == 'true'
+        shell: bash
+        env:
+          LPK_PATH: ${{ steps.lazycat.outputs.lpk-path }}
+          PACKAGE_ID: ${{ steps.lazycat.outputs.package-id }}
+          VERSION: ${{ steps.lazycat.outputs.version }}
+          VERSIONED_RELEASE_ASSET: ${{ inputs.versioned-release-asset }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${LPK_PATH}" || -z "${PACKAGE_ID}" || -z "${VERSION}" ]]; then
+            echo "LPK path, package ID, and version are required to prepare a Release asset" >&2
+            exit 1
+          fi
+          asset_path="${LPK_PATH}"
+          if [[ "${VERSIONED_RELEASE_ASSET}" == "true" ]]; then
+            asset_dir="${RUNNER_TEMP}/lazycat-release-assets"
+            mkdir -p "${asset_dir}"
+            asset_path="${asset_dir}/${PACKAGE_ID}-v${VERSION}.lpk"
+            cp -- "${LPK_PATH}" "${asset_path}"
+          fi
+          echo "lpk-path=${asset_path}" >>"${GITHUB_OUTPUT}"
+
       - name: Validate existing Release tag target
         if: steps.release-state.outputs.should-release == 'true' && github.ref_type != 'tag' && github.event_name != 'release'
         shell: bash
@@ -429,7 +458,7 @@ jobs:
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           RELEASE_TAG: ${{ steps.lazycat.outputs.tag }}
-          LPK_PATH: ${{ steps.lazycat.outputs.lpk-path }}
+          LPK_PATH: ${{ steps.release-asset.outputs.lpk-path }}
           LPK_SHA256: ${{ steps.lazycat.outputs.sha256 }}
         with:
           script: |
@@ -470,7 +499,7 @@ jobs:
           name: ${{ steps.lazycat.outputs.tag }}
           body: ${{ inputs.changelog }}
           target_commitish: ${{ steps.direct-commit.outputs.commit != '' && steps.direct-commit.outputs.commit || github.sha }}
-          files: ${{ steps.lazycat.outputs.lpk-path }}
+          files: ${{ steps.release-asset.outputs.lpk-path }}
           fail_on_unmatched_files: true
 
       - name: Resolve Release Asset URL
@@ -479,7 +508,7 @@ jobs:
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           RELEASE_TAG: ${{ steps.lazycat.outputs.tag }}
-          LPK_PATH: ${{ steps.lazycat.outputs.lpk-path }}
+          LPK_PATH: ${{ steps.release-asset.outputs.lpk-path }}
           LPK_SHA256: ${{ steps.lazycat.outputs.sha256 }}
         with:
           script: |
@@ -512,7 +541,7 @@ jobs:
           config: ${{ inputs.config }}
           version: ${{ steps.lazycat.outputs.version }}
           changelog: ${{ steps.release-notes.outputs.value }}
-          lpk-path: ${{ steps.lazycat.outputs.lpk-path }}
+          lpk-path: ${{ steps.release-asset.outputs.lpk-path }}
           download-url: ${{ steps.asset-url.outputs.download-url }}
           sha256: ${{ steps.lazycat.outputs.sha256 }}
 
@@ -530,7 +559,7 @@ jobs:
           config: ${{ inputs.config }}
           version: ${{ steps.lazycat.outputs.version }}
           changelog: ${{ steps.release-notes.outputs.value }}
-          lpk-path: ${{ steps.lazycat.outputs.lpk-path }}
+          lpk-path: ${{ steps.release-asset.outputs.lpk-path }}
           sha256: ${{ steps.lazycat.outputs.sha256 }}
           token-file: ${{ inputs.token-file }}
 

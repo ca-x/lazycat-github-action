@@ -127,6 +127,100 @@ func TestReusableWorkflowContractAndActionPins(t *testing.T) {
 	}
 }
 
+func TestReusableWorkflowPreparesVersionedReleaseAssets(t *testing.T) {
+	filename := filepath.Join("..", "..", ".github", "workflows", "lazycat.yml")
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	on, _ := document["on"].(map[string]any)
+	call, _ := on["workflow_call"].(map[string]any)
+	inputs, _ := call["inputs"].(map[string]any)
+	input, ok := inputs["versioned-release-asset"].(map[string]any)
+	if !ok {
+		t.Fatal("workflow input versioned-release-asset is missing")
+	}
+	if got := input["type"]; got != "boolean" {
+		t.Fatalf("versioned-release-asset type=%#v, want boolean", got)
+	}
+	if got := input["required"]; got != false {
+		t.Fatalf("versioned-release-asset required=%#v, want false", got)
+	}
+	if got := input["default"]; got != false {
+		t.Fatalf("versioned-release-asset default=%#v, want false", got)
+	}
+
+	workflow := string(data)
+	preparedPath := "${{ steps.release-asset.outputs.lpk-path }}"
+	prepareIndex := strings.Index(workflow, "- name: Prepare Release asset")
+	classifyIndex := strings.Index(workflow, "- name: Classify Release work")
+	inspectIndex := strings.Index(workflow, "- name: Inspect existing Release Asset")
+	if prepareIndex < 0 || classifyIndex < 0 || inspectIndex < 0 || classifyIndex > prepareIndex || prepareIndex > inspectIndex {
+		t.Fatal("Release asset preparation must run after classification and before inspection")
+	}
+	prepareRest := workflow[prepareIndex:]
+	prepareEnd := strings.Index(prepareRest, "\n      - name: ")
+	if prepareEnd < 0 {
+		prepareEnd = len(prepareRest)
+	}
+	prepareStep := prepareRest[:prepareEnd]
+	for _, contract := range []string{
+		"if: steps.release-state.outputs.should-release == 'true'",
+		"LPK_PATH: ${{ steps.lazycat.outputs.lpk-path }}",
+		"PACKAGE_ID: ${{ steps.lazycat.outputs.package-id }}",
+		"VERSION: ${{ steps.lazycat.outputs.version }}",
+		"VERSIONED_RELEASE_ASSET: ${{ inputs.versioned-release-asset }}",
+		`if [[ -z "${LPK_PATH}" || -z "${PACKAGE_ID}" || -z "${VERSION}" ]]`,
+		`asset_path="${LPK_PATH}"`,
+		`if [[ "${VERSIONED_RELEASE_ASSET}" == "true" ]]`,
+		`asset_dir="${RUNNER_TEMP}/lazycat-release-assets"`,
+		`asset_path="${asset_dir}/${PACKAGE_ID}-v${VERSION}.lpk"`,
+		`cp -- "${LPK_PATH}" "${asset_path}"`,
+		`echo "lpk-path=${asset_path}" >>"${GITHUB_OUTPUT}"`,
+	} {
+		if !strings.Contains(prepareStep, contract) {
+			t.Fatalf("Release asset preparation is missing contract %q", contract)
+		}
+	}
+	for _, name := range []string{
+		"- name: Inspect existing Release Asset",
+		"- name: Upload GitHub Release Asset",
+		"- name: Resolve Release Asset URL",
+		"- name: Publish to MiaoMiao private store",
+		"- name: Publish to LazyCat official platform",
+	} {
+		start := strings.Index(workflow, name)
+		if start < 0 {
+			t.Fatalf("workflow step %q is missing", name)
+		}
+		rest := workflow[start+len(name):]
+		end := strings.Index(rest, "\n      - name: ")
+		if end < 0 {
+			end = len(rest)
+		}
+		if !strings.Contains(rest[:end], preparedPath) {
+			t.Fatalf("workflow step %q does not use the prepared Release asset", name)
+		}
+	}
+	artifactIndex := strings.Index(workflow, "- name: Upload validation Artifact")
+	if artifactIndex < 0 {
+		t.Fatal("validation Artifact upload is missing")
+	}
+	artifactRest := workflow[artifactIndex:]
+	artifactEnd := strings.Index(artifactRest, "\n      - name: ")
+	if artifactEnd < 0 {
+		artifactEnd = len(artifactRest)
+	}
+	artifactStep := artifactRest[:artifactEnd]
+	if !strings.Contains(artifactStep, "path: ${{ steps.lazycat.outputs.lpk-path }}") || strings.Contains(artifactStep, preparedPath) {
+		t.Fatal("validation Artifact upload must keep the Action's original LPK path")
+	}
+}
+
 func TestActionMetadataExposesStableContract(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "action.yml"))
 	if err != nil {
@@ -157,6 +251,9 @@ func TestActionMetadataExposesStableContract(t *testing.T) {
 	}
 	if document.Runs.Using != "composite" {
 		t.Fatalf("runs.using=%q", document.Runs.Using)
+	}
+	if !strings.Contains(string(data), "LAZYCAT_ACTION_VERSION: v1.1.1") {
+		t.Fatal("action.yml must bootstrap release v1.1.1")
 	}
 }
 
