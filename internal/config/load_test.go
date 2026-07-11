@@ -53,6 +53,7 @@ update:
 stores:
   official:
     enabled: true
+    skip_if_version_exists: true
     create_if_missing: true
     changelog_locales: [ZH, en, zh]
     application:
@@ -62,10 +63,14 @@ stores:
       source_author: " Acme "
   private:
     enabled: true
+    skip_if_version_exists: true
     name: " Private Example "
     summary: " Private summary "
 `,
 			check: func(t *testing.T, got config.Config) {
+				if !got.Stores.Official.SkipIfVersionExists || !got.Stores.Private.SkipIfVersionExists {
+					t.Fatalf("store deduplication=%#v", got.Stores)
+				}
 				if strings.Join(got.Stores.Official.Locales, ",") != "zh,en" {
 					t.Fatalf("official locales=%v", got.Stores.Official.Locales)
 				}
@@ -76,6 +81,38 @@ stores:
 					t.Fatalf("private store=%#v", got.Stores.Private)
 				}
 			},
+		},
+		{
+			name: "store deduplication defaults off",
+			yaml: `version: 1
+project: {}
+update:
+  version_source:
+    type: git
+stores:
+  official:
+    enabled: true
+  private:
+    enabled: true
+`,
+			check: func(t *testing.T, got config.Config) {
+				if got.Stores.Official.SkipIfVersionExists || got.Stores.Private.SkipIfVersionExists {
+					t.Fatalf("store deduplication should default off: %#v", got.Stores)
+				}
+			},
+		},
+		{
+			name: "unknown store deduplication field",
+			yaml: `version: 1
+project: {}
+update:
+  version_source:
+    type: git
+stores:
+  official:
+    skip_when_version_exists: true
+`,
+			wantErr: "field skip_when_version_exists not found",
 		},
 		{
 			name: "all future image fields are accepted",
