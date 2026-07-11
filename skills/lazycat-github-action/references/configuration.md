@@ -133,7 +133,7 @@ stores:
 
 Defaults: locales `zh,en`; language `zh`; application name from `package.yml.name`. Application metadata is valid only with `create_if_missing: true`.
 
-`skip_if_version_exists` defaults to false. When true, the Action anonymously queries the exact package after LPK verification and skips an equal latest version before resolving official credentials. Not-found continues; other lookup errors fail closed. `dry-run` does not query.
+`skip_if_version_exists` defaults to false. When true, the Action anonymously queries the exact package after LPK verification. Equality skips with `skipReason: version-already-online`. When both values are valid SemVer, a newer online version skips with `skipReason: online-version-newer` while `allow_downgrade: false`; explicit `allow_downgrade: true` permits publishing. A non-SemVer value uses exact equality only. All skips happen before resolving official credentials. Not-found continues; other lookup errors fail closed. `dry-run` does not query.
 
 Authentication precedence:
 
@@ -157,7 +157,7 @@ stores:
 
 Secrets: `APPSTORE_URL`, `APPSTORE_TOKEN`, optional `APP_ID`, and optional comma-separated `PRIVATE_STORE_GROUP_CODES`. Group codes never belong in this YAML. They are used only for anonymous exact-package lookup and the toolkit sends them through `X-Group-Codes` with Cookie and redirect isolation.
 
-`skip_if_version_exists` has the same default-off, exact-equality, not-found, fail-closed, and network-free dry-run behavior as the official option. Without `APP_ID`, the write client searches by exact package ID and then resolves `stores.private.name` through authenticated `GET /api/v1/apps/by-name?name=...`. A 404 creates an application with `POST /api/v1/apps`; a unique exact-name writable result supplies the ID for JSON `POST /api/v1/apps/{id}/versions`; every other resolver error stops. Historical package-ID differences are allowed only on this server-authorized name path. Requests always send `sourceType: GITHUB`, the GitHub Release Asset `downloadUrl`, and locally computed `sha256`.
+`skip_if_version_exists` has the same default-off, `version-already-online`, `online-version-newer`, non-SemVer fallback, not-found, fail-closed, and network-free dry-run behavior as the official option. `allow_downgrade: false` protects each store independently. Without `APP_ID`, the write client searches by exact package ID and then resolves `stores.private.name` through authenticated `GET /api/v1/apps/by-name?name=...`. A 404 creates an application with `POST /api/v1/apps`; a unique exact-name writable result supplies the ID for JSON `POST /api/v1/apps/{id}/versions`; every other resolver error stops. Historical package-ID differences are allowed only on this server-authorized name path. Requests always send `sourceType: GITHUB`, the GitHub Release Asset `downloadUrl`, and locally computed `sha256`.
 
 With scheduled `publish` automation, an existing exact `<package-id>-v<version>.lpk` Release Asset can repair a missing store submission. The workflow verifies the GitHub asset digest and downloaded bytes before either store call; it never substitutes an unversioned or differently named LPK.
 

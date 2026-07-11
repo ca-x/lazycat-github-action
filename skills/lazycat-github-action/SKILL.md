@@ -161,7 +161,7 @@ Official publishing requires:
 
 - `update.strategy: publish`;
 - `stores.official.enabled: true`;
-- optional `stores.official.skip_if_version_exists: true` to query the anonymous official catalog and skip an equal latest version;
+- optional `stores.official.skip_if_version_exists: true` to query the anonymous official catalog and skip an equal version (`version-already-online`) or, with `allow_downgrade: false`, a newer online SemVer (`online-version-newer`);
 - only `lazycat` image delivery;
 - official lint compliance, including locales and icon size at most 200 KB;
 - `LAZYCAT_TOKEN`, `LZC_CLI_TOKEN`, username/password, or an explicit `token-file`.
@@ -180,7 +180,7 @@ When `APP_ID` is absent, preserve a confirmed `stores.private.name`: publishing 
 
 Private stores support `lazycat`, `direct`, `mirror`, static Web, and Exec applications. Never enable the official store merely to get stricter lint for a direct/mirror application; that configuration is intentionally invalid.
 
-Both skip options default to false. When enabled, exact string equality between the verified LPK version and `onlineVersion` returns `published: false` and `skipped: true`. Not-found continues publishing; every other lookup failure stops. `dry-run` never queries stores. Group codes are secrets: do not put them in Action YAML, ordinary inputs, generated outputs, summaries, or examples with real values.
+Both skip options default to false. When enabled, exact equality returns `published: false`, `skipped: true`, and `skipReason: version-already-online`. If both values are valid SemVer, an online version greater than the candidate also skips with `skipReason: online-version-newer` while `update.allow_downgrade: false`; explicit rollback authorization through `allow_downgrade: true` continues publishing. A non-SemVer value disables ordering and keeps exact-equality-only behavior. Apply this independently per store before resolving write credentials. Not-found continues publishing; every other lookup failure stops. `dry-run` never queries stores. Group codes are secrets: do not put them in Action YAML, ordinary inputs, generated outputs, summaries, or examples with real values.
 
 For scheduled `publish` workflows, treat the exact versioned GitHub Release Asset as the delivery source of truth. If `<package-id>-v<version>.lpk` already exists for the current tag and a store lacks that version, download that exact asset beneath `project.root`, require a GitHub `sha256:` digest, recompute local SHA256, and publish the verified bytes. If a store already has the version, skip it independently. If the Release, exact asset name, or digest is missing, do not select another asset or infer another version; continue only through the normal build/Release path.
 
@@ -220,6 +220,7 @@ Before finishing:
 | ARM64 Runner produced ARM app | Honor `LAZYCAT_TARGET_ARCH=amd64` | STOP until the build proves Linux x86_64 output |
 | Private publish has no URL | Resolve the verified GitHub Release Asset | STOP before `publish-private` |
 | Equal store version is submitted again | Enable `skip_if_version_exists` and inspect `onlineVersion` | STOP on lookup errors other than not-found |
+| Official review returns 400 for an older LPK | Compare candidate and `onlineVersion`; `7.8.138 > 7.7.406` must skip with `online-version-newer` | Do not retry or set `allow_downgrade: true` without explicit rollback approval |
 | Release exists but a store is behind | Recover only `<package-id>-v<version>.lpk` and verify both GitHub/local SHA256 | STOP if tag, exact asset, or digest is missing |
 | Private application is invisible | Add `PRIVATE_STORE_GROUP_CODES` as a GitHub Secret | STOP rather than commit or print group codes |
 | Existing private app conflicts after package lookup | Confirm `stores.private.name` exactly matches the store application and that the store exposes `/api/v1/apps/by-name` | STOP on 401/403/409, an inexact response name, or missing upload permission |

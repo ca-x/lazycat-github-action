@@ -204,8 +204,8 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	if err := json.Unmarshal(prompts, &promptCases); err != nil {
 		t.Fatal(err)
 	}
-	if len(promptCases) != 12 {
-		t.Fatalf("test-prompts.json cases=%d, want 12", len(promptCases))
+	if len(promptCases) != 13 {
+		t.Fatalf("test-prompts.json cases=%d, want 13", len(promptCases))
 	}
 	promptIDs := make(map[string]string, len(promptCases))
 	for _, prompt := range promptCases {
@@ -218,14 +218,15 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 		promptIDs[prompt.ID] = prompt.Expected
 	}
 	for id, required := range map[string][]string{
-		"historical-lpk-migration":          {"git ls-files '*.lpk'", "总字节", "yes/no", "拒绝", "versioned-release-asset: true", "<package-id>-v<version>.lpk"},
-		"go-template-manifest-preservation": {"绝不执行或求值", "if/else/end/with/range", "逐字节", "fail closed"},
-		"release-store-reconciliation":      {"精确命名", "GitHub sha256 digest", "本地 SHA256", "官方商店补交", "喵喵商店", "独立跳过", "不重建", "不改名", "不猜测"},
-		"official-file-upload-stage":        {"本地 LPK 文件", "multipart", "store.official.upload", "store.official.review", "不得打印"},
-		"named-version-template-groups":     {"version", "build", "{version}.{build}.0", "20260603.1.0", "fail closed"},
-		"private-name-fallback":             {"stores.private.name", "packageId", "应用名称", "/api/v1/apps/by-name", "404", "停止"},
-		"image-version-downgrade-guard":     {"allow_downgrade: false", "SemVer", "VERSION_DOWNGRADE_BLOCKED", "同版本", "明确确认"},
-		"rust-protobuf-toolchain":           {"Edition 2023", "GitHub Release", "SHA256", "protoc --version", "共享 buildscript", "不得把 Proto 改成 proto3", "不得修改 Rust 源码", "build.rs"},
+		"historical-lpk-migration":             {"git ls-files '*.lpk'", "总字节", "yes/no", "拒绝", "versioned-release-asset: true", "<package-id>-v<version>.lpk"},
+		"go-template-manifest-preservation":    {"绝不执行或求值", "if/else/end/with/range", "逐字节", "fail closed"},
+		"release-store-reconciliation":         {"精确命名", "GitHub sha256 digest", "本地 SHA256", "官方商店补交", "喵喵商店", "独立跳过", "不重建", "不改名", "不猜测"},
+		"official-file-upload-stage":           {"本地 LPK 文件", "multipart", "store.official.upload", "store.official.review", "不得打印"},
+		"named-version-template-groups":        {"version", "build", "{version}.{build}.0", "20260603.1.0", "fail closed"},
+		"private-name-fallback":                {"stores.private.name", "packageId", "应用名称", "/api/v1/apps/by-name", "404", "停止"},
+		"image-version-downgrade-guard":        {"allow_downgrade: false", "SemVer", "VERSION_DOWNGRADE_BLOCKED", "同版本", "明确确认"},
+		"rust-protobuf-toolchain":              {"Edition 2023", "GitHub Release", "SHA256", "protoc --version", "共享 buildscript", "不得把 Proto 改成 proto3", "不得修改 Rust 源码", "build.rs"},
+		"store-online-version-downgrade-guard": {"allow_downgrade: false", "SemVer", "7.8.138", "7.7.406", "online-version-newer", "version-already-online", "non-SemVer", "独立"},
 	} {
 		expected, found := promptIDs[id]
 		if !found {
@@ -247,6 +248,18 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 		for _, forbidden := range []string{"both stores receive the same", "both store consumers use the same", "both stores resolve the same", "both stores use the same"} {
 			if strings.Contains(contract, forbidden) {
 				t.Fatalf("%s contains inaccurate store URL contract %q", name, forbidden)
+			}
+		}
+	}
+	for _, name := range []string{"SKILL.md", "references/configuration.md", "references/workflows.md"} {
+		data, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		contract := string(data)
+		for _, required := range []string{"online-version-newer", "version-already-online", "allow_downgrade: false", "non-SemVer"} {
+			if !strings.Contains(contract, required) {
+				t.Fatalf("%s is missing store downgrade reconciliation contract %q", name, required)
 			}
 		}
 	}

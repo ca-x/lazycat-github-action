@@ -150,4 +150,4 @@ Use the composite Action directly only when another workflow owns GitHub Release
 
 The LPK path must remain under the project root. The Action reopens the LPK, checks package/version, and computes SHA256 before sending store metadata.
 
-When `skip_if_version_exists` is enabled, `store-results` includes `skipped` and optional `onlineVersion`. Equal versions skip before write credentials are used; not-found publishes; other lookup failures stop. `dry-run` remains network-free.
+When `skip_if_version_exists` is enabled, `store-results` includes `skipped`, optional `onlineVersion`, and optional `skipReason`. Equal versions use `version-already-online`; valid SemVer online versions greater than the candidate use `online-version-newer` while `allow_downgrade: false`. Explicit rollback authorization continues publishing, and a non-SemVer value is compared only for exact equality. Decisions are independent per store and happen before write credentials are used; not-found publishes; other lookup failures stop. `dry-run` remains network-free.
