@@ -416,4 +416,9 @@ Report required `LAZYCAT_TOKEN`, `APPSTORE_URL`, and `APPSTORE_TOKEN`. State tha
 
 ## Verification Record
 
-- Pending implementation and release verification.
+- 2026-07-11 candidate before the evidence commit: `fe08633829fdde3ba65bf1f01dbc7b408f4bf8d6`.
+- Local gate passed: `go test -count=1 -race ./...`, `go vet ./...`, shell syntax, bootstrap tests, actionlint v1.7.7, Linux amd64/arm64 builds, GoReleaser v2.17.0 snapshot, release-artifact verification, `go mod verify`, and `git diff --check` all exited zero.
+- Local ShellCheck was unavailable. The exact-head CI `shell` job, including ShellCheck, remains mandatory before tagging.
+- Real-repository dry-run used a freshly built candidate binary in the `lazycat-contrib/nowledge-mem-lzcapp` fixture. Docker Hub inspection was externally blocked: both configured public repositories and both per-image retries timed out connecting to `index.docker.io` before tags could be listed. The command returned `CONFIG_INVALID: image check failed`; no structured success result was produced, so this is not recorded as a passed dry-run.
+- Dry-run safety evidence: `package.yml` remained `28092d52a6092a14de25a260adc05adc576abb8d6376c264dfb954f0b2e9ebb6` and `lzc-manifest.yml` remained `87fc8f3e26ee3d11a05de7c7d505a8e7d0b6d6d5493c1d9eaeed55d75f9f3584` before and after the full and per-image attempts. No LazyCat token was used, no image copy/store publication ran, and no result file was written.
+- Remote release evidence, exact-head CI run, immutable tag, floating tag, downloaded assets, checksums, SBOMs, binary version, and attestations: pending.
