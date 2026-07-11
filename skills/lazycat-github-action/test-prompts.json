@@ -53,5 +53,10 @@
     "id": "official-file-upload-stage",
     "prompt": "GitHub Release 已有校验过的 LPK，但官方商店提交返回 HTTP 400。请判断官方是否应该接收 Release URL，并说明如何区分失败阶段。",
     "expected": "官方只接收重新下载并校验后的本地 LPK 文件 multipart 上传，不接收 Release URL；store.official.upload 表示文件上传失败，store.official.review 表示上传后创建审核失败；不得打印上游响应正文或盲目重复提交。"
+  },
+  {
+    "id": "rust-protobuf-toolchain",
+    "prompt": "Rust + Node 源码项目在 GitHub Tag 构建时报 failed to spawn protoc，Ubuntu 自带 protoc 又不支持 edition = \"2023\"。请修复 workflow，但不要修改 Rust 源码、build.rs 或 Proto 定义。",
+    "expected": "保留 Edition 2023 和生成 API 语义；从 protocolbuffers/protobuf GitHub Release 下载固定版本 protoc，校验 SHA256 并输出 protoc --version；把依赖安装放进 PR 与 Tag reusable workflow 都会执行的共享 buildscript 路径；不得把 Proto 改成 proto3，也不得修改 Rust 源码或 build.rs。"
   }
 ]

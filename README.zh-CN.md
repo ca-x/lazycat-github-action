@@ -4,7 +4,7 @@
 
 `ca-x/lazycat-github-action` 用于检查 Docker 镜像版本、精确更新 LazyCat Manifest、构建 LPK、创建更新 Pull Request，并把校验后的 LPK 上传到 GitHub Release。
 
-Action 使用 [`github.com/lib-x/lzc-toolkit-go`](https://github.com/lib-x/lzc-toolkit-go) `v0.2.0`，兼容基线是 `@lazycatcloud/lzc-cli` `2.0.8`。
+Action 使用 [`github.com/lib-x/lzc-toolkit-go`](https://github.com/lib-x/lzc-toolkit-go) `v0.3.0`，兼容基线是 `@lazycatcloud/lzc-cli` `2.0.8`。
 
 当前交付范围：
 
@@ -36,6 +36,16 @@ jobs:
 ```
 
 调用方不需要编译本项目。启动脚本会按 Runner 架构下载 Action 二进制，并校验发布包 SHA256。
+
+## 进度日志
+
+Action 使用 Go 官方 `log/slog` 输出结构化进度，同时不会打印 Secret 值和受保护的构建环境变量。每次运行会先显示执行模式（`docker-image`、`source-build`、`prebuilt-content` 或 `store-publish`），再按实际流程输出以下阶段：
+
+- Docker 版本查询、候选数量、选中的 Tag/版本/digest/平台、镜像交付开始、节流后的 layer 进度和交付结果。
+- LPK buildscript 开始、包组装、官方 lint，以及最终 LPK 路径、大小和 SHA256。
+- 目标商店、已验证的发布文件、同版本跳过、提交开始和提交结果。
+
+项目 buildscript 的 stdout/stderr 会实时透传，便于定位原生工具缺失等错误。Action 会显示进程退出码，但不会打印 buildscript 正文或受保护的环境变量。
 
 ## 使用 Skill
 

@@ -1,8 +1,10 @@
 package publishflow_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -21,8 +23,10 @@ import (
 const artifactSHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 func TestFlowPublishesVerifiedArtifactToOfficialStore(t *testing.T) {
+	var logs bytes.Buffer
 	var published official.Request
 	flow := publishflow.Flow{
+		Logger: slog.New(slog.NewTextHandler(&logs, nil)),
 		Verify: func(context.Context, lpkcheck.Request) (lpkcheck.Result, error) {
 			return verifiedArtifact(), nil
 		},
@@ -45,6 +49,11 @@ func TestFlowPublishesVerifiedArtifactToOfficialStore(t *testing.T) {
 	}
 	if result.Official == nil || !result.Official.Published || result.Private != nil || published.PackageID != "cloud.lazycat.example" || published.SHA256 != artifactSHA || published.Changelog != "Release notes" || strings.Join(published.Locales, ",") != "zh,en" {
 		t.Fatalf("result=%#v request=%#v", result, published)
+	}
+	for _, expected := range []string{"store publication started", "LPK publication artifact verified", "store publication completed", "store=official"} {
+		if !strings.Contains(logs.String(), expected) {
+			t.Fatalf("logs missing %q: %s", expected, logs.String())
+		}
 	}
 }
 

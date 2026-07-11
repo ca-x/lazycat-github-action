@@ -72,6 +72,12 @@
       "prompt": "Creation-time image sorting picked rebuilt tag 18.0 while package.yml is 19.0.0. Prevent accidental rollback but preserve intentional rollback support.",
       "mustInclude": ["allow_downgrade: false", "VERSION_DOWNGRADE_BLOCKED", "before", "explicit"],
       "mustNotInclude": ["always use created", "silently downgrade", "allow_downgrade: true by default"]
+    },
+    {
+      "id": "rust-protobuf-toolchain",
+      "prompt": "A Rust and Node source build fails on Tags because protoc is missing, while Ubuntu's protoc rejects Protobuf Edition 2023. Fix automation without changing source semantics.",
+      "mustInclude": ["GitHub Release", "SHA256", "protoc --version", "shared buildscript", "Edition 2023"],
+      "mustNotInclude": ["change to proto3", "modify Rust source", "PR-only setup"]
     }
   ]
 }

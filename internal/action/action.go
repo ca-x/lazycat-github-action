@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -136,6 +138,7 @@ func (err *Error) Unwrap() error {
 type Dependencies struct {
 	Host        platform.Host
 	ResultDir   string
+	Logger      *slog.Logger
 	LoadConfig  func(string) (config.Config, error)
 	Inspect     func(context.Context, config.Project) (project.Info, error)
 	SetVersion  func(string, string) (yamledit.Change, error)
@@ -145,17 +148,21 @@ type Dependencies struct {
 }
 
 func DefaultDependencies(host platform.Host) Dependencies {
-	builder := actionbuild.Builder{}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	builder := actionbuild.Builder{Logger: logger}
 	registryClient := registry.New()
 	token := platformauth.NewProvider(platformauth.Resolver{}, func() string { return os.Getenv("INPUT_TOKEN_FILE") })
 	storeClient := appstore.New(appstore.Options{Token: token})
 	imageFlow := imageflow.Flow{
 		Registry:  registryClient,
 		Deliverer: delivery.Resolver{Copier: storeClient, Inspector: registryClient},
+		Logger:    logger,
 	}
 	publishFlow := publishflow.Default()
+	publishFlow.Logger = logger
 	return Dependencies{
 		Host:        host,
+		Logger:      logger,
 		LoadConfig:  config.Load,
 		Inspect:     project.Inspect,
 		SetVersion:  yamledit.SetPackageVersion,
@@ -224,6 +231,11 @@ func Run(ctx context.Context, input Input, dependencies Dependencies) (Result, e
 	if err != nil {
 		return Result{}, actionError(CodeConfigInvalid, "unable to inspect LazyCat project", err)
 	}
+	logger := dependencies.Logger
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+	logger.Info("execution selected", "operation", operation, "mode", executionMode(operation, cfg), "package", info.PackageID, "version", info.Version, "project_kind", info.Kind, "target", platform.TargetPlatform)
 	switch operation {
 	case OperationBuild:
 		return runBuild(ctx, input, cfg, info, dependencies)
@@ -233,6 +245,22 @@ func Run(ctx context.Context, input Input, dependencies Dependencies) (Result, e
 		return runPublish(ctx, input, operation, cfg, info, dependencies)
 	default:
 		return Result{}, actionError(CodeConfigInvalid, fmt.Sprintf("unsupported operation %q", operation), nil)
+	}
+}
+
+func executionMode(operation Operation, cfg config.Config) string {
+	switch operation {
+	case OperationCheck:
+		return "docker-image"
+	case OperationPublishOfficial, OperationPublishPrivate:
+		return "store-publish"
+	case OperationBuild:
+		if cfg.Build.ShouldRunBuildScript() {
+			return "source-build"
+		}
+		return "prebuilt-content"
+	default:
+		return "unknown"
 	}
 }
 

@@ -87,6 +87,13 @@ If any required decision cannot be proven from inspected files or the user's req
 | Exec binary | `git` | None unless runtime also uses an image | `go`, `rust`, or `node` |
 | Prebuilt content | `git` | None | `none` |
 
+Maintained source-build references:
+
+- Go Exec: [`lazycat-contrib/cat-led`](https://github.com/lazycat-contrib/cat-led) shows a Git version source, explicit Go toolchain, versioned Release Asset, and dual-store publication.
+- Rust + Node Exec: [`lazycat-contrib/lazycat-neko-webshell`](https://github.com/lazycat-contrib/lazycat-neko-webshell) shows a Vite frontend embedded into a Rust musl binary, pinned GitHub-downloaded `protoc`, native Runner dependencies, PR LPK validation, and Tag-only dual-store publication.
+
+Use these as contract references, not blind templates. Re-inspect package paths, buildscript dependencies, target triple, store name, locales, and Secret needs in the target repository.
+
 Use `update.strategy: pull` for scheduled review PRs. Use `publish` only when the workflow should commit/tag/release and optionally publish stores.
 
 ## Configure Docker images
@@ -215,6 +222,8 @@ Before finishing:
 | Release exists but a store is behind | Recover only `<package-id>-v<version>.lpk` and verify both GitHub/local SHA256 | STOP if tag, exact asset, or digest is missing |
 | Private application is invisible | Add `PRIVATE_STORE_GROUP_CODES` as a GitHub Secret | STOP rather than commit or print group codes |
 | Existing private app conflicts after package lookup | Confirm `stores.private.name` exactly matches the store application and that the store exposes `/api/v1/apps/by-name` | STOP on 401/403/409, an inexact response name, or missing upload permission |
+| Rust ConnectRPC build reports `failed to spawn protoc ('protoc')` | Install or download a pinned `protoc` compatible with the repository's declared proto syntax/edition; verify its SHA256 and print `protoc --version` | If system `protoc` rejects `edition = "2023"`, keep the source semantics and use a newer pinned compiler; do not rewrite the proto to `proto3` unless the generated API migration is intentionally implemented and tested |
+| PR source build passes but Tag build lacks native tools | Put required tool bootstrap in the authorized buildscript or another path shared by the reusable Tag job | STOP if the dependency exists only in a PR-specific setup step |
 | `VERSION_DOWNGRADE_BLOCKED` | Correct an accidental `sort: created` rule or stale tag mapping | Set `allow_downgrade: true` only after explicit rollback confirmation |
 
 ## Do Not

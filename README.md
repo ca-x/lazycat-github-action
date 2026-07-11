@@ -37,6 +37,16 @@ Use the composite Action directly when another workflow already handles GitHub m
 
 Callers do not compile this repository. The bootstrap downloads a checksum-verified Action binary for the Runner architecture.
 
+## Progress logs
+
+The Action emits structured `log/slog` progress records without printing Secret values or protected build environment variables. A run identifies its execution mode (`docker-image`, `source-build`, `prebuilt-content`, or `store-publish`) and then reports the applicable stages:
+
+- Docker discovery, candidate count, selected tag/version/digest/platform, delivery start, throttled layer progress, and delivery result.
+- LPK buildscript start, package assembly, official lint, and the completed LPK path, size, and SHA256.
+- Store target, verified publication artifact, equal-version skip, publication start, and publication result.
+
+Project buildscript stdout and stderr are streamed live so native-tool failures remain visible. The Action reports the process exit code but does not print the buildscript body or protected environment values.
+
 ## Using the Skill
 
 Ask an agent naturally, for example: “Inspect this LazyCat repository, create the GitHub workflows for versioned Release publishing to both stores, and preserve the Go Template Manifest.” The repository Skill inspects `package.yml`, `lzc-build.yml`, the configured Manifest, toolchain files, `.gitignore`, tracked `*.lpk` files, and existing `.github/` content. It creates or updates `.github/lazycat-action.yml` and the necessary `.github/workflows/*.yml`, then reports every changed file, verification result, unresolved decision, and required GitHub Secret name without reading Secret values.
