@@ -47,6 +47,7 @@ type Result struct {
 	PackageID     string `json:"packageId"`
 	Version       string `json:"version"`
 	OnlineVersion string `json:"onlineVersion,omitempty"`
+	SkipReason    string `json:"skipReason,omitempty"`
 	UploadURL     string `json:"uploadUrl"`
 	SHA256        string `json:"sha256"`
 }

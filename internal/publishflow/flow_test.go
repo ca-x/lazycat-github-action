@@ -122,6 +122,46 @@ func TestFlowSkipsOfficialPublishWhenOnlineVersionMatches(t *testing.T) {
 	if lookupCalls != 1 || result.Official == nil || result.Official.Published || !result.Official.Skipped || result.Official.OnlineVersion != "1.2.3" || result.Official.PackageID != "cloud.lazycat.example" || result.Official.SHA256 != artifactSHA {
 		t.Fatalf("lookupCalls=%d result=%#v", lookupCalls, result)
 	}
+	if result.Official.SkipReason != "version-already-online" {
+		t.Fatalf("skip reason=%q", result.Official.SkipReason)
+	}
+}
+
+func TestFlowSkipsOfficialPublishWhenOnlineVersionIsNewer(t *testing.T) {
+	flow := publishflow.Flow{
+		Verify: func(context.Context, lpkcheck.Request) (lpkcheck.Result, error) {
+			artifact := verifiedArtifact()
+			artifact.Version = "7.7.406"
+			return artifact, nil
+		},
+		LookupVersion: func(_ context.Context, request storelookup.Request) (storelookup.Result, error) {
+			if request.Store != storelookup.StoreOfficial || request.PackageID != "cloud.lazycat.example" {
+				t.Fatalf("lookup request=%#v", request)
+			}
+			return storelookup.Result{OnlineVersion: "7.8.138"}, nil
+		},
+		ResolveAuth: func(context.Context, platformauth.Request) (platformauth.Result, error) {
+			t.Fatal("official authentication must not run for a newer online version")
+			return platformauth.Result{}, nil
+		},
+		PublishOfficial: func(context.Context, official.Request) (official.Result, error) {
+			t.Fatal("official publish must not run for a newer online version")
+			return official.Result{}, nil
+		},
+	}
+	cfg := publishConfig()
+	cfg.Stores.Official.Enabled = true
+	cfg.Stores.Official.SkipIfVersionExists = true
+	result, err := flow.Publish(context.Background(), publishflow.Request{
+		Target: publishflow.TargetOfficial, Config: cfg, Project: projectInfo(), LPKPath: "/repo/dist/app.lpk",
+		Version: "7.7.406", Changelog: "Release notes",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Official == nil || !result.Official.Skipped || result.Official.OnlineVersion != "7.8.138" || result.Official.SkipReason != "online-version-newer" {
+		t.Fatalf("result=%#v", result)
+	}
 }
 
 func TestFlowSkipsPrivatePublishWithSecretGroupCodes(t *testing.T) {
@@ -159,26 +199,75 @@ func TestFlowSkipsPrivatePublishWithSecretGroupCodes(t *testing.T) {
 	if result.Private == nil || result.Private.Published || !result.Private.Skipped || result.Private.OnlineVersion != "1.2.3" || result.Private.PackageID != "cloud.lazycat.example" || result.Private.SHA256 != artifactSHA {
 		t.Fatalf("result=%#v", result)
 	}
+	if result.Private.SkipReason != "version-already-online" {
+		t.Fatalf("skip reason=%q", result.Private.SkipReason)
+	}
+}
+
+func TestFlowSkipsPrivatePublishWhenOnlineVersionIsNewer(t *testing.T) {
+	flow := publishflow.Flow{
+		Verify: func(context.Context, lpkcheck.Request) (lpkcheck.Result, error) {
+			artifact := verifiedArtifact()
+			artifact.Version = "7.7.406"
+			return artifact, nil
+		},
+		LookupVersion: func(context.Context, storelookup.Request) (storelookup.Result, error) {
+			return storelookup.Result{OnlineVersion: "7.8.138"}, nil
+		},
+		NewPrivate: func(private.Options) (publishflow.PrivatePublisher, error) {
+			t.Fatal("private publisher must not be configured for a newer online version")
+			return nil, nil
+		},
+	}
+	cfg := publishConfig()
+	cfg.Stores.Private.Enabled = true
+	cfg.Stores.Private.SkipIfVersionExists = true
+	result, err := flow.Publish(context.Background(), publishflow.Request{
+		Target: publishflow.TargetPrivate, Config: cfg, Project: projectInfo(), LPKPath: "/repo/dist/app.lpk",
+		Version: "7.7.406", DownloadURL: "https://github.com/acme/example/releases/download/v7.7.406/app.lpk", ExpectedSHA256: artifactSHA,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Private == nil || !result.Private.Skipped || result.Private.OnlineVersion != "7.8.138" || result.Private.SkipReason != "online-version-newer" {
+		t.Fatalf("result=%#v", result)
+	}
 }
 
 func TestFlowStoreLookupOutcomes(t *testing.T) {
 	tests := []struct {
-		name          string
-		lookupVersion string
-		lookupErr     error
-		wantErr       bool
-		wantPublished bool
-		wantOnline    string
+		name             string
+		lookupVersion    string
+		lookupErr        error
+		wantErr          bool
+		wantPublished    bool
+		wantOnline       string
+		wantSkipped      bool
+		wantReason       string
+		allowDowngrade   bool
+		candidateVersion string
 	}{
 		{name: "different version publishes", lookupVersion: "1.2.2", wantPublished: true, wantOnline: "1.2.2"},
+		{name: "newer online version skips", lookupVersion: "1.2.4", wantOnline: "1.2.4", wantSkipped: true, wantReason: "online-version-newer"},
+		{name: "explicit downgrade publishes", lookupVersion: "1.2.4", wantPublished: true, wantOnline: "1.2.4", allowDowngrade: true},
+		{name: "non semver online version publishes", lookupVersion: "latest", wantPublished: true, wantOnline: "latest"},
+		{name: "non semver candidate version publishes", lookupVersion: "2.0.0", wantPublished: true, wantOnline: "2.0.0", candidateVersion: "latest"},
 		{name: "not found publishes", lookupErr: lpkgo.ErrNotFound, wantPublished: true},
 		{name: "lookup failure stops", lookupErr: &lpkgo.Error{Code: lpkgo.CodeRemoteUnavailable}, wantErr: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			published := false
+			candidateVersion := test.candidateVersion
+			if candidateVersion == "" {
+				candidateVersion = "1.2.3"
+			}
 			flow := publishflow.Flow{
-				Verify: func(context.Context, lpkcheck.Request) (lpkcheck.Result, error) { return verifiedArtifact(), nil },
+				Verify: func(context.Context, lpkcheck.Request) (lpkcheck.Result, error) {
+					artifact := verifiedArtifact()
+					artifact.Version = candidateVersion
+					return artifact, nil
+				},
 				LookupVersion: func(context.Context, storelookup.Request) (storelookup.Result, error) {
 					return storelookup.Result{OnlineVersion: test.lookupVersion}, test.lookupErr
 				},
@@ -193,13 +282,17 @@ func TestFlowStoreLookupOutcomes(t *testing.T) {
 			cfg := publishConfig()
 			cfg.Stores.Official.Enabled = true
 			cfg.Stores.Official.SkipIfVersionExists = true
+			cfg.Update.AllowDowngrade = test.allowDowngrade
 			result, err := flow.Publish(context.Background(), publishflow.Request{
-				Target: publishflow.TargetOfficial, Config: cfg, Project: projectInfo(), LPKPath: "/repo/dist/app.lpk", Version: "1.2.3", Changelog: "Release notes",
+				Target: publishflow.TargetOfficial, Config: cfg, Project: projectInfo(), LPKPath: "/repo/dist/app.lpk", Version: candidateVersion, Changelog: "Release notes",
 			})
 			if (err != nil) != test.wantErr || published != test.wantPublished {
 				t.Fatalf("published=%v result=%#v err=%v", published, result, err)
 			}
 			if !test.wantErr && result.Official.OnlineVersion != test.wantOnline {
+				t.Fatalf("result=%#v", result)
+			}
+			if !test.wantErr && (result.Official.Skipped != test.wantSkipped || result.Official.SkipReason != test.wantReason) {
 				t.Fatalf("result=%#v", result)
 			}
 		})

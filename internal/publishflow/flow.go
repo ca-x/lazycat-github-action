@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/ca-x/lazycat-github-action/internal/config"
 	"github.com/ca-x/lazycat-github-action/internal/lpkcheck"
 	"github.com/ca-x/lazycat-github-action/internal/platform"
@@ -35,6 +36,9 @@ type Target string
 const (
 	TargetOfficial Target = "official"
 	TargetPrivate  Target = "private"
+
+	skipReasonVersionAlreadyOnline = "version-already-online"
+	skipReasonOnlineVersionNewer   = "online-version-newer"
 )
 
 type Request struct {
@@ -147,22 +151,22 @@ func (flow Flow) Publish(ctx context.Context, request Request) (Result, error) {
 		}
 	}
 	result := Result{Artifact: artifact}
-	onlineVersion, skip, err := flow.checkExisting(ctx, request, artifact)
+	onlineVersion, skipReason, err := flow.checkExisting(ctx, request, artifact)
 	if err != nil {
 		return Result{}, err
 	}
-	if skip {
-		logger.Info("store publication skipped; version already online", "store", request.Target, "version", artifact.Version, "online_version", onlineVersion)
+	if skipReason != "" {
+		logger.Info("store publication skipped", "store", request.Target, "candidate_version", artifact.Version, "online_version", onlineVersion, "skip_reason", skipReason)
 		switch request.Target {
 		case TargetOfficial:
 			result.Official = &official.Result{
 				Skipped: true, PackageID: artifact.PackageID, Version: artifact.Version,
-				OnlineVersion: onlineVersion, SHA256: artifact.SHA256,
+				OnlineVersion: onlineVersion, SkipReason: skipReason, SHA256: artifact.SHA256,
 			}
 		case TargetPrivate:
 			result.Private = &private.Result{
 				Skipped: true, PackageID: artifact.PackageID, Version: artifact.Version,
-				OnlineVersion: onlineVersion, DownloadURL: strings.TrimSpace(request.DownloadURL), SHA256: artifact.SHA256,
+				OnlineVersion: onlineVersion, SkipReason: skipReason, DownloadURL: strings.TrimSpace(request.DownloadURL), SHA256: artifact.SHA256,
 			}
 		}
 		return result, nil
@@ -185,9 +189,9 @@ func (flow Flow) Publish(ctx context.Context, request Request) (Result, error) {
 	}
 }
 
-func (flow Flow) checkExisting(ctx context.Context, request Request, artifact lpkcheck.Result) (string, bool, error) {
+func (flow Flow) checkExisting(ctx context.Context, request Request, artifact lpkcheck.Result) (string, string, error) {
 	if request.DryRun {
-		return "", false, nil
+		return "", "", nil
 	}
 	enabled := false
 	lookupRequest := storelookup.Request{PackageID: artifact.PackageID}
@@ -206,20 +210,32 @@ func (flow Flow) checkExisting(ctx context.Context, request Request, artifact lp
 		lookupRequest.GroupCodes = commaSeparated(envValue(lookup, "PRIVATE_STORE_GROUP_CODES"))
 	}
 	if !enabled {
-		return "", false, nil
+		return "", "", nil
 	}
 	if flow.LookupVersion == nil {
-		return "", false, errors.New("store version lookup dependency is unavailable")
+		return "", "", errors.New("store version lookup dependency is unavailable")
 	}
 	lookupResult, err := flow.LookupVersion(ctx, lookupRequest)
 	if err != nil {
 		if errors.Is(err, lpkgo.ErrNotFound) {
-			return "", false, nil
+			return "", "", nil
 		}
-		return "", false, fmt.Errorf("query %s store latest version: %w", request.Target, err)
+		return "", "", fmt.Errorf("query %s store latest version: %w", request.Target, err)
 	}
 	onlineVersion := strings.TrimSpace(lookupResult.OnlineVersion)
-	return onlineVersion, onlineVersion == artifact.Version, nil
+	if onlineVersion == artifact.Version {
+		return onlineVersion, skipReasonVersionAlreadyOnline, nil
+	}
+	if !request.Config.Update.AllowDowngrade && newerSemVer(onlineVersion, artifact.Version) {
+		return onlineVersion, skipReasonOnlineVersionNewer, nil
+	}
+	return onlineVersion, "", nil
+}
+
+func newerSemVer(onlineVersion, candidateVersion string) bool {
+	online, onlineErr := semver.NewVersion(strings.TrimSpace(onlineVersion))
+	candidate, candidateErr := semver.NewVersion(strings.TrimSpace(candidateVersion))
+	return onlineErr == nil && candidateErr == nil && online.GreaterThan(candidate)
 }
 
 func (flow Flow) publishOfficial(ctx context.Context, request Request, result Result, onlineVersion string) (Result, error) {
