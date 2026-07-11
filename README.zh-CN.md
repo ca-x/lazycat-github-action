@@ -4,7 +4,7 @@
 
 `ca-x/lazycat-github-action` 用于检查 Docker 镜像版本、精确更新 LazyCat Manifest、构建 LPK、创建更新 Pull Request，并把校验后的 LPK 上传到 GitHub Release。
 
-Action 使用 [`github.com/lib-x/lzc-toolkit-go`](https://github.com/lib-x/lzc-toolkit-go) `v0.1.0`，兼容基线是 `@lazycatcloud/lzc-cli` `2.0.8`。
+Action 使用 [`github.com/lib-x/lzc-toolkit-go`](https://github.com/lib-x/lzc-toolkit-go) `v0.2.0`，兼容基线是 `@lazycatcloud/lzc-cli` `2.0.8`。
 
 当前交付范围：
 
@@ -380,6 +380,7 @@ update:
 stores:
   official:
     enabled: true
+    skip_if_version_exists: true
     create_if_missing: true
     changelog_locales: [zh, en]
     application:
@@ -390,6 +391,8 @@ stores:
 ```
 
 `create_if_missing: false` 只允许发布到已经存在的应用。允许创建时，`application.name` 默认读取 `package.yml.name`，`language` 默认为 `zh`。官方模式会执行与 lzc-cli 偏好一致的检查，包括 locales、图标不超过 200 KB、SemVer 元数据和 LazyCat Registry 运行镜像。只要配置了 `direct` 或 `mirror`，就会在发布前失败。
+
+`skip_if_version_exists: true` 会在 LPK 校验完成后，通过精确包名匿名查询官方商店。线上最新版本字符串与已校验 LPK 版本相同时，Action 返回 `published: false`、`skipped: true`，不会解析开发者 Token，也不会提交 LPK。应用不存在时继续发布；其他查询错误直接失败，避免冒险重复提交。该选项默认 `false`，`dry-run` 仍然完全不发起远端请求。
 
 reusable workflow 接受 `LAZYCAT_TOKEN`、`LZC_CLI_TOKEN`，或者 `LAZYCAT_USERNAME` 加 `LAZYCAT_PASSWORD`。推荐使用 token。
 
@@ -403,6 +406,7 @@ stores:
     enabled: false
   private:
     enabled: true
+    skip_if_version_exists: true
     name: Example App
     summary: Published from CI
 ```
@@ -413,9 +417,12 @@ stores:
 APPSTORE_URL=https://store.example.com
 APPSTORE_TOKEN=lcst_...
 APP_ID=42
+PRIVATE_STORE_GROUP_CODES=ABC123,LATE23
 ```
 
-`APP_ID` 可选。没有 APP_ID 时，客户端先按 `packageId` 精确查找，找到就复用，找不到才创建应用。提供 APP_ID 时，会先确认该应用的 `packageId` 与 LPK 一致，再增加版本。
+`APP_ID` 和 `PRIVATE_STORE_GROUP_CODES` 都是可选项。分组码属于访问凭据，必须以逗号分隔的 GitHub Secret 保存。它只用于匿名查询线上最新版本，由 toolkit 默认通过 `X-Group-Codes` 请求头发送，不会进入 Action inputs、outputs、summary 或结果 JSON。toolkit 会清除 Cookie jar 并禁止重定向，防止分组码被转发到其他来源。
+
+启用 `skip_if_version_exists: true` 后，Action 会在读取 `APPSTORE_TOKEN` 前通过精确包名查询喵喵商店。版本相同则成功跳过；应用不存在时继续发布；其他查询错误直接失败。真正发布时，如果没有 APP_ID，写客户端会按 `packageId` 精确查找，找到就复用，找不到才创建应用。提供 APP_ID 时，会先确认该应用的 `packageId` 与 LPK 一致，再增加版本。
 
 新建应用调用 `POST /api/v1/apps`；已有应用的外部版本调用 `POST /api/v1/apps/{APP_ID}/versions`，两者都发送 JSON。`downloadUrl` 和确认过的 64 位小写 `sha256` 都是必填项。reusable workflow 会把 GitHub 校验过的 SHA 传给发布操作，发布操作重新计算本地 LPK，任何不一致都会失败。URL 必须是真实的 `https://github.com/<owner>/<repo>/releases/download/...` Release Asset 地址。私有商店可以直接记录 Action 提供的 checksum，不需要仅为了重新计算 SHA256 而下载 LPK。相同版本和 SHA256 会幂等返回已有结果；同版本内容不同会失败。
 
@@ -634,25 +641,31 @@ application:
 {
   "official": {
     "published": true,
+    "skipped": false,
     "created": false,
     "packageId": "cloud.lazycat.example",
     "version": "1.2.3",
+    "onlineVersion": "1.2.2",
     "uploadUrl": "/developer/uploads/example.lpk",
     "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   },
   "private": {
     "published": true,
+    "skipped": false,
     "created": false,
     "existing": false,
     "appId": "42",
     "versionId": "56",
     "packageId": "cloud.lazycat.example",
     "version": "1.2.3",
+    "onlineVersion": "1.2.2",
     "downloadUrl": "https://github.com/acme/example/releases/download/v1.2.3/app.lpk",
     "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   }
 }
 ```
+
+发现相同线上版本时，对应商店结果改为 `published: false`、`skipped: true`，并且 `version` 与 `onlineVersion` 相同；不会读取写入凭据或调用提交接口。
 
 ## Artifact 和 Release Asset 的区别
 

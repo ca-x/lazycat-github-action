@@ -23,8 +23,10 @@ images: []
 stores:
   official:
     enabled: false
+    skip_if_version_exists: false
   private:
     enabled: false
+    skip_if_version_exists: false
 ```
 
 Unknown fields fail validation. Paths must remain under `project.root`. Output must end in `.lpk`.
@@ -97,6 +99,7 @@ Only local Docker/buildscript work requires Docker. OCI inspection, direct/mirro
 stores:
   official:
     enabled: true
+    skip_if_version_exists: true
     create_if_missing: true
     changelog_locales: [zh, en]
     application:
@@ -107,6 +110,8 @@ stores:
 ```
 
 Defaults: locales `zh,en`; language `zh`; application name from `package.yml.name`. Application metadata is valid only with `create_if_missing: true`.
+
+`skip_if_version_exists` defaults to false. When true, the Action anonymously queries the exact package after LPK verification and skips an equal latest version before resolving official credentials. Not-found continues; other lookup errors fail closed. `dry-run` does not query.
 
 Authentication precedence:
 
@@ -123,8 +128,11 @@ Local lzc-cli uses `LZC_CLI_TOKEN`, then `~/.config/lazycat/box-config.json` fie
 stores:
   private:
     enabled: true
+    skip_if_version_exists: true
     name: Example App
     summary: Published from CI
 ```
 
-Secrets: `APPSTORE_URL`, `APPSTORE_TOKEN`, optional `APP_ID`. The client creates an application with `POST /api/v1/apps` or creates an external version with JSON `POST /api/v1/apps/{id}/versions`. It always sends `sourceType: GITHUB`, GitHub Release Asset `downloadUrl`, and locally computed `sha256`.
+Secrets: `APPSTORE_URL`, `APPSTORE_TOKEN`, optional `APP_ID`, and optional comma-separated `PRIVATE_STORE_GROUP_CODES`. Group codes never belong in this YAML. They are used only for anonymous exact-package lookup and the toolkit sends them through `X-Group-Codes` with Cookie and redirect isolation.
+
+`skip_if_version_exists` has the same default-off, exact-equality, not-found, fail-closed, and network-free dry-run behavior as the official option. The write client creates an application with `POST /api/v1/apps` or creates an external version with JSON `POST /api/v1/apps/{id}/versions`. It always sends `sourceType: GITHUB`, GitHub Release Asset `downloadUrl`, and locally computed `sha256`.

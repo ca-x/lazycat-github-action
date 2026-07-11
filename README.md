@@ -4,7 +4,7 @@
 
 `ca-x/lazycat-github-action` checks Docker image versions, updates explicit LazyCat Manifest targets, builds LPK files, creates update pull requests, and attaches validated LPK files to GitHub Releases.
 
-The Action uses [`github.com/lib-x/lzc-toolkit-go`](https://github.com/lib-x/lzc-toolkit-go) `v0.1.0`. Its compatibility baseline is `@lazycatcloud/lzc-cli` `2.0.8`.
+The Action uses [`github.com/lib-x/lzc-toolkit-go`](https://github.com/lib-x/lzc-toolkit-go) `v0.2.0`. Its compatibility baseline is `@lazycatcloud/lzc-cli` `2.0.8`.
 
 Current scope:
 
@@ -380,6 +380,7 @@ update:
 stores:
   official:
     enabled: true
+    skip_if_version_exists: true
     create_if_missing: true
     changelog_locales: [zh, en]
     application:
@@ -390,6 +391,8 @@ stores:
 ```
 
 `create_if_missing: false` publishes only to an application that already exists. When creation is enabled, `application.name` defaults to `package.yml.name`; `language` defaults to `zh`. Official mode enforces the lzc-cli-compatible preferences, including official locales, an icon no larger than 200 KB, SemVer metadata, and LazyCat Registry runtime images. Any configured `direct` or `mirror` image makes configuration fail before publishing.
+
+`skip_if_version_exists: true` performs an anonymous exact-package lookup after the LPK is verified. If the latest official version string equals the verified LPK version, the Action succeeds with `published: false` and `skipped: true` without resolving a developer token or submitting the LPK. Not-found continues publishing; any other lookup failure stops the operation instead of risking a duplicate submission. The option defaults to `false`, and `dry-run` remains network-free.
 
 The reusable workflow accepts `LAZYCAT_TOKEN`, `LZC_CLI_TOKEN`, or `LAZYCAT_USERNAME` plus `LAZYCAT_PASSWORD` as secrets. Token authentication is recommended.
 
@@ -403,6 +406,7 @@ stores:
     enabled: false
   private:
     enabled: true
+    skip_if_version_exists: true
     name: Example App
     summary: Published from CI
 ```
@@ -413,9 +417,12 @@ Add these GitHub secrets:
 APPSTORE_URL=https://store.example.com
 APPSTORE_TOKEN=lcst_...
 APP_ID=42
+PRIVATE_STORE_GROUP_CODES=ABC123,LATE23
 ```
 
-`APP_ID` is optional. If it is absent, the client searches for an exact `packageId`; it reuses that application or creates it when no match exists. If it is present, the client verifies that the application's `packageId` matches the LPK before adding a version.
+`APP_ID` and `PRIVATE_STORE_GROUP_CODES` are optional. Group codes are access credentials: store them as a GitHub Secret, comma-separated. They are used only by the anonymous latest-version lookup, sent through the toolkit's default `X-Group-Codes` header, and never written to Action inputs, outputs, summaries, or result JSON. The toolkit removes Cookie jars and rejects redirects so group codes are not forwarded to another origin.
+
+With `skip_if_version_exists: true`, the Action queries the exact package through the public Miaomiao latest-version API before reading `APPSTORE_TOKEN`. An equal version returns a successful skipped result. Not-found continues publishing; other lookup failures stop the operation. If `APP_ID` is absent during a real publish, the write client searches for an exact `packageId`; it reuses that application or creates it when no match exists. If it is present, the client verifies that the application's `packageId` matches the LPK before adding a version.
 
 The Action sends JSON to `POST /api/v1/apps` for a new application or `POST /api/v1/apps/{APP_ID}/versions` for an external version. Both `downloadUrl` and the confirmed 64-character lowercase `sha256` are required. The reusable workflow passes the SHA verified against GitHub to the publish operation, which recomputes the local LPK and rejects any mismatch. The URL must be a real `https://github.com/<owner>/<repo>/releases/download/...` asset URL. The store can record the supplied checksum without downloading the LPK merely to recompute it. The same version and SHA256 is returned as an idempotent existing result; different content under the same version fails.
 
@@ -634,25 +641,31 @@ Example `store-results`:
 {
   "official": {
     "published": true,
+    "skipped": false,
     "created": false,
     "packageId": "cloud.lazycat.example",
     "version": "1.2.3",
+    "onlineVersion": "1.2.2",
     "uploadUrl": "/developer/uploads/example.lpk",
     "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   },
   "private": {
     "published": true,
+    "skipped": false,
     "created": false,
     "existing": false,
     "appId": "42",
     "versionId": "56",
     "packageId": "cloud.lazycat.example",
     "version": "1.2.3",
+    "onlineVersion": "1.2.2",
     "downloadUrl": "https://github.com/acme/example/releases/download/v1.2.3/app.lpk",
     "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   }
 }
 ```
+
+When an equal online version is found, the selected store result instead contains `published: false`, `skipped: true`, and matching `version`/`onlineVersion`; no write credentials or submission endpoint are used.
 
 ## Artifact versus Release Asset
 

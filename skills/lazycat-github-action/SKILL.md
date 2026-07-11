@@ -74,6 +74,7 @@ Official publishing requires:
 
 - `update.strategy: publish`;
 - `stores.official.enabled: true`;
+- optional `stores.official.skip_if_version_exists: true` to query the anonymous official catalog and skip an equal latest version;
 - only `lazycat` image delivery;
 - official lint compliance, including locales and icon size at most 200 KB;
 - `LAZYCAT_TOKEN`, `LZC_CLI_TOKEN`, username/password, or an explicit `token-file`.
@@ -82,11 +83,15 @@ Private publishing requires:
 
 - `update.strategy: publish`;
 - `stores.private.enabled: true`;
+- optional `stores.private.skip_if_version_exists: true` to query the exact package before reading write credentials;
 - `APPSTORE_URL` and `APPSTORE_TOKEN`;
 - optional `APP_ID`;
+- optional GitHub Secret `PRIVATE_STORE_GROUP_CODES`, comma-separated, for private groups;
 - a real GitHub Release Asset URL and the local SHA256.
 
 Private stores support `lazycat`, `direct`, `mirror`, static Web, and Exec applications. Never enable the official store merely to get stricter lint for a direct/mirror application; that configuration is intentionally invalid.
+
+Both skip options default to false. When enabled, exact string equality between the verified LPK version and `onlineVersion` returns `published: false` and `skipped: true`. Not-found continues publishing; every other lookup failure stops. `dry-run` never queries stores. Group codes are secrets: do not put them in Action YAML, ordinary inputs, generated outputs, summaries, or examples with real values.
 
 ## Verify the generated result
 
@@ -99,7 +104,8 @@ Before finishing:
 5. Confirm workflow toolchains and configured toolchains match.
 6. Confirm permissions include `contents: write` and `pull-requests: write` for the reusable workflow.
 7. Confirm secrets are referenced, never embedded.
-8. Run `actionlint` and the project's build/test commands.
+8. Confirm `PRIVATE_STORE_GROUP_CODES` is a GitHub Secret when private groups are required.
+9. Run `actionlint` and the project's build/test commands.
 
 ## Common failures
 
@@ -109,5 +115,7 @@ Before finishing:
 | Official publish rejects registry | Use `delivery.mode: lazycat` for every managed runtime image |
 | ARM64 Runner produced ARM app | Fix buildscript to consume `LAZYCAT_TARGET_ARCH=amd64` |
 | Private publish has no URL | Upload/resolve the GitHub Release Asset before `publish-private` |
+| Equal store version is submitted again | Set that store's `skip_if_version_exists: true` and inspect `onlineVersion` |
+| Private application is invisible | Add `PRIVATE_STORE_GROUP_CODES` as a GitHub Secret; never commit the codes |
 | GitHub-hosted Runner cannot use local login | Store token as a GitHub secret; local files are not inherited |
 | Docker unexpectedly required | Remove `docker` toolchain unless buildscript actually invokes Docker |

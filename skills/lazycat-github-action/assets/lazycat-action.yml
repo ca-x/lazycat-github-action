@@ -24,5 +24,7 @@ images:
 stores:
   official:
     enabled: false
+    skip_if_version_exists: false
   private:
     enabled: false
+    skip_if_version_exists: false

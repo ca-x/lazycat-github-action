@@ -75,9 +75,10 @@ LAZYCAT_PASSWORD
 APPSTORE_URL
 APPSTORE_TOKEN
 APP_ID
+PRIVATE_STORE_GROUP_CODES
 ```
 
-Only configure the credential family actually needed. Prefer a LazyCat token over username/password. `APP_ID` is optional.
+Only configure the credential family actually needed. Prefer a LazyCat token over username/password. `APP_ID` is optional. `PRIVATE_STORE_GROUP_CODES` is an optional comma-separated GitHub Secret; never expose it as a normal workflow input.
 
 ## Source build mapping
 
@@ -102,6 +103,7 @@ Use the composite Action directly only when another workflow owns GitHub Release
     APPSTORE_URL: ${{ secrets.APPSTORE_URL }}
     APPSTORE_TOKEN: ${{ secrets.APPSTORE_TOKEN }}
     APP_ID: ${{ secrets.APP_ID }}
+    PRIVATE_STORE_GROUP_CODES: ${{ secrets.PRIVATE_STORE_GROUP_CODES }}
   with:
     operation: publish-private
     config: .github/lazycat-action.yml
@@ -113,3 +115,5 @@ Use the composite Action directly only when another workflow owns GitHub Release
 ```
 
 The LPK path must remain under the project root. The Action reopens the LPK, checks package/version, and computes SHA256 before sending store metadata.
+
+When `skip_if_version_exists` is enabled, `store-results` includes `skipped` and optional `onlineVersion`. Equal versions skip before write credentials are used; not-found publishes; other lookup failures stop. `dry-run` remains network-free.

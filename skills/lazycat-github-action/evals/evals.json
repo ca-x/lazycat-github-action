@@ -36,6 +36,12 @@
       "prompt": "Review a configuration that enables the official store while using direct delivery.",
       "mustInclude": ["invalid", "lazycat", "official"],
       "mustNotInclude": ["configuration is valid"]
+    },
+    {
+      "id": "dual-store-version-deduplication",
+      "prompt": "Configure official and MiaoMiao publishing so an already-online equal package version is not submitted again, and the private app requires group codes.",
+      "mustInclude": ["skip_if_version_exists: true", "PRIVATE_STORE_GROUP_CODES", "GitHub Secret", "onlineVersion"],
+      "mustNotInclude": ["private-group-codes:", "PRIVATE_STORE_GROUP_CODES: ABC123"]
     }
   ]
 }
