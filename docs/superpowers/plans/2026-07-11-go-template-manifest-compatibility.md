@@ -296,7 +296,7 @@ Expected: FAIL because the new Skill contract is absent.
 
 - [ ] **Step 3: Update bilingual docs, Skill, references, asset, and test prompt**
 
-Document the exact template controls, non-evaluation rule, fail-closed behavior, versioned asset opt-in, and historical-LPK migration. The Skill checkpoint must scan tracked LPKs, report count and total bytes, stop for explicit approval before deletion, add `*.lpk` to `.gitignore` after approval, and preserve all files when declined. Add a representative historical-LPK prompt with those expected outcomes.
+Document the exact template controls, non-evaluation rule, fail-closed behavior, versioned asset opt-in, and historical-LPK migration. The Skill checkpoint must scan tracked LPKs, report count and total bytes, stop for explicit approval before deletion, add `*.lpk` to `.gitignore` after approval, and preserve all files when declined. Add representative historical-LPK and templated-Manifest prompts with those expected outcomes. Add a short bilingual README section explaining how to invoke the Skill with a natural-language example, which project files it inspects, which Action/workflow files it creates, when it pauses for confirmation, and how it reports required Secrets.
 
 - [ ] **Step 4: Run Skill TDD and Darwin validation**
 
