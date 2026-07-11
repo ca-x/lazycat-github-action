@@ -22,7 +22,7 @@
   {
     "id": "historical-lpk-migration",
     "prompt": "这个 LazyCat 应用仓库里有很多历史 LPK。请迁移为 GitHub Release 自动发布带明确版本号的 LPK，同时发布官方商店和喵喵私有商店。你可以直接处理。",
-    "expected": "先用 git ls-files '*.lpk' 清点并报告 tracked LPK 数量、总字节和路径；在删除前可见 STOP 并要求明确 yes/no，即使用户已说可以直接处理；拒绝时保留全部文件，批准时只删除已清点文件、验证 tracked 数量并添加 *.lpk/输出目录 ignore；不擅自重写历史或回填旧 Release；设置 versioned-release-asset: true，使用 <package-id>-v<version>.lpk，并确保两个商店使用相同 URL 和 SHA256。"
+    "expected": "先用 git ls-files '*.lpk' 清点并报告 tracked LPK 数量、总字节和路径；在删除前可见 STOP 并要求明确 yes/no，即使用户已说可以直接处理；拒绝时保留全部文件，批准时只删除已清点文件、验证 tracked 数量并添加 *.lpk/输出目录 ignore；不擅自重写历史或回填旧 Release；设置 versioned-release-asset: true，使用 <package-id>-v<version>.lpk；私有商店使用已验证 Release Asset URL/SHA256，官方商店上传相同的本地已验证 LPK 字节/SHA256 而不接收该 URL。"
   },
   {
     "id": "go-template-manifest-preservation",

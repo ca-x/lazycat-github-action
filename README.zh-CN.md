@@ -43,7 +43,7 @@ jobs:
 
 如果路径、镜像归属、策略、商店或工具链无法从仓库证明，Skill 会在生成项目文件前暂停确认。迁移历史 LPK 时，它先运行 `git ls-files '*.lpk'`，报告已跟踪文件数量和总字节数，并在删除前显示单独、醒目的 STOP。用户拒绝时保留全部文件；批准后只删除清点过的文件，并添加 `*.lpk` 和输出目录 ignore 规则。除非另行提出请求，否则绝不重写 Git 历史或回填旧 Release。
 
-需要带版本号的 Release 文件时，设置 `versioned-release-asset: true`。原始已验证构建输出继续作为 validation Artifact；Release 和两个商店统一使用 `<package-id>-v<version>.lpk` 的 URL 与 SHA256。
+需要带版本号的 Release 文件时，设置 `versioned-release-asset: true`。原始已验证构建输出继续作为 validation Artifact，GitHub Release 使用 `<package-id>-v<version>.lpk`。私有商店接收已验证的 Release Asset URL 和 SHA256；官方商店上传同一份本地已验证 LPK 字节及 SHA256，但不会接收 GitHub Release URL。
 
 Go Template Manifest 永远不会被执行或求值。独立的 `if`、`else`、`end`、`with`、`range` 控制行会连同缩进和 trim marker 被原样保护、恢复，内联表达式保持不变。marker 丢失/冲突、保护后 YAML 无效、目标歧义或模板意外变化时会 fail closed；完成前还会验证控制行和真实构建。
 

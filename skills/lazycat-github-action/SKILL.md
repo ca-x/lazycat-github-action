@@ -50,13 +50,13 @@ Before generating Release automation, inventory tracked LPKs with `git ls-files 
 
 ## 🔴 CHECKPOINT — before deleting tracked LPKs
 
-Show the tracked paths, count, and total bytes, recommend cleanup, and **STOP for an explicit yes/no answer immediately before deletion**. General authorization such as “handle it directly” is not deletion approval.
+Run `git ls-files '*.lpk'`, show the tracked paths, count, and total bytes, recommend cleanup, and **STOP for an explicit yes/no answer immediately before deletion**. General authorization such as “handle it directly” is not deletion approval.
 
 - If the user declines, preserve every tracked LPK and report that the migration remains incomplete.
 - If the user approves, remove only the inventoried tracked LPKs, verify the post-delete tracked count, and add `*.lpk` plus the generated output directory to `.gitignore`. An ignore rule does not untrack a file by itself.
 - Never rewrite Git history or backfill historical GitHub Releases unless the user separately requests that work.
 
-Future version-bearing releases use `versioned-release-asset: true`. The verified build output remains the validation Artifact; Release upload and both store consumers use the same copied `<package-id>-v<version>.lpk`, URL, and SHA256.
+Future version-bearing releases use `versioned-release-asset: true`. The verified build output remains the validation Artifact and Release upload uses the copied `<package-id>-v<version>.lpk`. The private store uses the verified GitHub Release Asset URL and SHA256. The official store uploads the same locally verified LPK bytes and SHA256 without receiving the Release URL.
 
 ## Go Template Manifest safety
 
@@ -134,7 +134,7 @@ with:
   versioned-release-asset: true
 ```
 
-The final asset name is `<package-id>-v<version>.lpk`. Verify that package ID, package version, Release tag, asset filename, store download URL, and SHA256 agree; official and private stores must receive the same URL and SHA.
+The final Release Asset name is `<package-id>-v<version>.lpk`. Verify package ID, package version, Release tag, asset filename, and SHA256. Verify the private-store download URL identifies that asset. Official publication reuses the same locally verified LPK bytes and SHA256, not the Release URL.
 
 Copy [assets/lazycat-action.yml](assets/lazycat-action.yml) and [assets/lazycat-workflow.yml](assets/lazycat-workflow.yml) as starting points, then replace only values confirmed from the inspected project. Read [references/workflows.md](references/workflows.md) for tag/release, permissions, secrets, PR, and store examples.
 
@@ -178,7 +178,7 @@ Before finishing:
 7. Confirm secrets are referenced, never embedded.
 8. Confirm `PRIVATE_STORE_GROUP_CODES` is a GitHub Secret when private groups are required.
 9. Confirm standalone Go Template control lines are byte-identical and were never evaluated.
-10. Confirm a versioned Release and both stores resolve the same asset URL and SHA256.
+10. Confirm the private store uses the verified versioned Release URL/SHA256 and official publication uploads the same verified bytes/SHA256 without that URL.
 11. Run `actionlint` and the project's build/test commands.
 
 ## Common failures

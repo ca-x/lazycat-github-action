@@ -31,7 +31,7 @@ stores:
 
 Unknown fields fail validation. Paths must remain under `project.root`. Output must end in `.lpk`.
 
-`project.output` is the verified build output and validation Artifact. When the caller sets reusable-workflow input `versioned-release-asset: true`, the workflow copies that verified file to `<package-id>-v<version>.lpk` for the GitHub Release and both stores. The copy stays beside the verified LPK under `project.root`; its URL and SHA256 must be identical for official and private publication.
+`project.output` is the verified build output and validation Artifact. When the caller sets reusable-workflow input `versioned-release-asset: true`, the workflow copies that verified file to `<package-id>-v<version>.lpk` for the GitHub Release. The copy stays beside the verified LPK under `project.root`. Private publication uses the verified Release Asset URL and SHA256; official publication uploads the same locally verified LPK bytes and SHA256 without receiving that URL.
 
 ## Go Template Manifest handling
 

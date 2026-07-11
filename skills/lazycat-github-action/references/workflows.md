@@ -44,7 +44,7 @@ jobs:
     secrets: inherit
 ```
 
-Use `update.version_source.type: git`. The workflow updates `package.yml.version`, builds, uploads the Release Asset, and syncs the version to the default branch. With `versioned-release-asset: true`, the Release filename is `<package-id>-v<version>.lpk`; both stores receive the same verified URL and SHA256.
+Use `update.version_source.type: git`. The workflow updates `package.yml.version`, builds, uploads the Release Asset, and syncs the version to the default branch. With `versioned-release-asset: true`, the Release filename is `<package-id>-v<version>.lpk`. The private store uses its verified Release Asset URL and SHA256; the official store uploads the same locally verified LPK bytes and SHA256 without receiving that URL.
 
 ## Historical LPK migration checkpoint
 

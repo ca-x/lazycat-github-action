@@ -12,7 +12,7 @@ jobs:
     with:
       operation: auto
       config: .github/lazycat-action.yml
-      # Produces <package-id>-v<version>.lpk for Releases and both stores.
+      # Produces <package-id>-v<version>.lpk as the verified Release Asset.
       versioned-release-asset: true
     # Organization Secrets must authorize this repository. A same-name
     # Repository Secret overrides the Organization Secret.
