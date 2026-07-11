@@ -104,6 +104,8 @@ Buildscripts must honor those values. Go uses `GOOS=linux GOARCH=amd64`; Rust us
 
 The reusable workflow's `toolchains` input must match `build.toolchains` in Action configuration. Do not rely on an implicit moving toolchain version.
 
+Set `build.run_buildscript: false` explicitly when `lzc-build.yml` has no `buildscript`; the Action default is `true`. Add `secrets: inherit` or explicit secret mappings only when the generated workflow actually needs Registry or store credentials. A public-image scheduled PR workflow with stores disabled should not inherit unrelated repository Secrets.
+
 Copy [assets/lazycat-action.yml](assets/lazycat-action.yml) and [assets/lazycat-workflow.yml](assets/lazycat-workflow.yml) as starting points, then replace only values confirmed from the inspected project. Read [references/workflows.md](references/workflows.md) for tag/release, permissions, secrets, PR, and store examples.
 
 ## Configure stores
