@@ -12,6 +12,8 @@ import (
 	"github.com/ca-x/lazycat-github-action/internal/appversion"
 )
 
+var versionTemplatePlaceholderPattern = regexp.MustCompile(`\{[A-Za-z][A-Za-z0-9_]*\}`)
+
 type Channel string
 
 const (
@@ -145,18 +147,31 @@ func validateRule(rule Rule) error {
 
 func mapVersion(rule Rule, tag string) (string, error) {
 	value := strings.TrimPrefix(strings.TrimSpace(tag), "v")
+	groups := map[string]string{"version": value}
 	if rule.VersionRegex != nil {
 		matches := rule.VersionRegex.FindStringSubmatch(tag)
 		if matches == nil {
 			return "", fmt.Errorf("tag %q does not match version_regex", tag)
 		}
-		value = matches[rule.VersionRegex.SubexpIndex("version")]
+		for index, name := range rule.VersionRegex.SubexpNames() {
+			if index == 0 || name == "" {
+				continue
+			}
+			groups[name] = matches[index]
+		}
+		value = groups["version"]
 	}
 	template := rule.VersionTemplate
 	if template == "" {
 		template = "{version}"
 	}
-	value = strings.ReplaceAll(template, "{version}", value)
+	value = template
+	for name, match := range groups {
+		value = strings.ReplaceAll(value, "{"+name+"}", match)
+	}
+	if placeholder := versionTemplatePlaceholderPattern.FindString(value); placeholder != "" {
+		return "", fmt.Errorf("unresolved version template placeholder %q for tag %q", placeholder, tag)
+	}
 	if !appversion.IsValid(value) {
 		return "", fmt.Errorf("mapped version %q from tag %q is not valid SemVer", value, tag)
 	}

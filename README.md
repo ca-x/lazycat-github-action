@@ -242,6 +242,15 @@ version_regex: '^edge-(?P<version>\d+\.\d+\.\d+)$'
 version_template: '{version}'
 ```
 
+`version_template` may reference every named capture from `version_regex`:
+
+```yaml
+version_regex: '^(?P<version>\d{8})\.0*(?P<build>[1-9]\d*)$'
+version_template: '{version}.{build}.0' # 20260603.01 -> 20260603.1.0
+```
+
+The `version` group remains required. Unknown placeholders and expanded values that are not valid SemVer fail closed.
+
 `tag_regex` and `exclude_regex` run before the Action fetches individual manifests. OCI indexes and Docker manifest lists are reduced to `linux/amd64`; ARM64 metadata cannot win selection.
 
 ## Image delivery modes

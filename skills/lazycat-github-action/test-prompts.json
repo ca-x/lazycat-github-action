@@ -33,5 +33,10 @@
     "id": "release-store-reconciliation",
     "prompt": "GitHub Release 已经有 community.example-v1.2.3.lpk，但官方商店缺 1.2.3，喵喵商店已经是 1.2.3。每天的 Action 应该怎么自动补偿？",
     "expected": "只下载当前 Tag 下精确命名的版本化 LPK，验证 GitHub sha256 digest 和本地 SHA256；官方商店补交，喵喵商店按 skip_if_version_exists 独立跳过；不重建、不改名、不猜测其他 asset。"
+  },
+  {
+    "id": "named-version-template-groups",
+    "prompt": "上游镜像标签是 20260603.01，应用版本必须是合法 SemVer 20260603.1.0。请生成版本规则，不要写仓库专用脚本。",
+    "expected": "使用带 version 和 build 命名捕获组的 version_regex，并用 {version}.{build}.0 模板展开为 20260603.1.0；未知占位符或非 SemVer 结果 fail closed。"
   }
 ]

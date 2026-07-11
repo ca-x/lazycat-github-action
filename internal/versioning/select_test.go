@@ -86,6 +86,29 @@ func TestSelectCustomByMappedSemVerAndCreated(t *testing.T) {
 	}
 }
 
+func TestSelectExpandsNamedVersionTemplateGroups(t *testing.T) {
+	rule := versioning.Rule{
+		Channel:         versioning.ChannelCustom,
+		Sort:            versioning.SortCreated,
+		TagRegex:        regexp.MustCompile(`^\d{8}\.\d+$`),
+		VersionRegex:    regexp.MustCompile(`^(?P<version>\d{8})\.0*(?P<build>[1-9]\d*)$`),
+		VersionTemplate: "{version}.{build}.0",
+	}
+	selection, err := versioning.Select(rule, []versioning.Candidate{{Tag: "20260603.01", Digest: digest("1"), Created: at(1)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.Version != "20260603.1.0" {
+		t.Fatalf("selection=%#v", selection)
+	}
+
+	rule.VersionTemplate = "{version}.{missing}.0"
+	_, err = versioning.Select(rule, []versioning.Candidate{{Tag: "20260603.01", Digest: digest("1"), Created: at(1)}})
+	if err == nil || !strings.Contains(err.Error(), "unresolved version template placeholder") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestSelectRejectsInvalidRulesAndCandidates(t *testing.T) {
 	tests := []struct {
 		name       string

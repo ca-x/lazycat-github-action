@@ -54,6 +54,12 @@
       "prompt": "The versioned GitHub Release LPK already exists. Reconcile an official store that is missing this version while the private store is already current.",
       "mustInclude": ["<package-id>-v<version>.lpk", "sha256", "official", "skip"],
       "mustNotInclude": ["rebuild", "use any .lpk", "publish both stores unconditionally"]
+    },
+    {
+      "id": "named-version-template-groups",
+      "prompt": "Map image tag 20260603.01 to valid SemVer 20260603.1.0 without a repository-specific script.",
+      "mustInclude": ["(?P<version>", "(?P<build>", "{version}.{build}.0", "fail closed"],
+      "mustNotInclude": ["custom shell script", "0.0.0-nightly"]
     }
   ]
 }

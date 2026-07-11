@@ -53,7 +53,7 @@ The version source answers “which upstream version changes package.yml.” The
 | `nightly` | `tag_regex` required; newest amd64 creation time; sort is `created` |
 | `custom` | `tag_regex` and explicit `semver` or `created` sort required |
 
-Use `exclude_regex` to remove Windows/ARM tags. `version_regex` must contain `(?P<version>...)`; `version_template` defaults to `{version}`.
+Use `exclude_regex` to remove Windows/ARM tags. `version_regex` must contain `(?P<version>...)`; `version_template` defaults to `{version}`. Every named capture is available as an exact placeholder. For example, `^(?P<version>\d{8})\.0*(?P<build>[1-9]\d*)$` plus `{version}.{build}.0` maps `20260603.01` to `20260603.1.0`. Unknown placeholders and non-SemVer expanded values fail closed.
 
 Nightly mutable tags become deterministic SemVer values based on creation time and the `linux/amd64` digest.
 

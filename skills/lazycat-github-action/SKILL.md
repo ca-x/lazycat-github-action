@@ -109,6 +109,8 @@ Delivery policy:
 
 Set `require_digest_match: true` for mirrors when the accelerator must contain exactly the source `linux/amd64` image.
 
+When a tag needs normalization, reference named `version_regex` groups directly in `version_template`, for example `(?P<version>\d{8})\.0*(?P<build>[1-9]\d*)` with `{version}.{build}.0`. Keep the required `version` group. Unknown placeholders and non-SemVer results fail closed; do not add repository-specific rewriting when this mapping is sufficient.
+
 Read [references/configuration.md](references/configuration.md) for channel rules, the configuration schema, authentication, and store constraints.
 
 ## Configure builds and workflows

@@ -242,6 +242,15 @@ version_regex: '^edge-(?P<version>\d+\.\d+\.\d+)$'
 version_template: '{version}'
 ```
 
+`version_template` 可以引用 `version_regex` 中的所有命名捕获组：
+
+```yaml
+version_regex: '^(?P<version>\d{8})\.0*(?P<build>[1-9]\d*)$'
+version_template: '{version}.{build}.0' # 20260603.01 -> 20260603.1.0
+```
+
+`version` 捕获组仍然必填。未知占位符或展开后不是合法 SemVer 时会直接失败。
+
 Action 会先应用 `tag_regex` 和 `exclude_regex`，再拉取单个 manifest。OCI index 和 Docker manifest list 只选择 `linux/amd64`，ARM64 镜像的时间和 digest 不会影响最终结果。
 
 ## 镜像交付模式
