@@ -33,7 +33,7 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 			t.Fatalf("SKILL.md frontmatter missing trigger %q", required)
 		}
 	}
-	for _, required := range []string{"name: lazycat-github-action", "automatically inspect", "Primary outcome: working GitHub workflows", "Do not stop after printing sample YAML", "Do not infer", "linux/amd64", "APPSTORE_TOKEN", "token-file", "skip_if_version_exists", "PRIVATE_STORE_GROUP_CODES", "onlineVersion", "Repository overrides Organization", "delivery source of truth", "{version}.{build}.0", "allow_downgrade: false", "VERSION_DOWNGRADE_BLOCKED", "rank filtered tag names", "first usable"} {
+	for _, required := range []string{"name: lazycat-github-action", "automatically inspect", "Primary outcome: working GitHub workflows", "Do not stop after printing sample YAML", "Do not infer", "linux/amd64", "APPSTORE_TOKEN", "token-file", "skip_if_version_exists", "PRIVATE_STORE_GROUP_CODES", "onlineVersion", "Repository overrides Organization", "delivery source of truth", "{version}.{build}.0", "allow_downgrade: false", "VERSION_DOWNGRADE_BLOCKED", "rank filtered tag names", "first usable", "lazycat-contrib/cat-led", "lazycat-contrib/lazycat-neko-webshell", "failed to spawn protoc", "edition = \"2023\""} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("SKILL.md missing %q", required)
 		}
@@ -75,6 +75,9 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	}
 	if _, found := seen["release-store-reconciliation"]; !found {
 		t.Fatal("evals are missing Release/store reconciliation coverage")
+	}
+	if _, found := seen["rust-protobuf-toolchain"]; !found {
+		t.Fatal("evals are missing Rust Protobuf toolchain coverage")
 	}
 	for _, name := range []string{"references/configuration.md", "references/workflows.md", "assets/lazycat-action.yml"} {
 		data, err := os.ReadFile(filepath.Join(root, name))
@@ -201,8 +204,8 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	if err := json.Unmarshal(prompts, &promptCases); err != nil {
 		t.Fatal(err)
 	}
-	if len(promptCases) != 11 {
-		t.Fatalf("test-prompts.json cases=%d, want 11", len(promptCases))
+	if len(promptCases) != 12 {
+		t.Fatalf("test-prompts.json cases=%d, want 12", len(promptCases))
 	}
 	promptIDs := make(map[string]string, len(promptCases))
 	for _, prompt := range promptCases {
@@ -222,6 +225,7 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 		"named-version-template-groups":     {"version", "build", "{version}.{build}.0", "20260603.1.0", "fail closed"},
 		"private-name-fallback":             {"stores.private.name", "packageId", "应用名称", "/api/v1/apps/by-name", "404", "停止"},
 		"image-version-downgrade-guard":     {"allow_downgrade: false", "SemVer", "VERSION_DOWNGRADE_BLOCKED", "同版本", "明确确认"},
+		"rust-protobuf-toolchain":           {"Edition 2023", "GitHub Release", "SHA256", "protoc --version", "共享 buildscript", "不得把 Proto 改成 proto3", "不得修改 Rust 源码", "build.rs"},
 	} {
 		expected, found := promptIDs[id]
 		if !found {

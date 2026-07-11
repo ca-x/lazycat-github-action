@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -41,7 +43,11 @@ type Result struct {
 	Warnings       []lpkgo.Warning `json:"warnings,omitempty"`
 }
 
-type Builder struct{}
+type Builder struct {
+	Stdout io.Writer
+	Stderr io.Writer
+	Logger *slog.Logger
+}
 
 var protectedBuildEnvironment = map[string]struct{}{
 	"ACTIONS_CACHE_URL":              {},
@@ -86,7 +92,7 @@ func (runner protectedRunner) Run(ctx context.Context, command toolkitbuild.Comm
 	return runner.base.Run(ctx, command)
 }
 
-func (Builder) Build(ctx context.Context, request Request) (result Result, resultErr error) {
+func (builder Builder) Build(ctx context.Context, request Request) (result Result, resultErr error) {
 	if ctx == nil {
 		return Result{}, errors.New("build LPK: nil context")
 	}
@@ -105,6 +111,7 @@ func (Builder) Build(ctx context.Context, request Request) (result Result, resul
 	if request.Tag == "" {
 		request.Tag = "v" + request.Version
 	}
+	builder.logger().Info("LPK build started", "package", request.Project.PackageID, "version", request.Version, "target", platform.TargetPlatform)
 
 	output := filepath.Clean(request.Project.Output)
 	outputDirectory := filepath.Dir(output)
@@ -140,7 +147,12 @@ func (Builder) Build(ctx context.Context, request Request) (result Result, resul
 	}
 	runner := request.Runner
 	if runner == nil {
-		runner = toolkitbuild.ShellRunner{}
+		runner = streamingShellRunner{stdout: builder.stdout(), stderr: builder.stderr()}
+	}
+	if request.RunBuildScript {
+		builder.logger().Info("project buildscript started")
+	} else {
+		builder.logger().Info("project buildscript disabled")
 	}
 	toolkitResult, err := toolkitbuild.BuildFile(ctx, temporary, toolkitbuild.Request{
 		Root:               request.Project.Root,
@@ -153,6 +165,7 @@ func (Builder) Build(ctx context.Context, request Request) (result Result, resul
 	if err != nil {
 		return Result{}, fmt.Errorf("build LPK with toolkit: %s: %w", rootCauseMessage(err), err)
 	}
+	builder.logger().Info("LPK package assembled; verifying metadata and contents")
 
 	reader, err := lpk.OpenFile(ctx, temporary)
 	if err != nil {
@@ -191,6 +204,7 @@ func (Builder) Build(ctx context.Context, request Request) (result Result, resul
 	}
 	var lintOptions []lint.Option
 	if request.Official {
+		builder.logger().Info("official-store lint started")
 		lintOptions = append(lintOptions, lint.WithOfficial())
 	}
 	lintWarnings, err := lint.Package(ctx, os.DirFS(extractionRoot), lintOptions...)
@@ -217,7 +231,7 @@ func (Builder) Build(ctx context.Context, request Request) (result Result, resul
 	if err := syncDirectory(outputDirectory); err != nil {
 		return Result{}, err
 	}
-	return Result{
+	result = Result{
 		Path:           output,
 		PackageID:      packageInfo.Package,
 		Version:        packageInfo.Version,
@@ -225,7 +239,30 @@ func (Builder) Build(ctx context.Context, request Request) (result Result, resul
 		Size:           size,
 		TargetPlatform: platform.TargetPlatform,
 		Warnings:       warnings,
-	}, nil
+	}
+	builder.logger().Info("LPK build completed", "path", result.Path, "size_bytes", result.Size, "sha256", result.SHA256)
+	return result, nil
+}
+
+func (builder Builder) stdout() io.Writer {
+	if builder.Stdout != nil {
+		return builder.Stdout
+	}
+	return os.Stdout
+}
+
+func (builder Builder) stderr() io.Writer {
+	if builder.Stderr != nil {
+		return builder.Stderr
+	}
+	return os.Stderr
+}
+
+func (builder Builder) logger() *slog.Logger {
+	if builder.Logger != nil {
+		return builder.Logger
+	}
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 func rootCauseMessage(err error) string {

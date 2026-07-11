@@ -1,8 +1,10 @@
 package imageflow_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +22,7 @@ import (
 )
 
 func TestFlowChecksAllImagesAndUpdatesOnlyChangedTarget(t *testing.T) {
+	var logs bytes.Buffer
 	registryClient := &fakeRegistry{bySource: map[string][]versioning.Candidate{
 		"docker.io/library/postgres": {{Tag: "17.1.0", Digest: digest("d"), Created: created(1)}},
 		"ghcr.io/acme/web":           {{Tag: "v2.0.0", Digest: digest("w"), Created: created(2)}},
@@ -29,6 +32,7 @@ func TestFlowChecksAllImagesAndUpdatesOnlyChangedTarget(t *testing.T) {
 	flow := imageflow.Flow{
 		Registry:  registryClient,
 		Deliverer: deliverer,
+		Logger:    slog.New(slog.NewTextHandler(&logs, nil)),
 		ReadManifest: func(string, []manifestedit.Target) ([]manifestedit.Current, error) {
 			return []manifestedit.Current{
 				{ID: "db", RuntimeRef: "docker.io/library/postgres:17.1.0", UpstreamRef: "docker.io/library/postgres:17.1.0"},
@@ -52,6 +56,11 @@ func TestFlowChecksAllImagesAndUpdatesOnlyChangedTarget(t *testing.T) {
 	}
 	if registryClient.calls != 2 || deliverer.calls != 2 {
 		t.Fatalf("registry calls=%d delivery calls=%d", registryClient.calls, deliverer.calls)
+	}
+	for _, expected := range []string{"Docker image update started", "querying Docker image versions", "Docker image version selected", "Docker image delivery completed", "Docker image update completed"} {
+		if !strings.Contains(logs.String(), expected) {
+			t.Fatalf("logs missing %q: %s", expected, logs.String())
+		}
 	}
 }
 

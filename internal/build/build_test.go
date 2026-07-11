@@ -1,9 +1,11 @@
 package build_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -172,6 +174,56 @@ func TestBuilderRemovesTemporaryOutputAfterRunnerFailure(t *testing.T) {
 	}
 	if _, statErr := os.Stat(info.Output); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("final output should not exist: %v", statErr)
+	}
+}
+
+func TestBuilderStreamsBuildscriptOutputAndReportsExitCode(t *testing.T) {
+	t.Setenv("APPSTORE_TOKEN", "must-not-reach-buildscript")
+	root := t.TempDir()
+	files := map[string]string{
+		"lzc-build.yml":      "buildscript: |\n  printf 'build-out\\n'\n  printf 'build-err\\n' >&2\n  printf '%s\\n' \"${APPSTORE_TOKEN-unset}\" >&2\n  exit 7\ncontentdir: ./content\n",
+		"package.yml":        "package: cloud.lazycat.action.logs\nversion: 1.2.3\nname: Logs\ndescription: Logs fixture\n",
+		"lzc-manifest.yml":   "application:\n  subdomain: logs\n  routes:\n    - /=file:///lzcapp/pkg/content\n",
+		"content/index.html": "fixture\n",
+	}
+	for name, contents := range files {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	info := project.Info{
+		Root: root, BuildConfig: filepath.Join(root, "lzc-build.yml"), PackageFile: filepath.Join(root, "package.yml"),
+		ManifestFile: filepath.Join(root, "lzc-manifest.yml"), Output: filepath.Join(root, "dist", "app.lpk"),
+		PackageID: "cloud.lazycat.action.logs", Version: "1.2.3", Kind: project.KindStatic,
+	}
+	var stdout, stderr bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&stderr, &slog.HandlerOptions{ReplaceAttr: func(_ []string, attribute slog.Attr) slog.Attr {
+		if attribute.Key == slog.TimeKey {
+			return slog.Attr{}
+		}
+		return attribute
+	}}))
+	_, err := (actionbuild.Builder{Stdout: &stdout, Stderr: &stderr, Logger: logger}).Build(context.Background(), actionbuild.Request{
+		Project: info, Version: "1.2.3", Tag: "v1.2.3", RunBuildScript: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "buildscript exited with code 7") {
+		t.Fatalf("err=%v", err)
+	}
+	if got := stdout.String(); !strings.Contains(got, "build-out") {
+		t.Fatalf("stdout=%q", got)
+	}
+	logs := stderr.String()
+	for _, expected := range []string{"LPK build started", "project buildscript started", "build-err"} {
+		if !strings.Contains(logs, expected) {
+			t.Fatalf("stderr missing %q: %q", expected, logs)
+		}
+	}
+	if strings.Contains(logs, "must-not-reach-buildscript") {
+		t.Fatalf("protected secret reached logs: %q", logs)
 	}
 }
 

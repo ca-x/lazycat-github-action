@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -65,6 +67,7 @@ type Flow struct {
 	LookupVersion   storelookup.Lookup
 	LookupEnv       func(string) (string, bool)
 	NewPrivate      func(private.Options) (PrivatePublisher, error)
+	Logger          *slog.Logger
 }
 
 func Default() Flow {
@@ -86,6 +89,11 @@ func (flow Flow) Publish(ctx context.Context, request Request) (Result, error) {
 	if ctx == nil {
 		return Result{}, errors.New("publish stores: context is required")
 	}
+	logger := flow.Logger
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+	logger.Info("store publication started", "store", request.Target, "package", request.Project.PackageID, "version", request.Version, "dry_run", request.DryRun)
 	if request.Config.Update.Strategy != config.StrategyPublish {
 		return Result{}, ErrPublishStrategyRequired
 	}
@@ -125,6 +133,7 @@ func (flow Flow) Publish(ctx context.Context, request Request) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("verify publish artifact: %w", err)
 	}
+	logger.Info("LPK publication artifact verified", "store", request.Target, "package", artifact.PackageID, "version", artifact.Version, "size_bytes", artifact.Size, "sha256", artifact.SHA256)
 	if artifact.TargetPlatform != platform.TargetPlatform {
 		return Result{}, fmt.Errorf("verify publish artifact: target %q does not match %q", artifact.TargetPlatform, platform.TargetPlatform)
 	}
@@ -143,6 +152,7 @@ func (flow Flow) Publish(ctx context.Context, request Request) (Result, error) {
 		return Result{}, err
 	}
 	if skip {
+		logger.Info("store publication skipped; version already online", "store", request.Target, "version", artifact.Version, "online_version", onlineVersion)
 		switch request.Target {
 		case TargetOfficial:
 			result.Official = &official.Result{
@@ -159,9 +169,17 @@ func (flow Flow) Publish(ctx context.Context, request Request) (Result, error) {
 	}
 	switch request.Target {
 	case TargetOfficial:
-		return flow.publishOfficial(ctx, request, result, onlineVersion)
+		published, publishErr := flow.publishOfficial(ctx, request, result, onlineVersion)
+		if publishErr == nil {
+			logger.Info("store publication completed", "store", request.Target, "package", artifact.PackageID, "version", artifact.Version)
+		}
+		return published, publishErr
 	case TargetPrivate:
-		return flow.publishPrivate(ctx, request, result, onlineVersion)
+		published, publishErr := flow.publishPrivate(ctx, request, result, onlineVersion)
+		if publishErr == nil {
+			logger.Info("store publication completed", "store", request.Target, "package", artifact.PackageID, "version", artifact.Version)
+		}
+		return published, publishErr
 	default:
 		panic("validated publish target became invalid")
 	}

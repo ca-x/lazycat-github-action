@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/ca-x/lazycat-github-action/internal/config"
@@ -80,6 +83,7 @@ type Flow struct {
 	Deliverer     Deliverer
 	ReadManifest  func(string, []manifestedit.Target) ([]manifestedit.Current, error)
 	ApplyManifest func(string, []manifestedit.Update) ([]manifestedit.Change, error)
+	Logger        *slog.Logger
 }
 
 func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
@@ -93,6 +97,11 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	logger := flow.Logger
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+	logger.Info("Docker image update started", "images", len(selected), "dry_run", request.DryRun, "target", platform.TargetPlatform)
 	readManifest := flow.ReadManifest
 	if readManifest == nil {
 		readManifest = manifestedit.Read
@@ -122,6 +131,7 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 	result := Result{Version: request.Project.Version, Images: make([]ImageResult, 0, len(selected))}
 	updates := make([]manifestedit.Update, 0, len(selected))
 	for _, image := range selected {
+		logger.Info("querying Docker image versions", "image_id", image.ID, "source", image.Source, "channel", image.Channel, "sort", image.Sort)
 		rule, filter, err := imageRule(image)
 		if err != nil {
 			return Result{}, err
@@ -133,10 +143,12 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 			}
 			return Result{}, fmt.Errorf("inspect image %q: %w", image.ID, err)
 		}
+		logger.Info("Docker image versions received", "image_id", image.ID, "candidates", len(candidates))
 		selection, err := versioning.Select(rule, candidates)
 		if err != nil {
 			return Result{}, fmt.Errorf("%w for %q: %v", ErrVersionNotFound, image.ID, err)
 		}
+		logger.Info("Docker image version selected", "image_id", image.ID, "tag", selection.Candidate.Tag, "version", selection.Version, "digest", selection.Candidate.Digest, "platform", platform.TargetPlatform)
 		if request.Config.Update.VersionSource.Type == config.VersionSourceImage && request.Config.Update.VersionSource.Image == image.ID && !request.Config.Update.AllowDowngrade {
 			currentVersion, currentErr := semver.StrictNewVersion(strings.TrimSpace(request.Project.Version))
 			selectedVersion, selectedErr := semver.StrictNewVersion(selection.Version)
@@ -155,6 +167,27 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 		if request.OnProgress != nil {
 			deliveryRequest.OnProgress = func(progress appstore.CopyProgress) { request.OnProgress(image.ID, progress) }
 		}
+		var progressMu sync.Mutex
+		layerProgress := map[string]int{}
+		previousProgress := deliveryRequest.OnProgress
+		deliveryRequest.OnProgress = func(progress appstore.CopyProgress) {
+			if previousProgress != nil {
+				previousProgress(progress)
+			}
+			progressMu.Lock()
+			defer progressMu.Unlock()
+			for _, layer := range progress.Layers {
+				last := layerProgress[layer.Hash]
+				if layer.Progress == 100 || layer.Progress >= last+25 {
+					layerProgress[layer.Hash] = layer.Progress
+					logger.Info("Docker image layer progress", "image_id", image.ID, "layer", layer.Hash, "progress", layer.Progress)
+				}
+			}
+			if progress.Finished {
+				logger.Info("Docker image copy stream completed", "image_id", image.ID)
+			}
+		}
+		logger.Info("Docker image delivery started", "image_id", image.ID, "mode", image.Delivery.Mode, "source", sourceRef)
 
 		needsUpdate := false
 		var delivered delivery.Result
@@ -186,6 +219,7 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 		if delivered.RuntimeRef == "" {
 			delivered.RuntimeRef = current.RuntimeRef
 		}
+		logger.Info("Docker image delivery completed", "image_id", image.ID, "mode", image.Delivery.Mode, "copied", delivered.Copied, "runtime_ref", delivered.RuntimeRef)
 		if needsUpdate && !request.DryRun && delivered.RuntimeRef == "" {
 			return Result{}, fmt.Errorf("%w for %q: delivery returned an empty runtime reference", ErrDeliveryFailed, image.ID)
 		}
@@ -216,6 +250,7 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 			return Result{}, errors.New("manifest editor returned an incomplete change set")
 		}
 	}
+	logger.Info("Docker image update completed", "changed", result.Changed, "version", result.Version, "images", len(result.Images))
 	return result, nil
 }
 
