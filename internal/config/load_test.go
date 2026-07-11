@@ -35,6 +35,9 @@ update:
 				if got.Update.Strategy != config.StrategyPull {
 					t.Fatalf("strategy=%q", got.Update.Strategy)
 				}
+				if got.Update.AllowDowngrade {
+					t.Fatal("allow_downgrade should default to false")
+				}
 				if !got.Build.ShouldRunBuildScript() {
 					t.Fatal("buildscript should default to enabled")
 				}
@@ -154,6 +157,7 @@ update:
 			yaml: `version: 1
 project: {}
 update:
+  allow_downgrade: true
   version_source:
     type: image
     image: web
@@ -164,6 +168,9 @@ images:
     source: ghcr.io/acme/web
 `,
 			check: func(t *testing.T, got config.Config) {
+				if !got.Update.AllowDowngrade {
+					t.Fatal("allow_downgrade should preserve explicit true")
+				}
 				image := got.Images[0]
 				if image.Channel != "stable" || image.Sort != "semver" || image.VersionTemplate != "{version}" || image.Delivery.Mode != "lazycat" {
 					t.Fatalf("image defaults=%#v", image)

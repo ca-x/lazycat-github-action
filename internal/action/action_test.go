@@ -150,6 +150,26 @@ func TestRunMapsStoreAuthenticationFailure(t *testing.T) {
 	}
 }
 
+func TestErrorIncludesSafeToolkitDiagnosticsWithoutCauseText(t *testing.T) {
+	err := &action.Error{
+		Code:    action.CodeStorePublishFailed,
+		Message: "store publishing failed",
+		Cause: &lpkgo.Error{
+			Code: lpkgo.CodeConflict, Op: "store.private", StatusCode: 409,
+			Cause: errors.New("response contains lcst_must_not_leak"),
+		},
+	}
+	message := err.Error()
+	for _, expected := range []string{"STORE_PUBLISH_FAILED", "CONFLICT", "status=409", "op=store.private"} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("message=%q missing %q", message, expected)
+		}
+	}
+	if strings.Contains(message, "lcst_must_not_leak") {
+		t.Fatalf("message leaked cause text: %q", message)
+	}
+}
+
 func lpkcheckResult(path string) lpkcheck.Result {
 	return lpkcheck.Result{Path: path, PackageID: "cloud.lazycat.example", Version: "1.2.3", SHA256: strings.Repeat("a", 64), TargetPlatform: "linux/amd64"}
 }
@@ -393,6 +413,31 @@ func TestRunCheckRejectsDirectPublishForNonVersionSourceImage(t *testing.T) {
 	}
 	if checkCalled {
 		t.Fatal("image check ran for invalid direct-publish selection")
+	}
+}
+
+func TestRunMapsImageVersionDowngrade(t *testing.T) {
+	cfg := gitConfig()
+	cfg.Update.VersionSource = config.VersionSource{Type: config.VersionSourceImage, Image: "web"}
+	cfg.Images = []config.Image{{ID: "web", Target: "service", Service: "web", Source: "ghcr.io/acme/web", Channel: "stable", Sort: "semver", Delivery: config.Delivery{Mode: "direct"}}}
+	deps := action.Dependencies{
+		Host:       platform.Host{OS: "linux", Arch: "amd64"},
+		LoadConfig: func(string) (config.Config, error) { return cfg, nil },
+		Inspect: func(context.Context, config.Project) (project.Info, error) {
+			return project.Info{PackageID: "cloud.lazycat.example", Version: "19.0.0"}, nil
+		},
+		SetVersion: func(string, string) (yamledit.Change, error) { return yamledit.Change{}, nil },
+		Build: func(context.Context, actionbuild.Request) (actionbuild.Result, error) {
+			return actionbuild.Result{}, nil
+		},
+		CheckImages: func(context.Context, imageflow.Request) (imageflow.Result, error) {
+			return imageflow.Result{}, imageflow.ErrVersionDowngrade
+		},
+	}
+	_, err := action.Run(context.Background(), action.Input{Operation: action.OperationCheck}, deps)
+	var actionErr *action.Error
+	if !errors.As(err, &actionErr) || actionErr.Code != action.CodeVersionDowngradeBlocked {
+		t.Fatalf("err=%#v", err)
 	}
 }
 

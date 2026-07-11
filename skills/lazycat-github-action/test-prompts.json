@@ -38,5 +38,15 @@
     "id": "named-version-template-groups",
     "prompt": "上游镜像标签是 20260603.01，应用版本必须是合法 SemVer 20260603.1.0。请生成版本规则，不要写仓库专用脚本。",
     "expected": "使用带 version 和 build 命名捕获组的 version_regex，并用 {version}.{build}.0 模板展开为 20260603.1.0；未知占位符或非 SemVer 结果 fail closed。"
+  },
+  {
+    "id": "private-name-fallback",
+    "prompt": "喵喵商店已经有这个应用，但按 packageId 搜不到，只能按应用名称搜到，而且我不想配置 APP_ID。自动 workflow 应该怎么处理？",
+    "expected": "保留确认过的 stores.private.name；发布时先按精确 packageId 查询，再按应用名称回退；只复用 packageId 与已验证 LPK 完全一致的候选，冲突时停止而不是误发到同名应用。"
+  },
+  {
+    "id": "image-version-downgrade-guard",
+    "prompt": "镜像仓库按创建时间选中了最近重建的 18.0，但 package.yml 已经是 19.0.0。请优化自动 workflow，避免它降级；如果我以后确实要回退怎么办？",
+    "expected": "保持或显式设置 update.allow_downgrade: false；在镜像复制和文件写入前比较映射后的 SemVer，返回 VERSION_DOWNGRADE_BLOCKED；同版本 digest 更新继续允许；只有用户明确确认回退时才设置 allow_downgrade: true。"
   }
 ]

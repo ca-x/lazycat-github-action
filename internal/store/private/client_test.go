@@ -28,7 +28,8 @@ func TestClientCreatesApplicationWithExternalVersion(t *testing.T) {
 		}
 		switch {
 		case request.Method == http.MethodGet && request.URL.Path == "/api/v1/apps":
-			if request.URL.Query().Get("q") != packageID {
+			query := request.URL.Query().Get("q")
+			if query != packageID && query != "Example App" {
 				t.Errorf("q=%q", request.URL.Query().Get("q"))
 			}
 			_, _ = response.Write([]byte(`{"apps":[]}`))
@@ -111,6 +112,46 @@ func TestClientCreatesExternalVersionForExistingApp(t *testing.T) {
 	result, err := client.Publish(context.Background(), private.Request{AppID: "42", PackageID: packageID, Name: "Example", Version: version, DownloadURL: downloadURL, SHA256: digest})
 	if err != nil || result.VersionID != "56" || result.Created || result.Existing {
 		t.Fatalf("result=%#v err=%v", result, err)
+	}
+}
+
+func TestClientFindsExistingApplicationByNameWhenPackageSearchIsEmpty(t *testing.T) {
+	const appName = "Existing App"
+	queries := make([]string, 0, 2)
+	posts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/api/v1/apps":
+			query := request.URL.Query().Get("q")
+			queries = append(queries, query)
+			if query == appName {
+				_, _ = response.Write([]byte(`{"apps":[{"id":42,"packageId":"cloud.lazycat.example.app"}]}`))
+				return
+			}
+			_, _ = response.Write([]byte(`{"apps":[]}`))
+		case request.Method == http.MethodGet && request.URL.Path == "/api/v1/apps/42":
+			_, _ = response.Write([]byte(`{"app":{"id":42,"packageId":"cloud.lazycat.example.app","versions":[]}}`))
+		case request.Method == http.MethodPost && request.URL.Path == "/api/v1/apps/42/versions":
+			posts++
+			response.WriteHeader(http.StatusCreated)
+			_, _ = response.Write([]byte(`{"version":{"id":56,"appId":42,"version":"1.2.3","downloadUrl":"https://github.com/acme/example/releases/download/v1.2.3/app.lpk","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+	client, err := private.New(private.Options{BaseURL: server.URL, Token: "lcst_test", HTTPClient: server.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.Publish(context.Background(), private.Request{
+		PackageID: packageID, Name: appName, Version: version, DownloadURL: downloadURL, SHA256: digest,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(queries, ",") != packageID+","+appName || posts != 1 || result.AppID != "42" || result.VersionID != "56" || result.Created || result.Existing {
+		t.Fatalf("queries=%v posts=%d result=%#v", queries, posts, result)
 	}
 }
 

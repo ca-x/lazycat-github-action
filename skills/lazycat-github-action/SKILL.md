@@ -111,6 +111,12 @@ Set `require_digest_match: true` for mirrors when the accelerator must contain e
 
 When a tag needs normalization, reference named `version_regex` groups directly in `version_template`, for example `(?P<version>\d{8})\.0*(?P<build>[1-9]\d*)` with `{version}.{build}.0`. Keep the required `version` group. Unknown placeholders and non-SemVer results fail closed; do not add repository-specific rewriting when this mapping is sufficient.
 
+Keep `update.allow_downgrade: false` or omit it for the safe default. Compare the mapped version-source image SemVer with the current package version before delivery. Equal versions may refresh an image reference or digest. Set `allow_downgrade: true` only after the user explicitly confirms an intentional rollback.
+
+## 🔴 CHECKPOINT — before enabling version downgrades
+
+Show the current package version, selected lower version, affected version-source image, and why the rollback is required. **STOP for an explicit yes/no answer immediately before writing `allow_downgrade: true`.** General authorization to fix CI or update dependencies is not rollback approval. If the user declines, keep the default guard and repair the channel, sorting, or version mapping instead.
+
 Read [references/configuration.md](references/configuration.md) for channel rules, the configuration schema, authentication, and store constraints.
 
 ## Configure builds and workflows
@@ -161,6 +167,8 @@ Private publishing requires:
 - optional GitHub Secret `PRIVATE_STORE_GROUP_CODES`, comma-separated, for private groups;
 - a real GitHub Release Asset URL and the local SHA256.
 
+When `APP_ID` is absent, preserve a confirmed `stores.private.name`: publishing searches by exact package ID first and then by that application name. Reuse is valid only after the returned package ID matches the verified LPK.
+
 Private stores support `lazycat`, `direct`, `mirror`, static Web, and Exec applications. Never enable the official store merely to get stricter lint for a direct/mirror application; that configuration is intentionally invalid.
 
 Both skip options default to false. When enabled, exact string equality between the verified LPK version and `onlineVersion` returns `published: false` and `skipped: true`. Not-found continues publishing; every other lookup failure stops. `dry-run` never queries stores. Group codes are secrets: do not put them in Action YAML, ordinary inputs, generated outputs, summaries, or examples with real values.
@@ -202,6 +210,8 @@ Before finishing:
 | Equal store version is submitted again | Enable `skip_if_version_exists` and inspect `onlineVersion` | STOP on lookup errors other than not-found |
 | Release exists but a store is behind | Recover only `<package-id>-v<version>.lpk` and verify both GitHub/local SHA256 | STOP if tag, exact asset, or digest is missing |
 | Private application is invisible | Add `PRIVATE_STORE_GROUP_CODES` as a GitHub Secret | STOP rather than commit or print group codes |
+| Existing private app conflicts after package lookup | Confirm `stores.private.name` matches the store application name, or use the exact `APP_ID` Secret | STOP if the returned application's package ID differs from the LPK |
+| `VERSION_DOWNGRADE_BLOCKED` | Correct an accidental `sort: created` rule or stale tag mapping | Set `allow_downgrade: true` only after explicit rollback confirmation |
 
 ## Do Not
 
@@ -214,3 +224,4 @@ Before finishing:
 - Do not rebuild, rename, or substitute a different Release asset during store reconciliation.
 - Do not overwrite pre-existing or untracked `.github/` work.
 - Do not expose Secret values in configuration, logs, outputs, summaries, or examples.
+- Do not enable `allow_downgrade` merely to make a failing scheduled run green.

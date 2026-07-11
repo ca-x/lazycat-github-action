@@ -75,6 +75,88 @@ func TestFlowExplicitNonDriverImageKeepsPackageVersion(t *testing.T) {
 	}
 }
 
+func TestFlowBlocksVersionSourceDowngradeBeforeDelivery(t *testing.T) {
+	deliverer := &fakeDeliverer{}
+	applied := 0
+	cfg := imageConfig()
+	cfg.Images = cfg.Images[1:]
+	cfg.Images[0].Channel = "custom"
+	cfg.Images[0].Sort = "created"
+	cfg.Images[0].TagRegex = `^\d+\.\d+$`
+	cfg.Images[0].VersionRegex = `^(?P<version>\d+\.\d+)$`
+	cfg.Images[0].VersionTemplate = "{version}.0"
+	flow := imageflow.Flow{
+		Registry:  &fakeRegistry{bySource: map[string][]versioning.Candidate{"ghcr.io/acme/web": {{Tag: "18.0", Digest: digest("e"), Created: created(11)}}}},
+		Deliverer: deliverer,
+		ReadManifest: func(string, []manifestedit.Target) ([]manifestedit.Current, error) {
+			return []manifestedit.Current{{ID: "web", RuntimeRef: "registry.lazycat.cloud/web:19", UpstreamRef: "ghcr.io/acme/web:19.0"}}, nil
+		},
+		ApplyManifest: func(string, []manifestedit.Update) ([]manifestedit.Change, error) {
+			applied++
+			return nil, nil
+		},
+	}
+	_, err := flow.Check(context.Background(), imageflow.Request{Config: cfg, Project: project.Info{ManifestFile: "manifest.yml", Version: "19.0.0"}})
+	if !errors.Is(err, imageflow.ErrVersionDowngrade) {
+		t.Fatalf("err=%v", err)
+	}
+	if deliverer.calls != 0 || applied != 0 {
+		t.Fatalf("deliveries=%d applied=%d", deliverer.calls, applied)
+	}
+}
+
+func TestFlowAllowsExplicitVersionSourceDowngrade(t *testing.T) {
+	deliverer := &fakeDeliverer{}
+	cfg := imageConfig()
+	cfg.Update.AllowDowngrade = true
+	cfg.Images = cfg.Images[1:]
+	cfg.Images[0].Channel = "custom"
+	cfg.Images[0].Sort = "created"
+	cfg.Images[0].TagRegex = `^\d+\.\d+$`
+	cfg.Images[0].VersionRegex = `^(?P<version>\d+\.\d+)$`
+	cfg.Images[0].VersionTemplate = "{version}.0"
+	flow := imageflow.Flow{
+		Registry:  &fakeRegistry{bySource: map[string][]versioning.Candidate{"ghcr.io/acme/web": {{Tag: "18.0", Digest: digest("e"), Created: created(11)}}}},
+		Deliverer: deliverer,
+		ReadManifest: func(string, []manifestedit.Target) ([]manifestedit.Current, error) {
+			return []manifestedit.Current{{ID: "web", RuntimeRef: "registry.lazycat.cloud/web:19", UpstreamRef: "ghcr.io/acme/web:19.0"}}, nil
+		},
+		ApplyManifest: func(string, []manifestedit.Update) ([]manifestedit.Change, error) {
+			return []manifestedit.Change{{ID: "web", Changed: true}}, nil
+		},
+	}
+	result, err := flow.Check(context.Background(), imageflow.Request{Config: cfg, Project: project.Info{ManifestFile: "manifest.yml", Version: "19.0.0"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Version != "18.0.0" || !result.Changed || deliverer.calls != 1 {
+		t.Fatalf("deliveries=%d result=%#v", deliverer.calls, result)
+	}
+}
+
+func TestFlowAllowsEqualVersionImageRefresh(t *testing.T) {
+	deliverer := &fakeDeliverer{}
+	cfg := imageConfig()
+	cfg.Images = cfg.Images[1:]
+	flow := imageflow.Flow{
+		Registry:  &fakeRegistry{bySource: map[string][]versioning.Candidate{"ghcr.io/acme/web": {{Tag: "v19.0.0", Digest: digest("f"), Created: created(11)}}}},
+		Deliverer: deliverer,
+		ReadManifest: func(string, []manifestedit.Target) ([]manifestedit.Current, error) {
+			return []manifestedit.Current{{ID: "web", RuntimeRef: "registry.lazycat.cloud/web:old", UpstreamRef: "ghcr.io/acme/web:19.0.0"}}, nil
+		},
+		ApplyManifest: func(string, []manifestedit.Update) ([]manifestedit.Change, error) {
+			return []manifestedit.Change{{ID: "web", Changed: true}}, nil
+		},
+	}
+	result, err := flow.Check(context.Background(), imageflow.Request{Config: cfg, Project: project.Info{ManifestFile: "manifest.yml", Version: "19.0.0"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Version != "19.0.0" || !result.Changed || deliverer.calls != 1 {
+		t.Fatalf("deliveries=%d result=%#v", deliverer.calls, result)
+	}
+}
+
 func TestFlowDryRunDoesNotApplyAndReturnsCopyPlan(t *testing.T) {
 	deliverer := &fakeDeliverer{copyResult: true}
 	flow := imageflow.Flow{
@@ -132,6 +214,7 @@ func TestFlowRefreshesMutableCreatedLazyCatImageAndRemainsIdempotent(t *testing.
 	cfg.Images[0].Sort = "created"
 	cfg.Images[0].TagRegex = "^nightly$"
 	cfg.Images[0].Delivery.Mode = "lazycat"
+	cfg.Update.AllowDowngrade = true
 	newVersion := "0.0.0-nightly.20260710153020.a1b2c3d4e5f6"
 
 	tests := []struct {

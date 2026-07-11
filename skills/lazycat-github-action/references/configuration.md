@@ -99,6 +99,19 @@ Buildscripts receive version, tag, channel, source date, and fixed LazyCat targe
 
 Only local Docker/buildscript work requires Docker. OCI inspection, direct/mirror edits, and LazyCat remote Registry copying do not invoke local Docker.
 
+## Version downgrade guard
+
+```yaml
+update:
+  strategy: publish
+  allow_downgrade: false
+  version_source:
+    type: image
+    image: web
+```
+
+`allow_downgrade` defaults to false. The mapped version-source image SemVer must be greater than or equal to the current package version before delivery or file writes. Equal versions may refresh an image reference or digest. Set true only after the user explicitly confirms an intentional rollback; otherwise `VERSION_DOWNGRADE_BLOCKED` is the required fail-closed result.
+
 ## Official store
 
 ```yaml
@@ -141,7 +154,7 @@ stores:
 
 Secrets: `APPSTORE_URL`, `APPSTORE_TOKEN`, optional `APP_ID`, and optional comma-separated `PRIVATE_STORE_GROUP_CODES`. Group codes never belong in this YAML. They are used only for anonymous exact-package lookup and the toolkit sends them through `X-Group-Codes` with Cookie and redirect isolation.
 
-`skip_if_version_exists` has the same default-off, exact-equality, not-found, fail-closed, and network-free dry-run behavior as the official option. The write client creates an application with `POST /api/v1/apps` or creates an external version with JSON `POST /api/v1/apps/{id}/versions`. It always sends `sourceType: GITHUB`, GitHub Release Asset `downloadUrl`, and locally computed `sha256`.
+`skip_if_version_exists` has the same default-off, exact-equality, not-found, fail-closed, and network-free dry-run behavior as the official option. Without `APP_ID`, the write client searches by exact package ID and then falls back to `stores.private.name`; it reuses only a result whose package ID matches the verified LPK. It creates an application with `POST /api/v1/apps` or creates an external version with JSON `POST /api/v1/apps/{id}/versions`. It always sends `sourceType: GITHUB`, GitHub Release Asset `downloadUrl`, and locally computed `sha256`.
 
 With scheduled `publish` automation, an existing exact `<package-id>-v<version>.lpk` Release Asset can repair a missing store submission. The workflow verifies the GitHub asset digest and downloaded bytes before either store call; it never substitutes an unversioned or differently named LPK.
 

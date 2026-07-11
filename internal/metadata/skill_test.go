@@ -33,7 +33,7 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 			t.Fatalf("SKILL.md frontmatter missing trigger %q", required)
 		}
 	}
-	for _, required := range []string{"name: lazycat-github-action", "automatically inspect", "Primary outcome: working GitHub workflows", "Do not stop after printing sample YAML", "Do not infer", "linux/amd64", "APPSTORE_TOKEN", "token-file", "skip_if_version_exists", "PRIVATE_STORE_GROUP_CODES", "onlineVersion", "Repository overrides Organization", "delivery source of truth", "{version}.{build}.0"} {
+	for _, required := range []string{"name: lazycat-github-action", "automatically inspect", "Primary outcome: working GitHub workflows", "Do not stop after printing sample YAML", "Do not infer", "linux/amd64", "APPSTORE_TOKEN", "token-file", "skip_if_version_exists", "PRIVATE_STORE_GROUP_CODES", "onlineVersion", "Repository overrides Organization", "delivery source of truth", "{version}.{build}.0", "allow_downgrade: false", "VERSION_DOWNGRADE_BLOCKED"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("SKILL.md missing %q", required)
 		}
@@ -127,6 +127,12 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 			t.Fatalf("historical-LPK checkpoint missing %q", required)
 		}
 	}
+	downgradeCheckpoint := markdownSection(text, "## 🔴 CHECKPOINT — before enabling version downgrades")
+	for _, required := range []string{"current package version", "selected lower version", "STOP", "explicit yes/no answer", "allow_downgrade: true", "declines"} {
+		if !strings.Contains(downgradeCheckpoint, required) {
+			t.Fatalf("version-downgrade checkpoint missing %q", required)
+		}
+	}
 	readmes := []struct {
 		name     string
 		heading  string
@@ -195,8 +201,8 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	if err := json.Unmarshal(prompts, &promptCases); err != nil {
 		t.Fatal(err)
 	}
-	if len(promptCases) != 8 {
-		t.Fatalf("test-prompts.json cases=%d, want 8", len(promptCases))
+	if len(promptCases) != 10 {
+		t.Fatalf("test-prompts.json cases=%d, want 10", len(promptCases))
 	}
 	promptIDs := make(map[string]string, len(promptCases))
 	for _, prompt := range promptCases {
@@ -213,6 +219,8 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 		"go-template-manifest-preservation": {"绝不执行或求值", "if/else/end/with/range", "逐字节", "fail closed"},
 		"release-store-reconciliation":      {"精确命名", "GitHub sha256 digest", "本地 SHA256", "官方商店补交", "喵喵商店", "独立跳过", "不重建", "不改名", "不猜测"},
 		"named-version-template-groups":     {"version", "build", "{version}.{build}.0", "20260603.1.0", "fail closed"},
+		"private-name-fallback":             {"stores.private.name", "packageId", "应用名称", "完全一致", "停止"},
+		"image-version-downgrade-guard":     {"allow_downgrade: false", "SemVer", "VERSION_DOWNGRADE_BLOCKED", "同版本", "明确确认"},
 	} {
 		expected, found := promptIDs[id]
 		if !found {

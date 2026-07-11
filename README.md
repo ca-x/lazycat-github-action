@@ -132,6 +132,7 @@ project:
 
 update:
   strategy: pull
+  allow_downgrade: false
   version_source:
     type: image
     image: web
@@ -156,6 +157,8 @@ stores:
   private:
     enabled: false
 ```
+
+`allow_downgrade` defaults to `false`. After the version-source image tag is mapped to SemVer, the Action blocks a version lower than the current `package.yml.version` before image copying or file edits. Equal versions remain eligible for image-reference or digest refresh. Set it to `true` only for an intentional rollback.
 
 Store a developer-platform token as the `LAZYCAT_TOKEN` GitHub secret. `LZC_CLI_TOKEN` is the fallback name.
 
@@ -251,7 +254,7 @@ version_template: '{version}.{build}.0' # 20260603.01 -> 20260603.1.0
 
 The `version` group remains required. Unknown placeholders and expanded values that are not valid SemVer fail closed.
 
-`tag_regex` and `exclude_regex` run before the Action fetches individual manifests. OCI indexes and Docker manifest lists are reduced to `linux/amd64`; ARM64 metadata cannot win selection.
+Registry discovery uses `github.com/google/go-containerregistry`. `tag_regex` and `exclude_regex` run before the Action fetches individual manifests. OCI indexes and Docker manifest lists are reduced to `linux/amd64`; ARM64 metadata cannot win selection. Creation-time sorting still follows the inspected `linux/amd64` manifest, so the default downgrade guard prevents a recently rebuilt older tag from lowering the application version.
 
 ## Image delivery modes
 
@@ -441,7 +444,7 @@ PRIVATE_STORE_GROUP_CODES=ABC123,LATE23
 
 `APP_ID` and `PRIVATE_STORE_GROUP_CODES` are optional. Group codes are access credentials: store them as a GitHub Secret, comma-separated. They are used only by the anonymous latest-version lookup, sent through the toolkit's default `X-Group-Codes` header, and never written to Action inputs, outputs, summaries, or result JSON. The toolkit removes Cookie jars and rejects redirects so group codes are not forwarded to another origin.
 
-With `skip_if_version_exists: true`, the Action queries the exact package through the public Miaomiao latest-version API before reading `APPSTORE_TOKEN`. An equal version returns a successful skipped result. Not-found continues publishing; other lookup failures stop the operation. If `APP_ID` is absent during a real publish, the write client searches for an exact `packageId`; it reuses that application or creates it when no match exists. If it is present, the client verifies that the application's `packageId` matches the LPK before adding a version.
+With `skip_if_version_exists: true`, the Action queries the exact package through the public Miaomiao latest-version API before reading `APPSTORE_TOKEN`. An equal version returns a successful skipped result. Not-found continues publishing; other lookup failures stop the operation. If `APP_ID` is absent during a real publish, the write client searches first by exact `packageId`, then by `stores.private.name` for stores whose search indexes application names. A candidate is reused only when its `packageId` exactly matches the verified LPK; otherwise the client creates a new application or fails on the store conflict. If `APP_ID` is present, the client verifies that the application's `packageId` matches the LPK before adding a version.
 
 ### Release/store reconciliation
 

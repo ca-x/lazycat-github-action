@@ -132,6 +132,7 @@ project:
 
 update:
   strategy: pull
+  allow_downgrade: false
   version_source:
     type: image
     image: web
@@ -156,6 +157,8 @@ stores:
   private:
     enabled: false
 ```
+
+`allow_downgrade` 默认为 `false`。版本来源镜像完成标签到 SemVer 的映射后，如果候选版本低于当前 `package.yml.version`，Action 会在复制镜像和修改文件前阻止降级。版本相同仍可刷新镜像引用或 digest。只有明确执行回退时才设置为 `true`。
 
 把开发者平台 token 保存为 GitHub Secret `LAZYCAT_TOKEN`，`LZC_CLI_TOKEN` 是兼容回退名称。
 
@@ -251,7 +254,7 @@ version_template: '{version}.{build}.0' # 20260603.01 -> 20260603.1.0
 
 `version` 捕获组仍然必填。未知占位符或展开后不是合法 SemVer 时会直接失败。
 
-Action 会先应用 `tag_regex` 和 `exclude_regex`，再拉取单个 manifest。OCI index 和 Docker manifest list 只选择 `linux/amd64`，ARM64 镜像的时间和 digest 不会影响最终结果。
+镜像仓库发现使用 `github.com/google/go-containerregistry`。Action 会先应用 `tag_regex` 和 `exclude_regex`，再拉取单个 manifest。OCI index 和 Docker manifest list 只选择 `linux/amd64`，ARM64 镜像的时间和 digest 不会影响最终结果。按创建时间排序仍以检查到的 `linux/amd64` manifest 为准，因此默认降级保护可以防止最近重建的旧标签降低应用版本。
 
 ## 镜像交付模式
 
@@ -441,7 +444,7 @@ PRIVATE_STORE_GROUP_CODES=ABC123,LATE23
 
 `APP_ID` 和 `PRIVATE_STORE_GROUP_CODES` 都是可选项。分组码属于访问凭据，必须以逗号分隔的 GitHub Secret 保存。它只用于匿名查询线上最新版本，由 toolkit 默认通过 `X-Group-Codes` 请求头发送，不会进入 Action inputs、outputs、summary 或结果 JSON。toolkit 会清除 Cookie jar 并禁止重定向，防止分组码被转发到其他来源。
 
-启用 `skip_if_version_exists: true` 后，Action 会在读取 `APPSTORE_TOKEN` 前通过精确包名查询喵喵商店。版本相同则成功跳过；应用不存在时继续发布；其他查询错误直接失败。真正发布时，如果没有 APP_ID，写客户端会按 `packageId` 精确查找，找到就复用，找不到才创建应用。提供 APP_ID 时，会先确认该应用的 `packageId` 与 LPK 一致，再增加版本。
+启用 `skip_if_version_exists: true` 后，Action 会在读取 `APPSTORE_TOKEN` 前通过精确包名查询喵喵商店。版本相同则成功跳过；应用不存在时继续发布；其他查询错误直接失败。真正发布时，如果没有 `APP_ID`，写客户端会先按 `packageId` 精确查找；如果商店搜索只索引应用名称，再用 `stores.private.name` 回退查询。只有候选应用的 `packageId` 与已校验 LPK 完全一致时才会复用，否则创建新应用或由商店返回冲突。提供 `APP_ID` 时，会先确认该应用的 `packageId` 与 LPK 一致，再增加版本。
 
 ### Release/商店对账
 

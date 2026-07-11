@@ -63,7 +63,7 @@ func (client *Client) Publish(ctx context.Context, request Request) (Result, err
 		application, err = client.getApplication(ctx, request.AppID)
 		found = err == nil
 	} else {
-		application, found, err = client.findApplication(ctx, request.PackageID)
+		application, found, err = client.findApplication(ctx, request.PackageID, request.Name)
 		if err == nil && found {
 			application, err = client.getApplication(ctx, string(application.ID))
 		}
@@ -89,11 +89,19 @@ func (client *Client) Publish(ctx context.Context, request Request) (Result, err
 	return client.createVersion(ctx, application, request)
 }
 
-func (client *Client) findApplication(ctx context.Context, packageID string) (appDTO, bool, error) {
+func (client *Client) findApplication(ctx context.Context, packageID, name string) (appDTO, bool, error) {
+	application, found, err := client.findApplicationByQuery(ctx, packageID, packageID)
+	if err != nil || found || strings.EqualFold(strings.TrimSpace(name), strings.TrimSpace(packageID)) {
+		return application, found, err
+	}
+	return client.findApplicationByQuery(ctx, name, packageID)
+}
+
+func (client *Client) findApplicationByQuery(ctx context.Context, query, packageID string) (appDTO, bool, error) {
 	var response struct {
 		Apps []appDTO `json:"apps"`
 	}
-	endpoint := "/api/v1/apps?q=" + url.QueryEscape(packageID)
+	endpoint := "/api/v1/apps?q=" + url.QueryEscape(query)
 	if err := client.doJSON(ctx, http.MethodGet, endpoint, nil, &response); err != nil {
 		return appDTO{}, false, err
 	}

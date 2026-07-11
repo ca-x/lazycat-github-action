@@ -31,8 +31,9 @@ type Project struct {
 }
 
 type Update struct {
-	Strategy      Strategy      `yaml:"strategy"`
-	VersionSource VersionSource `yaml:"version_source"`
+	Strategy       Strategy      `yaml:"strategy"`
+	AllowDowngrade bool          `yaml:"allow_downgrade"`
+	VersionSource  VersionSource `yaml:"version_source"`
 }
 
 type VersionSource struct {

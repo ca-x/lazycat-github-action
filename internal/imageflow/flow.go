@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/ca-x/lazycat-github-action/internal/config"
 	"github.com/ca-x/lazycat-github-action/internal/delivery"
 	"github.com/ca-x/lazycat-github-action/internal/manifestedit"
@@ -19,6 +20,7 @@ import (
 
 var (
 	ErrVersionNotFound  = errors.New("image version not found")
+	ErrVersionDowngrade = errors.New("image version downgrade blocked")
 	ErrPlatformNotFound = errors.New("image platform not found")
 	ErrDeliveryFailed   = errors.New("image delivery failed")
 )
@@ -134,6 +136,16 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 		selection, err := versioning.Select(rule, candidates)
 		if err != nil {
 			return Result{}, fmt.Errorf("%w for %q: %v", ErrVersionNotFound, image.ID, err)
+		}
+		if request.Config.Update.VersionSource.Type == config.VersionSourceImage && request.Config.Update.VersionSource.Image == image.ID && !request.Config.Update.AllowDowngrade {
+			currentVersion, currentErr := semver.StrictNewVersion(strings.TrimSpace(request.Project.Version))
+			selectedVersion, selectedErr := semver.StrictNewVersion(selection.Version)
+			if currentErr != nil || selectedErr != nil {
+				return Result{}, fmt.Errorf("compare selected image version %q with current application version %q: %w", selection.Version, request.Project.Version, errors.Join(currentErr, selectedErr))
+			}
+			if selectedVersion.LessThan(currentVersion) {
+				return Result{}, fmt.Errorf("%w for %q: selected %s is lower than current %s", ErrVersionDowngrade, image.ID, selection.Version, request.Project.Version)
+			}
 		}
 		sourceRef := image.Source + ":" + selection.Candidate.Tag
 		current := currentByID[image.ID]

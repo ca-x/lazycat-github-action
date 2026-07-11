@@ -25,16 +25,17 @@ import (
 )
 
 const (
-	CodeConfigInvalid       = "CONFIG_INVALID"
-	CodeProjectUnsupported  = "PROJECT_UNSUPPORTED"
-	CodeVersionNotFound     = "VERSION_NOT_FOUND"
-	CodeBuildFailed         = "BUILD_FAILED"
-	CodeLPKInvalid          = "LPK_INVALID"
-	CodePlatformNotFound    = "PLATFORM_NOT_FOUND"
-	CodeImageCopyFailed     = "IMAGE_COPY_FAILED"
-	CodeReleaseAssetMissing = "RELEASE_ASSET_MISSING"
-	CodeStoreAuthFailed     = "STORE_AUTH_FAILED"
-	CodeStorePublishFailed  = "STORE_PUBLISH_FAILED"
+	CodeConfigInvalid           = "CONFIG_INVALID"
+	CodeProjectUnsupported      = "PROJECT_UNSUPPORTED"
+	CodeVersionNotFound         = "VERSION_NOT_FOUND"
+	CodeVersionDowngradeBlocked = "VERSION_DOWNGRADE_BLOCKED"
+	CodeBuildFailed             = "BUILD_FAILED"
+	CodeLPKInvalid              = "LPK_INVALID"
+	CodePlatformNotFound        = "PLATFORM_NOT_FOUND"
+	CodeImageCopyFailed         = "IMAGE_COPY_FAILED"
+	CodeReleaseAssetMissing     = "RELEASE_ASSET_MISSING"
+	CodeStoreAuthFailed         = "STORE_AUTH_FAILED"
+	CodeStorePublishFailed      = "STORE_PUBLISH_FAILED"
 )
 
 type Operation string
@@ -104,7 +105,25 @@ func (err *Error) Error() string {
 	if err == nil {
 		return "<nil>"
 	}
-	return err.Code + ": " + err.Message
+	message := err.Code + ": " + err.Message
+	var toolkitError *lpkgo.Error
+	if !errors.As(err.Cause, &toolkitError) {
+		return message
+	}
+	details := make([]string, 0, 3)
+	if toolkitError.Code != "" {
+		details = append(details, "upstream="+string(toolkitError.Code))
+	}
+	if toolkitError.StatusCode > 0 {
+		details = append(details, fmt.Sprintf("status=%d", toolkitError.StatusCode))
+	}
+	if toolkitError.Op != "" {
+		details = append(details, "op="+toolkitError.Op)
+	}
+	if len(details) == 0 {
+		return message
+	}
+	return message + " (" + strings.Join(details, " ") + ")"
 }
 
 func (err *Error) Unwrap() error {
@@ -404,6 +423,8 @@ func baseResult(input Input, host platform.Host, info project.Info, cfg config.C
 
 func mapImageError(err error) *Error {
 	switch {
+	case errors.Is(err, imageflow.ErrVersionDowngrade):
+		return actionError(CodeVersionDowngradeBlocked, "selected image version is lower than the current application version; set update.allow_downgrade=true only for an intentional rollback", err)
 	case errors.Is(err, imageflow.ErrVersionNotFound):
 		return actionError(CodeVersionNotFound, "no image version matched the configured channel", err)
 	case errors.Is(err, imageflow.ErrPlatformNotFound):

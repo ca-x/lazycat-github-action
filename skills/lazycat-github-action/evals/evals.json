@@ -60,6 +60,18 @@
       "prompt": "Map image tag 20260603.01 to valid SemVer 20260603.1.0 without a repository-specific script.",
       "mustInclude": ["(?P<version>", "(?P<build>", "{version}.{build}.0", "fail closed"],
       "mustNotInclude": ["custom shell script", "0.0.0-nightly"]
+    },
+    {
+      "id": "private-name-fallback",
+      "prompt": "A MiaoMiao application already exists and is searchable by application name but not package ID. Configure publishing without APP_ID.",
+      "mustInclude": ["stores.private.name", "packageId", "fallback", "exactly matches"],
+      "mustNotInclude": ["reuse any same-name app", "APP_ID is required"]
+    },
+    {
+      "id": "image-version-downgrade-guard",
+      "prompt": "Creation-time image sorting picked rebuilt tag 18.0 while package.yml is 19.0.0. Prevent accidental rollback but preserve intentional rollback support.",
+      "mustInclude": ["allow_downgrade: false", "VERSION_DOWNGRADE_BLOCKED", "before", "explicit"],
+      "mustNotInclude": ["always use created", "silently downgrade", "allow_downgrade: true by default"]
     }
   ]
 }
