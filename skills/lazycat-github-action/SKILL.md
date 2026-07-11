@@ -105,6 +105,15 @@ Private stores support `lazycat`, `direct`, `mirror`, static Web, and Exec appli
 
 Both skip options default to false. When enabled, exact string equality between the verified LPK version and `onlineVersion` returns `published: false` and `skipped: true`. Not-found continues publishing; every other lookup failure stops. `dry-run` never queries stores. Group codes are secrets: do not put them in Action YAML, ordinary inputs, generated outputs, summaries, or examples with real values.
 
+## Do not generate these configurations
+
+- Do not invent Action inputs, Secret names, service bindings, image sources, or package paths.
+- Do not put tokens, passwords, `PRIVATE_STORE_GROUP_CODES`, or concrete credential examples in tracked files or ordinary Action inputs.
+- Do not enable the official store with `direct` or `mirror` image delivery.
+- Do not change the application target to ARM64 because the Runner is ARM64; the target remains `linux/amd64`.
+- Do not manage an image or service that the user did not explicitly place under Action ownership.
+- Do not call a template deployment-ready while it contains unresolved placeholders.
+
 ## Verify the generated result
 
 Before finishing:
