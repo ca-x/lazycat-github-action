@@ -42,7 +42,7 @@
   {
     "id": "private-name-fallback",
     "prompt": "喵喵商店已经有这个应用，但按 packageId 搜不到，只能按应用名称搜到，而且我不想配置 APP_ID。自动 workflow 应该怎么处理？",
-    "expected": "保留确认过的 stores.private.name；发布时先按精确 packageId 查询，再按应用名称回退；只复用 packageId 与已验证 LPK 完全一致的候选，冲突时停止而不是误发到同名应用。"
+    "expected": "保留确认过的 stores.private.name；先按精确 packageId 查询，再调用带 Token 的 /api/v1/apps/by-name 按应用名称精确解析可上传应用；允许该历史应用保留不同 packageId，仅用返回 ID 增加版本；404 才创建，401/403/409 或不精确结果必须停止。"
   },
   {
     "id": "image-version-downgrade-guard",

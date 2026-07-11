@@ -69,6 +69,8 @@ type versionDTO struct {
 type appDTO struct {
 	ID            identifier   `json:"id"`
 	PackageID     string       `json:"packageId"`
+	Name          string       `json:"name"`
+	CanUpload     bool         `json:"canUploadVersion"`
 	LatestVersion *versionDTO  `json:"latestVersion"`
 	Versions      []versionDTO `json:"versions"`
 }

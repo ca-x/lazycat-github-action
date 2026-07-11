@@ -64,7 +64,7 @@
     {
       "id": "private-name-fallback",
       "prompt": "A MiaoMiao application already exists and is searchable by application name but not package ID. Configure publishing without APP_ID.",
-      "mustInclude": ["stores.private.name", "packageId", "fallback", "exactly matches"],
+      "mustInclude": ["stores.private.name", "/api/v1/apps/by-name", "can upload", "404"],
       "mustNotInclude": ["reuse any same-name app", "APP_ID is required"]
     },
     {

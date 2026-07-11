@@ -55,6 +55,7 @@ func (client *Client) Publish(ctx context.Context, request Request) (Result, err
 	}
 	var application appDTO
 	var found bool
+	var resolvedByName bool
 	var err error
 	if request.AppID != "" {
 		if _, parseErr := strconv.ParseUint(request.AppID, 10, 64); parseErr != nil || request.AppID == "0" {
@@ -63,7 +64,7 @@ func (client *Client) Publish(ctx context.Context, request Request) (Result, err
 		application, err = client.getApplication(ctx, request.AppID)
 		found = err == nil
 	} else {
-		application, found, err = client.findApplication(ctx, request.PackageID, request.Name)
+		application, found, resolvedByName, err = client.findApplication(ctx, request.PackageID, request.Name)
 		if err == nil && found {
 			application, err = client.getApplication(ctx, string(application.ID))
 		}
@@ -74,7 +75,10 @@ func (client *Client) Publish(ctx context.Context, request Request) (Result, err
 	if !found {
 		return client.createApplication(ctx, request)
 	}
-	if strings.TrimSpace(application.PackageID) != request.PackageID {
+	if resolvedByName && strings.TrimSpace(application.Name) != request.Name {
+		return Result{}, clientError(lpkgo.CodeRemoteUnavailable, http.StatusOK, false, errors.New("private store resolved a different application name"))
+	}
+	if !resolvedByName && strings.TrimSpace(application.PackageID) != request.PackageID {
 		return Result{}, clientError(lpkgo.CodeConflict, 0, false, errors.New("private store application packageId does not match the LPK"))
 	}
 	if existing, ok := matchingVersion(application, request.Version); ok {
@@ -89,12 +93,30 @@ func (client *Client) Publish(ctx context.Context, request Request) (Result, err
 	return client.createVersion(ctx, application, request)
 }
 
-func (client *Client) findApplication(ctx context.Context, packageID, name string) (appDTO, bool, error) {
+func (client *Client) findApplication(ctx context.Context, packageID, name string) (appDTO, bool, bool, error) {
 	application, found, err := client.findApplicationByQuery(ctx, packageID, packageID)
-	if err != nil || found || strings.EqualFold(strings.TrimSpace(name), strings.TrimSpace(packageID)) {
-		return application, found, err
+	if err != nil || found || strings.TrimSpace(name) == strings.TrimSpace(packageID) {
+		return application, found, false, err
 	}
-	return client.findApplicationByQuery(ctx, name, packageID)
+	application, found, err = client.findApplicationByName(ctx, name)
+	return application, found, found, err
+}
+
+func (client *Client) findApplicationByName(ctx context.Context, name string) (appDTO, bool, error) {
+	var response struct {
+		App appDTO `json:"app"`
+	}
+	endpoint := "/api/v1/apps/by-name?name=" + url.QueryEscape(name)
+	if err := client.doJSON(ctx, http.MethodGet, endpoint, nil, &response); err != nil {
+		if errors.Is(err, lpkgo.ErrNotFound) {
+			return appDTO{}, false, nil
+		}
+		return appDTO{}, false, err
+	}
+	if !validIdentifier(response.App.ID) || strings.TrimSpace(response.App.Name) != strings.TrimSpace(name) || !response.App.CanUpload {
+		return appDTO{}, false, clientError(lpkgo.CodeRemoteUnavailable, http.StatusOK, false, errors.New("private store returned invalid name resolution metadata"))
+	}
+	return response.App, true, nil
 }
 
 func (client *Client) findApplicationByQuery(ctx context.Context, query, packageID string) (appDTO, bool, error) {
