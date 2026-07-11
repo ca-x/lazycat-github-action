@@ -12,4 +12,6 @@ jobs:
     with:
       operation: auto
       config: .github/lazycat-action.yml
+    # Organization Secrets must authorize this repository. A same-name
+    # Repository Secret overrides the Organization Secret.
     secrets: inherit

@@ -105,6 +105,8 @@ Private stores support `lazycat`, `direct`, `mirror`, static Web, and Exec appli
 
 Both skip options default to false. When enabled, exact string equality between the verified LPK version and `onlineVersion` returns `published: false` and `skipped: true`. Not-found continues publishing; every other lookup failure stops. `dry-run` never queries stores. Group codes are secrets: do not put them in Action YAML, ordinary inputs, generated outputs, summaries, or examples with real values.
 
+Organization Secrets must authorize the target repository. For the same Secret name, GitHub applies the most specific scope: Environment overrides Repository, and Repository overrides Organization. Use organization Secrets as shared defaults and repository Secrets only for intentional overrides; state the effective scope when reviewing a workflow with duplicate names.
+
 ## Verify the generated result
 
 Before finishing:

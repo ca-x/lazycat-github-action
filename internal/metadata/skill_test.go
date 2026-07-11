@@ -23,7 +23,7 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(skill)
-	for _, required := range []string{"name: lazycat-github-action", "Use when", "Do not infer", "linux/amd64", "APPSTORE_TOKEN", "token-file", "skip_if_version_exists", "PRIVATE_STORE_GROUP_CODES", "onlineVersion"} {
+	for _, required := range []string{"name: lazycat-github-action", "Use when", "Do not infer", "linux/amd64", "APPSTORE_TOKEN", "token-file", "skip_if_version_exists", "PRIVATE_STORE_GROUP_CODES", "onlineVersion", "Repository overrides Organization"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("SKILL.md missing %q", required)
 		}
