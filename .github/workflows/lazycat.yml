@@ -427,14 +427,26 @@ jobs:
             echo "LPK path, package ID, and version are required to prepare a Release asset" >&2
             exit 1
           fi
+          if [[ ! "${PACKAGE_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ || ! "${VERSION}" =~ ^[0-9][0-9A-Za-z.+-]*$ ]]; then
+            echo "Package ID or version is unsafe for a Release asset filename" >&2
+            exit 1
+          fi
           asset_path="${LPK_PATH}"
           if [[ "${VERSIONED_RELEASE_ASSET}" == "true" ]]; then
-            asset_dir="${RUNNER_TEMP}/lazycat-release-assets"
+            asset_dir="${GITHUB_WORKSPACE}/.lazycat-action/release-assets"
             mkdir -p "${asset_dir}"
             asset_path="${asset_dir}/${PACKAGE_ID}-v${VERSION}.lpk"
             cp -- "${LPK_PATH}" "${asset_path}"
           fi
-          echo "lpk-path=${asset_path}" >>"${GITHUB_OUTPUT}"
+          delimiter="lazycat_release_asset"
+          while grep -Fxq "${delimiter}" <<<"${asset_path}"; do
+            delimiter="${delimiter}_x"
+          done
+          {
+            echo "lpk-path<<${delimiter}"
+            printf '%s\n' "${asset_path}"
+            echo "${delimiter}"
+          } >>"${GITHUB_OUTPUT}"
 
       - name: Validate existing Release tag target
         if: steps.release-state.outputs.should-release == 'true' && github.ref_type != 'tag' && github.event_name != 'release'
