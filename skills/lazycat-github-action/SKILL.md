@@ -142,7 +142,7 @@ Buildscripts must honor those values. Go uses `GOOS=linux GOARCH=amd64`; Rust us
 
 The reusable workflow's `toolchains` input must match `build.toolchains` in Action configuration. Do not rely on an implicit moving toolchain version.
 
-Set `build.run_buildscript: false` explicitly when `lzc-build.yml` has no `buildscript`; the Action default is `true`. Add `secrets: inherit` or explicit secret mappings only when the generated workflow actually needs Registry or store credentials. A public-image scheduled PR workflow with stores disabled should not inherit unrelated repository Secrets.
+Set `build.run_buildscript: false` explicitly when `lzc-build.yml` has no `buildscript`; the Action default is `true`. For every publishing workflow, explicitly map each credential required by the enabled stores under the reusable job's `secrets:` block. Do not use only `secrets: inherit`: explicit mappings make missing repository authorization and Environment/Repository/Organization overrides reviewable. A public-image scheduled PR workflow with stores disabled should not receive unrelated repository Secrets.
 
 For versioned Release assets, set the reusable workflow input exactly:
 
@@ -198,10 +198,11 @@ Before finishing:
 6. Confirm permissions include `contents: write` and `pull-requests: write` for the reusable workflow.
 7. Confirm secrets are referenced, never embedded.
 8. Confirm `PRIVATE_STORE_GROUP_CODES` is a GitHub Secret when private groups are required.
-9. Confirm standalone Go Template control lines are byte-identical and were never evaluated.
-10. Confirm the private store uses the verified versioned Release URL/SHA256 and official publication uploads the same verified bytes/SHA256 without that URL.
-11. Confirm an existing exact Release Asset can reconcile either missing store version without rebuilding or republishing the store that is already current.
-12. Run `actionlint` and the project's build/test commands.
+9. Confirm every enabled store credential is explicitly assigned in the caller workflow and the selected Organization Secret authorizes the repository.
+10. Confirm standalone Go Template control lines are byte-identical and were never evaluated.
+11. Confirm the private store uses the verified versioned Release URL/SHA256 and official publication uploads the same verified bytes/SHA256 without that URL.
+12. Confirm an existing exact Release Asset can reconcile either missing store version without rebuilding or republishing the store that is already current.
+13. Run `actionlint` and the project's build/test commands.
 
 ## Common failures
 

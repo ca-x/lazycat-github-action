@@ -53,6 +53,8 @@ Ask an agent naturally, for example: “Inspect this LazyCat repository, create 
 
 The Skill pauses before generated project files when paths, image ownership, strategy, stores, or toolchains cannot be proven. For historical LPK migration it runs `git ls-files '*.lpk'`, reports the tracked count and total bytes, and shows a separate visible STOP immediately before deletion. Declining preserves all files. Approval removes only the inventoried files and adds `*.lpk`/output ignore rules; it never rewrites history or backfills old Releases without a separate request.
 
+Publishing workflows explicitly map the Secrets required by each enabled store instead of relying only on `secrets: inherit`. Organization Secrets must authorize every newly added repository; Environment overrides Repository, and Repository overrides Organization for duplicate names.
+
 For version-bearing releases, set `versioned-release-asset: true`. The verified build output remains the validation Artifact and the GitHub Release uses `<package-id>-v<version>.lpk`. The private store receives that verified Release Asset URL and SHA256. The official store uploads the same locally verified LPK bytes and SHA256, but it does not receive the GitHub Release URL.
 
 Go Template Manifests are never evaluated. Standalone `if`, `else`, `end`, `with`, and `range` control lines are protected and restored exactly, including indentation and trim markers; inline expressions remain untouched. The edit fails closed on marker loss/collision, invalid protected YAML, ambiguous targets, or unexpected template changes, and verifies the control lines plus the real build before completion.

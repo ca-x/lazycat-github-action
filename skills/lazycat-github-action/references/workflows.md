@@ -17,7 +17,12 @@ jobs:
     with:
       operation: auto
       config: .github/lazycat-action.yml
-    secrets: inherit
+    secrets:
+      LAZYCAT_TOKEN: ${{ secrets.LAZYCAT_TOKEN }}
+      APPSTORE_URL: ${{ secrets.APPSTORE_URL }}
+      APPSTORE_TOKEN: ${{ secrets.APPSTORE_TOKEN }}
+      APP_ID: ${{ secrets.APP_ID }}
+      PRIVATE_STORE_GROUP_CODES: ${{ secrets.PRIVATE_STORE_GROUP_CODES }}
 ```
 
 Keep `update.strategy: pull`. This uploads a validation Artifact and creates/updates a PR. It does not publish stores.
@@ -41,7 +46,12 @@ jobs:
       toolchains: go
       go-version: 1.25.x
       versioned-release-asset: true
-    secrets: inherit
+    secrets:
+      LAZYCAT_TOKEN: ${{ secrets.LAZYCAT_TOKEN }}
+      APPSTORE_URL: ${{ secrets.APPSTORE_URL }}
+      APPSTORE_TOKEN: ${{ secrets.APPSTORE_TOKEN }}
+      APP_ID: ${{ secrets.APP_ID }}
+      PRIVATE_STORE_GROUP_CODES: ${{ secrets.PRIVATE_STORE_GROUP_CODES }}
 ```
 
 Use `update.version_source.type: git`. The workflow updates `package.yml.version`, builds, uploads the Release Asset, and syncs the version to the default branch. With `versioned-release-asset: true`, the Release filename is `<package-id>-v<version>.lpk`. The private store uses its verified Release Asset URL and SHA256; the official store uploads the same locally verified LPK bytes and SHA256 without receiving that URL.
@@ -71,7 +81,12 @@ jobs:
       operation: auto
       config: .github/lazycat-action.yml
       changelog: ${{ github.event.release.body }}
-    secrets: inherit
+    secrets:
+      LAZYCAT_TOKEN: ${{ secrets.LAZYCAT_TOKEN }}
+      APPSTORE_URL: ${{ secrets.APPSTORE_URL }}
+      APPSTORE_TOKEN: ${{ secrets.APPSTORE_TOKEN }}
+      APP_ID: ${{ secrets.APP_ID }}
+      PRIVATE_STORE_GROUP_CODES: ${{ secrets.PRIVATE_STORE_GROUP_CODES }}
 ```
 
 Use `update.strategy: publish`. Configure repository/organization secrets:
@@ -88,6 +103,8 @@ PRIVATE_STORE_GROUP_CODES
 ```
 
 Only configure the credential family actually needed. Prefer a LazyCat token over username/password. `APP_ID` is optional. `PRIVATE_STORE_GROUP_CODES` is an optional comma-separated GitHub Secret; never expose it as a normal workflow input.
+
+Publishing callers must assign required Secrets explicitly. `secrets: inherit` alone is not sufficient documentation and can hide that an Organization Secret has not authorized a newly added repository.
 
 Organization and repository Secrets use the same names in the reusable workflow. The organization Secret must authorize the repository. For duplicate names, GitHub uses the most specific scope: Environment overrides Repository, and Repository overrides Organization. Treat organization Secrets as shared defaults and repository Secrets as deliberate overrides.
 
