@@ -1,11 +1,24 @@
 ---
 name: lazycat-github-action
-description: Use when configuring, generating, reviewing, or debugging GitHub Actions for LazyCat LPK projects, including Docker image updates, stable/beta/nightly channels, explicit service binding, LazyCat/direct/mirror delivery, static Web or Exec builds, official developer-platform publishing, MiaoMiao private-store publishing, Release Assets, and Linux ARM64 runners that must still produce linux/amd64 applications.
+description: Use this skill to automatically inspect a LazyCat LPK repository and create or update its .github/lazycat-action.yml and GitHub workflows. Trigger whenever the user asks to set up, generate, automate, review, or debug LazyCat GitHub Actions, including Docker image updates, stable/beta/nightly channels, explicit service binding, LazyCat/direct/mirror delivery, static Web or Exec builds, official or MiaoMiao store publishing, Release Assets, and ARM64 runners that must still produce linux/amd64 applications.
 ---
 
 # LazyCat GitHub Action
 
-Configure `ca-x/lazycat-github-action@v1` from the application's real package, build, and Manifest files. Keep image targets, build tools, publication policy, and target architecture explicit.
+Automatically create or update `ca-x/lazycat-github-action@v1` configuration and workflows from the application's real package, build, and Manifest files. Keep image targets, build tools, publication policy, and target architecture explicit.
+
+## Primary outcome: working GitHub workflows
+
+Unless the user asks for review-only guidance, finish with repository changes rather than prose alone:
+
+1. Inspect the project and existing automation.
+2. Create or update `.github/lazycat-action.yml` from [assets/lazycat-action.yml](assets/lazycat-action.yml).
+3. Create or update the appropriate `.github/workflows/*.yml` from [assets/lazycat-workflow.yml](assets/lazycat-workflow.yml).
+4. Preserve unrelated workflow jobs and repository conventions.
+5. Run `actionlint` plus the project's relevant build/test commands.
+6. Report the files created, unresolved placeholders, required Secrets, and verification results.
+
+Do not stop after printing sample YAML when repository editing is authorized. Write the files, validate them, and leave the repository in a reviewable state.
 
 ## Inspect before generating
 

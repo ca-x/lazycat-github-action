@@ -13,5 +13,10 @@
     "id": "private-secret-boundary-review",
     "prompt": "评审下面的想法：把喵喵商店分组码直接写进 .github/lazycat-action.yml，再通过 private-group-codes Action input 传入，这样最方便。项目使用 mirror 镜像并只发布喵喵商店。请指出问题并给出安全配置。",
     "expected": "明确拒绝把分组码写入仓库 YAML 或普通 Action input；改用 PRIVATE_STORE_GROUP_CODES GitHub Secret/环境变量；保留 private-only、mirror 合法性；说明 Cookie 和重定向隔离及避免输出泄露。"
+  },
+  {
+    "id": "automatic-workflow-creation",
+    "prompt": "检查当前 LazyCat 项目，直接帮我创建定时检查镜像和 release 发布需要的 GitHub workflows，不要只给示例。",
+    "expected": "先检查 package/build/manifest 和现有 workflows；在授权范围内创建或更新 .github/lazycat-action.yml 与 .github/workflows/*.yml；保留无关 jobs；运行 actionlint；报告文件、Secrets 和未决占位值。"
   }
 ]

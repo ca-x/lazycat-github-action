@@ -23,7 +23,7 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(skill)
-	for _, required := range []string{"name: lazycat-github-action", "Use when", "Do not infer", "linux/amd64", "APPSTORE_TOKEN", "token-file", "skip_if_version_exists", "PRIVATE_STORE_GROUP_CODES", "onlineVersion", "Repository overrides Organization"} {
+	for _, required := range []string{"name: lazycat-github-action", "automatically inspect", "Primary outcome: working GitHub workflows", "Do not stop after printing sample YAML", "Do not infer", "linux/amd64", "APPSTORE_TOKEN", "token-file", "skip_if_version_exists", "PRIVATE_STORE_GROUP_CODES", "onlineVersion", "Repository overrides Organization"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("SKILL.md missing %q", required)
 		}
@@ -44,7 +44,7 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	if err := json.Unmarshal(data, &evals); err != nil {
 		t.Fatal(err)
 	}
-	if evals.Version != 1 || len(evals.Cases) < 7 {
+	if evals.Version != 1 || len(evals.Cases) < 8 {
 		t.Fatalf("eval metadata=%#v", evals)
 	}
 	seen := make(map[string]struct{}, len(evals.Cases))
@@ -59,6 +59,9 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	}
 	if _, found := seen["dual-store-version-deduplication"]; !found {
 		t.Fatal("evals are missing dual-store version deduplication coverage")
+	}
+	if _, found := seen["automatic-workflow-generation"]; !found {
+		t.Fatal("evals are missing automatic workflow generation coverage")
 	}
 	for _, name := range []string{"references/configuration.md", "references/workflows.md", "assets/lazycat-action.yml"} {
 		data, err := os.ReadFile(filepath.Join(root, name))

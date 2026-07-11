@@ -42,6 +42,12 @@
       "prompt": "Configure official and MiaoMiao publishing so an already-online equal package version is not submitted again, and the private app requires group codes.",
       "mustInclude": ["skip_if_version_exists: true", "PRIVATE_STORE_GROUP_CODES", "GitHub Secret", "onlineVersion"],
       "mustNotInclude": ["private-group-codes:", "PRIVATE_STORE_GROUP_CODES: ABC123"]
+    },
+    {
+      "id": "automatic-workflow-generation",
+      "prompt": "Inspect this LazyCat repository and automatically create the GitHub Actions files needed for scheduled image updates and release publishing. Do not just explain what I should write.",
+      "mustInclude": [".github/lazycat-action.yml", ".github/workflows/", "actionlint", "secrets"],
+      "mustNotInclude": ["Here is an example only", "I cannot edit files"]
     }
   ]
 }

@@ -1,4 +1,4 @@
 interface:
   display_name: "LazyCat GitHub Action"
-  short_description: "Generate and audit LazyCat LPK automation"
-  default_prompt: "Use $lazycat-github-action to configure this repository for LazyCat LPK builds and publishing."
+  short_description: "Create LazyCat GitHub workflows automatically"
+  default_prompt: "Use $lazycat-github-action to inspect this repository and create the LazyCat Action configuration and GitHub workflows, then validate the generated files."
