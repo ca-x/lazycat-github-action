@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ca-x/lazycat-github-action/internal/manifesttemplate"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -46,9 +47,10 @@ type Change struct {
 }
 
 type document struct {
-	root    yaml.Node
-	mapping *yaml.Node
-	mode    os.FileMode
+	root     yaml.Node
+	mapping  *yaml.Node
+	mode     os.FileMode
+	template manifesttemplate.Protected
 }
 
 type resolved struct {
@@ -157,7 +159,11 @@ func Apply(filename string, updates []Update) ([]Change, error) {
 	if encodeErr != nil || closeErr != nil {
 		return nil, fmt.Errorf("encode manifest %q: %w", filename, errors.Join(encodeErr, closeErr))
 	}
-	if err := atomicReplace(filename, encoded.Bytes(), document.mode); err != nil {
+	restored, err := document.template.Restore(encoded.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("restore manifest %q: %w", filename, err)
+	}
+	if err := atomicReplace(filename, restored, document.mode); err != nil {
 		return nil, err
 	}
 	return changes, nil
@@ -178,14 +184,18 @@ func load(filename string) (document, error) {
 	if err != nil {
 		return document{}, fmt.Errorf("read manifest %q: %w", filename, err)
 	}
+	protected, err := manifesttemplate.Protect(data)
+	if err != nil {
+		return document{}, fmt.Errorf("parse manifest %q: %w", filename, err)
+	}
 	var root yaml.Node
-	if err := yaml.Unmarshal(data, &root); err != nil {
+	if err := yaml.Unmarshal(protected.Bytes(), &root); err != nil {
 		return document{}, fmt.Errorf("parse manifest %q: %w", filename, err)
 	}
 	if root.Kind != yaml.DocumentNode || len(root.Content) != 1 || root.Content[0].Kind != yaml.MappingNode {
 		return document{}, fmt.Errorf("parse manifest %q: expected a root mapping", filename)
 	}
-	return document{root: root, mapping: root.Content[0], mode: info.Mode().Perm()}, nil
+	return document{root: root, mapping: root.Content[0], mode: info.Mode().Perm(), template: protected}, nil
 }
 
 func validateTargets(targets []Target) error {

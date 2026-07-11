@@ -103,6 +103,28 @@ func TestInspectHonorsManifestPathFromBuildConfig(t *testing.T) {
 	}
 }
 
+func TestInspectSupportsTemplateControlsInManifest(t *testing.T) {
+	root := createProject(t, `application:
+  subdomain: templated
+{{- if .U.multi_instance }}
+  multi_instance: true
+{{- end }}
+services:
+  app:
+    image: registry.lazycat.cloud/example/app:old
+`)
+
+	got, err := project.Inspect(context.Background(), config.Project{
+		Root: root, BuildConfig: "lzc-build.yml", PackageFile: "package.yml", Output: "dist/app.lpk",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Kind != project.KindService || got.PackageID != "cloud.lazycat.example" || got.Version != "1.0.0" {
+		t.Fatalf("info=%#v", got)
+	}
+}
+
 func TestInspectFixedLazyCatContribFixtures(t *testing.T) {
 	tests := []struct {
 		name      string

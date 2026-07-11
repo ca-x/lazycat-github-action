@@ -84,6 +84,65 @@ services:
 	}
 }
 
+func TestReadAndApplySupportsTemplateControls(t *testing.T) {
+	filename := writeManifest(t, `application:
+  subdomain: nowledge-mem
+services:
+  mem:
+    # nowledgelabs/mem:0.10.22-vulkan
+    image: registry.lazycat.cloud/czyt/nowledgelabs/mem:2dae0c898a81ea1e
+  nowledge-mem-snap:
+    # czyt/nowledge-mem-snap:v0.2.5
+    image: registry.lazycat.cloud/czyt/czyt/nowledge-mem-snap:588a01b8b8a76699
+    environment:
+      - NMEM_SNAP_OIDC_REDIRECT_URL=https://${LAZYCAT_APP_DOMAIN}/snap/auth/oidc/callback
+{{- if .U.snap_oidc_allowed_domains }}
+      - NMEM_SNAP_OIDC_ALLOWED_DOMAINS={{ .U.snap_oidc_allowed_domains }}
+{{- end }}
+`)
+	mem := manifestedit.Target{ID: "mem", Kind: manifestedit.TargetService, Service: "mem"}
+	snap := manifestedit.Target{ID: "nowledge-mem-snap", Kind: manifestedit.TargetService, Service: "nowledge-mem-snap"}
+
+	current, err := manifestedit.Read(filename, []manifestedit.Target{mem, snap})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(current) != 2 || current[0].RuntimeRef != "registry.lazycat.cloud/czyt/nowledgelabs/mem:2dae0c898a81ea1e" || current[1].RuntimeRef != "registry.lazycat.cloud/czyt/czyt/nowledge-mem-snap:588a01b8b8a76699" {
+		t.Fatalf("current=%#v", current)
+	}
+
+	_, err = manifestedit.Apply(filename, []manifestedit.Update{{
+		Target:     mem,
+		SourceRef:  "docker.io/nowledgelabs/mem:0.10.23-vulkan",
+		RuntimeRef: "registry.lazycat.cloud/czyt/nowledgelabs/mem:0.10.23-vulkan",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	for _, expected := range []string{
+		"# upstream: docker.io/nowledgelabs/mem:0.10.23-vulkan",
+		"image: registry.lazycat.cloud/czyt/nowledgelabs/mem:0.10.23-vulkan",
+		"image: registry.lazycat.cloud/czyt/czyt/nowledge-mem-snap:588a01b8b8a76699",
+	} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("output missing %q:\n%s", expected, got)
+		}
+	}
+	for _, control := range []string{
+		"{{- if .U.snap_oidc_allowed_domains }}",
+		"{{- end }}",
+	} {
+		if !hasExactLine(got, control) {
+			t.Fatalf("output missing exact template control %q:\n%s", control, got)
+		}
+	}
+}
+
 func TestApplyValidatesAllTargetsBeforeWriting(t *testing.T) {
 	original := `application:
   subdomain: app
@@ -148,4 +207,13 @@ func writeManifest(t *testing.T, contents string) string {
 		t.Fatal(err)
 	}
 	return filename
+}
+
+func hasExactLine(contents, expected string) bool {
+	for _, line := range strings.Split(contents, "\n") {
+		if line == expected {
+			return true
+		}
+	}
+	return false
 }

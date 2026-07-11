@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ca-x/lazycat-github-action/internal/config"
+	"github.com/ca-x/lazycat-github-action/internal/manifesttemplate"
 	toolkitbuild "github.com/lib-x/lzc-toolkit-go/build"
 	"github.com/lib-x/lzc-toolkit-go/manifest"
 )
@@ -104,7 +105,11 @@ func Inspect(ctx context.Context, cfg config.Project) (Info, error) {
 	if err != nil {
 		return Info{}, fmt.Errorf("inspect manifest %q: %w", manifestFile, err)
 	}
-	manifestDocument, err := manifest.Parse(manifestData)
+	protectedManifest, err := manifesttemplate.Protect(manifestData)
+	if err != nil {
+		return Info{}, fmt.Errorf("inspect manifest %q: %w", manifestFile, err)
+	}
+	manifestDocument, err := manifest.Parse(protectedManifest.Bytes())
 	if err != nil {
 		return Info{}, fmt.Errorf("inspect manifest %q: %w", manifestFile, err)
 	}
