@@ -61,7 +61,7 @@ func TestReusableWorkflowContractAndActionPins(t *testing.T) {
 		}
 	}
 	secrets, _ := call["secrets"].(map[string]any)
-	for _, name := range []string{"LAZYCAT_TOKEN", "LZC_CLI_TOKEN", "LAZYCAT_USERNAME", "LAZYCAT_PASSWORD", "APPSTORE_URL", "APPSTORE_TOKEN", "APP_ID", "REGISTRY", "REGISTRY_USERNAME", "REGISTRY_PASSWORD"} {
+	for _, name := range []string{"LAZYCAT_TOKEN", "LZC_CLI_TOKEN", "LAZYCAT_USERNAME", "LAZYCAT_PASSWORD", "APPSTORE_URL", "APPSTORE_TOKEN", "APP_ID", "PRIVATE_STORE_GROUP_CODES", "REGISTRY", "REGISTRY_USERNAME", "REGISTRY_PASSWORD"} {
 		if _, found := secrets[name]; !found {
 			t.Fatalf("missing workflow secret %q", name)
 		}
@@ -110,6 +110,9 @@ func TestReusableWorkflowContractAndActionPins(t *testing.T) {
 	if privateIndex < 0 || officialIndex < 0 || privateIndex > officialIndex {
 		t.Fatal("idempotent private-store publishing must run before official publishing")
 	}
+	if !strings.Contains(workflow[privateIndex:officialIndex], "PRIVATE_STORE_GROUP_CODES: ${{ secrets.PRIVATE_STORE_GROUP_CODES }}") {
+		t.Fatal("private publish step does not receive PRIVATE_STORE_GROUP_CODES from a reusable-workflow secret")
+	}
 	for _, condition := range []string{
 		"steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.official-store-enabled == 'true'",
 		"steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.private-store-enabled == 'true' && steps.asset-url.outputs.download-url != ''",
@@ -143,6 +146,9 @@ func TestActionMetadataExposesStableContract(t *testing.T) {
 		if _, exists := document.Inputs[input]; !exists {
 			t.Fatalf("missing input %q", input)
 		}
+	}
+	if _, exists := document.Inputs["private-group-codes"]; exists {
+		t.Fatal("private group codes must be a secret/environment variable, not an Action input")
 	}
 	for _, output := range []string{"operation", "changed", "package-id", "package-file", "manifest-file", "version", "tag", "lpk-path", "sha256", "download-url", "image-results", "store-results", "official-store-enabled", "private-store-enabled", "update-strategy", "channel", "result-file", "runner-arch", "target-platform"} {
 		if _, exists := document.Outputs[output]; !exists {

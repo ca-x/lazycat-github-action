@@ -52,6 +52,7 @@ var protectedBuildEnvironment = map[string]struct{}{
 	"APPSTORE_TOKEN":                 {},
 	"APPSTORE_URL":                   {},
 	"APP_ID":                         {},
+	"PRIVATE_STORE_GROUP_CODES":      {},
 	"GITHUB_ENV":                     {},
 	"GITHUB_OUTPUT":                  {},
 	"GITHUB_PATH":                    {},

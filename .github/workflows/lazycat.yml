@@ -83,6 +83,8 @@ on:
         required: false
       APP_ID:
         required: false
+      PRIVATE_STORE_GROUP_CODES:
+        required: false
       REGISTRY:
         required: false
       REGISTRY_USERNAME:
@@ -504,6 +506,7 @@ jobs:
           APPSTORE_URL: ${{ secrets.APPSTORE_URL }}
           APPSTORE_TOKEN: ${{ secrets.APPSTORE_TOKEN }}
           APP_ID: ${{ secrets.APP_ID }}
+          PRIVATE_STORE_GROUP_CODES: ${{ secrets.PRIVATE_STORE_GROUP_CODES }}
         with:
           operation: publish-private
           config: ${{ inputs.config }}
