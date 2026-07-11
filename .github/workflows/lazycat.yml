@@ -173,7 +173,7 @@ jobs:
       REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
     steps:
       - name: Checkout application
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -210,14 +210,14 @@ jobs:
 
       - name: Set up Go from input
         if: contains(steps.toolchains.outputs.value, ',go,') && inputs.go-version != ''
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ inputs.go-version }}
           cache: true
 
       - name: Set up Go from go.mod
         if: contains(steps.toolchains.outputs.value, ',go,') && inputs.go-version == ''
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -273,7 +273,7 @@ jobs:
 
       - name: Set up QEMU
         if: contains(steps.toolchains.outputs.value, ',docker,') && inputs.enable-qemu
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+        uses: docker/setup-qemu-action@v4
         with:
           platforms: amd64
 
@@ -329,7 +329,7 @@ jobs:
 
       - name: Upload validation Artifact
         if: steps.lazycat.outputs.lpk-path != ''
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@v7
         with:
           name: lpk-${{ steps.lazycat.outputs.version }}
           path: ${{ steps.lazycat.outputs.lpk-path }}

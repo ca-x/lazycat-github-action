@@ -14,10 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        uses: actions/setup-go@v6
         with:
           go-version: "1.25.x"
           cache: true
@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@v7
 
       - name: Check shell syntax
         run: bash -n scripts/run-action.sh scripts/run-action_test.sh examples/*/scripts/*.sh
@@ -55,10 +55,10 @@ jobs:
           - arm64
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        uses: actions/setup-go@v6
         with:
           go-version: "1.25.x"
           cache: true
@@ -74,10 +74,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        uses: actions/setup-go@v6
         with:
           go-version: "1.25.x"
           cache: true
@@ -92,10 +92,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        uses: actions/setup-go@v6
         with:
           go-version: "1.25.x"
           cache: true
@@ -129,7 +129,7 @@ jobs:
           test "$(sha256sum dist/app.lpk | cut -d' ' -f1)" = "$(sed -n '/^sha256<</{n;p;}' "${GITHUB_OUTPUT}")"
 
       - name: Upload fixture LPK
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@v7
         with:
           name: static-fixture-lpk
           path: /tmp/lazycat-action-fixture/dist/app.lpk

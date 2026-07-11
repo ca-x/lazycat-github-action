@@ -36,7 +36,7 @@ func TestReleaseWorkflowSkipsFloatingMajorTag(t *testing.T) {
 	}
 }
 
-func TestReusableWorkflowContractAndActionPins(t *testing.T) {
+func TestReusableWorkflowContractAndActionRefs(t *testing.T) {
 	filename := filepath.Join("..", "..", ".github", "workflows", "lazycat.yml")
 	data, err := os.ReadFile(filename)
 	if err != nil {
@@ -89,8 +89,8 @@ func TestReusableWorkflowContractAndActionPins(t *testing.T) {
 			continue
 		}
 		parts := strings.Split(value, "@")
-		if len(parts) != 2 || len(parts[1]) != 40 {
-			t.Fatalf("third-party Action is not pinned to a commit SHA: %s", value)
+		if len(parts) != 2 || (!isCommitSHA(parts[1]) && !isMajorTag(parts[1])) {
+			t.Fatalf("third-party Action must use a commit SHA or major vN tag: %s", value)
 		}
 	}
 	workflow := string(data)
@@ -125,6 +125,30 @@ func TestReusableWorkflowContractAndActionPins(t *testing.T) {
 	if !strings.Contains(workflow, managedPaths) {
 		t.Fatal("workflow PR does not restrict changes to the managed package and Manifest paths")
 	}
+}
+
+func isCommitSHA(value string) bool {
+	if len(value) != 40 {
+		return false
+	}
+	for _, character := range value {
+		if !strings.ContainsRune("0123456789abcdef", character) {
+			return false
+		}
+	}
+	return true
+}
+
+func isMajorTag(value string) bool {
+	if len(value) < 2 || value[0] != 'v' {
+		return false
+	}
+	for _, character := range value[1:] {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func TestReusableWorkflowPreparesVersionedReleaseAssets(t *testing.T) {
