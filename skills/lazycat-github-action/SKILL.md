@@ -20,6 +20,17 @@ Unless the user asks for review-only guidance, finish with repository changes ra
 
 Do not stop after printing sample YAML when repository editing is authorized. Write the files, validate them, and leave the repository in a reviewable state.
 
+Choose the workflow mode before writing either file:
+
+| Intended automation | `update.strategy` | Version source | Workflow trigger |
+|---|---|---|---|
+| Scheduled image review PR | `pull` | `image` | `schedule` / `workflow_dispatch` |
+| Tag-built GitHub Release Asset | `publish` | `git` | `push.tags` |
+| Release-triggered store publication | `publish` | `git` or configured `image` | `release.published` |
+| Direct image update, tag, and Release | `publish` | `image` | `schedule` / `workflow_dispatch` |
+
+Never use `pull` for a workflow whose required outcome includes a Git tag, GitHub Release, Release Asset, or store submission.
+
 ## Inspect before generating
 
 Read these files when present:
@@ -41,6 +52,8 @@ Confirm all repository-specific decisions that affect generated files:
 - `pull` versus `publish` strategy and enabled stores;
 - required build toolchains and fixed `linux/amd64` application target;
 - Secret names and transport paths, without reading or reproducing Secret values.
+
+Also compare `project.output` with `lzc-build.yml` `contentdir`. Keep the final LPK outside the packaged content tree so a build cannot include its own output.
 
 If any required decision cannot be proven from inspected files or the user's request, **STOP before editing** and ask for that missing fact. If the user explicitly requests a template, use conspicuous placeholders and list every unresolved value; never describe that template as deployment-ready.
 
