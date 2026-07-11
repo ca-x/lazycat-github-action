@@ -287,8 +287,8 @@ func TestActionMetadataExposesStableContract(t *testing.T) {
 	if document.Runs.Using != "composite" {
 		t.Fatalf("runs.using=%q", document.Runs.Using)
 	}
-	if !strings.Contains(string(data), "LAZYCAT_ACTION_VERSION: v1.1.4") {
-		t.Fatal("action.yml must bootstrap release v1.1.4")
+	if !strings.Contains(string(data), "LAZYCAT_ACTION_VERSION: v1.1.5") {
+		t.Fatal("action.yml must bootstrap release v1.1.5")
 	}
 }
 
