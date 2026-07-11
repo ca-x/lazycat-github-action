@@ -92,9 +92,9 @@ asset named:
 ```
 
 The validation Artifact continues using the configured project output. The
-versioned copy lives under `.lazycat-action/release-assets/` inside the project
-root, outside packaged content, and is never committed. Keeping it beneath the
-project root preserves the publisher's LPK path-boundary verification.
+versioned copy lives beside the original verified LPK and is never committed.
+Using the verified LPK's directory guarantees the copy remains beneath the
+configured project root for both repository-root and subdirectory projects.
 
 `nowledge-mem-lzcapp` enables this input so its private-store download URL
 points to an explicit versioned Release asset such as

@@ -17,7 +17,7 @@
 - Preserve existing project-boundary, symlink, scalar-image, and atomic-write checks.
 - Plain YAML behavior must remain unchanged.
 - Add reusable-workflow input `versioned-release-asset` as an optional boolean defaulting to `false`.
-- When enabled, Release and store publication use `.lazycat-action/release-assets/<package-id>-v<version>.lpk`; validation Artifacts keep the configured project output path.
+- When enabled, Release and store publication use `<original-output-directory>/<package-id>-v<version>.lpk`; validation Artifacts keep the configured project output path.
 - A Skill may delete tracked historical LPKs only after an explicit user confirmation.
 - Release immutable `v1.1.1`, verify it, and only then accept the release workflow's annotated floating `v1` update.
 
@@ -241,7 +241,7 @@ versioned-release-asset:
   default: false
 ```
 
-After Release work is classified, add a shell step that validates the Action outputs are non-empty, copies the verified LPK into `.lazycat-action/release-assets/<package-id>-v<version>.lpk` when enabled, and otherwise returns the original path. Emit `lpk-path` through the GitHub multiline delimiter protocol. Use this step's path consistently for existing-asset inspection, Release upload, download URL resolution, and both store publication steps. Keep validation Artifact upload unchanged.
+After Release work is classified, add a shell step that validates the Action outputs are non-empty, copies the verified LPK beside the original output as `<package-id>-v<version>.lpk` when enabled, and otherwise returns the original path. Derive the directory with `dirname -- "${LPK_PATH}"` so repository-root and subdirectory projects both remain beneath their configured project root. Emit `lpk-path` through the GitHub multiline delimiter protocol. Use this step's path consistently for existing-asset inspection, Release upload, download URL resolution, and both store publication steps. Keep validation Artifact upload unchanged.
 
 - [ ] **Step 4: Update the embedded patch version**
 
