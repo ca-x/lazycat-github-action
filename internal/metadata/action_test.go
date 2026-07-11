@@ -36,6 +36,19 @@ func TestReleaseWorkflowSkipsFloatingMajorTag(t *testing.T) {
 	}
 }
 
+func TestReleaseWorkflowRejectsBootstrapVersionMismatch(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "release.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, required := range []string{"Verify Action bootstrap version", "LAZYCAT_ACTION_VERSION", "github.ref_name", "action.yml"} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("release workflow is missing bootstrap version gate %q", required)
+		}
+	}
+}
+
 func TestReusableWorkflowContractAndActionRefs(t *testing.T) {
 	filename := filepath.Join("..", "..", ".github", "workflows", "lazycat.yml")
 	data, err := os.ReadFile(filename)
@@ -287,8 +300,8 @@ func TestActionMetadataExposesStableContract(t *testing.T) {
 	if document.Runs.Using != "composite" {
 		t.Fatalf("runs.using=%q", document.Runs.Using)
 	}
-	if !strings.Contains(string(data), "LAZYCAT_ACTION_VERSION: v1.1.6") {
-		t.Fatal("action.yml must bootstrap release v1.1.6")
+	if !strings.Contains(string(data), "LAZYCAT_ACTION_VERSION: v1.1.8") {
+		t.Fatal("action.yml must bootstrap release v1.1.8")
 	}
 }
 
