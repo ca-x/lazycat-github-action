@@ -420,3 +420,11 @@ Create/update annotated `v1` at the `v1.1.0` commit, push it, and re-read both r
 - [ ] **Step 6: Record and commit release verification**
 
 Update this plan with CI run ID, release URL, asset verification, tag commit, and remaining gaps. Commit and push the record, then confirm the final docs-only CI run passes.
+
+## Functional Verification Record
+
+- 2026-07-11: `go test -count=1 -race ./...`, `go vet ./...`, bootstrap tests, actionlint 1.7.7, Linux amd64/arm64 builds, `go mod verify`, and `git diff --check` passed after upgrading to `lzc-toolkit-go v0.2.0`.
+- GoReleaser 2.17.0 snapshot release and `scripts/verify-release-artifacts.sh` passed; both archives contain only `lazycat-action`, and `dist/checksums.txt` verifies both archives.
+- Local ShellCheck is unavailable in this environment. The exact-head GitHub CI ShellCheck job remains a mandatory release gate.
+- Credential scan found only GitHub `${{ secrets.* }}` references and documented placeholder values; no concrete credential was committed.
+- Darwin Skill optimization and all remote push/tag/Release gates remain pending.
