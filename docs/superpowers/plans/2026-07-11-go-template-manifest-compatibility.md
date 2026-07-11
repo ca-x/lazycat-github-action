@@ -16,6 +16,9 @@
 - Fail closed on reserved-marker collisions, missing markers, duplicated markers, or YAML that remains invalid after protection.
 - Preserve existing project-boundary, symlink, scalar-image, and atomic-write checks.
 - Plain YAML behavior must remain unchanged.
+- Add reusable-workflow input `versioned-release-asset` as an optional boolean defaulting to `false`.
+- When enabled, Release and store publication use `<package-id>-v<version>.lpk`; validation Artifacts keep the configured project output path.
+- A Skill may delete tracked historical LPKs only after an explicit user confirmation.
 - Release immutable `v1.1.1`, verify it, and only then accept the release workflow's annotated floating `v1` update.
 
 ---
@@ -212,17 +215,24 @@ git commit -m "fix: support templated LazyCat manifests"
 - Modify: `README.zh-CN.md`
 - Modify: `skills/lazycat-github-action/SKILL.md`
 - Modify: `skills/lazycat-github-action/references/configuration.md`
+- Modify: `skills/lazycat-github-action/references/workflows.md`
+- Modify: `skills/lazycat-github-action/assets/lazycat-workflow.yml`
+- Modify: `skills/lazycat-github-action/test-prompts.json`
 - Modify: `internal/metadata/skill_test.go`
+- Modify: `internal/metadata/action_test.go`
+- Modify: `.github/workflows/lazycat.yml`
 - Modify: `action.yml`
 - Modify: `docs/superpowers/plans/2026-07-11-go-template-manifest-compatibility.md`
 
 **Interfaces:**
 - Documents: standalone template controls are preserved and never executed.
+- Produces: optional reusable-workflow input `versioned-release-asset`, default `false`.
+- Documents: tracked historical LPK detection and user-confirmed cleanup before Release migration.
 - Changes composite bootstrap release from `v1.1.0` to `v1.1.1`.
 
 - [ ] **Step 1: Add failing metadata assertions**
 
-Require the repository Skill and configuration reference to state that standalone Go Template controls are preserved during image updates and templates are never evaluated by the Action.
+Require the repository Skill and references to state that standalone Go Template controls are preserved during image updates and templates are never evaluated by the Action. Require a visible checkpoint that scans tracked `*.lpk`, reports count/size, and obtains explicit confirmation before cleanup. Require workflow metadata to expose `versioned-release-asset` as an optional boolean with default `false`.
 
 - [ ] **Step 2: Run metadata tests and verify RED**
 
@@ -238,30 +248,50 @@ Add a concise section to both READMEs and the Skill reference explaining:
 - inline deployment expressions remain untouched;
 - the Action protects/restores controls but never evaluates them;
 - template layouts that are still invalid YAML after protection fail closed.
+- versioned Release asset opt-in and exact `<package-id>-v<version>.lpk` naming;
+- historical tracked LPK detection, count/size reporting, confirmation, cleanup, and `*.lpk` ignore migration.
 
-Update `SKILL.md` inspection and verification guidance so generated workflows are tested against the repository's real templated Manifest.
+Update `SKILL.md` inspection and verification guidance so generated workflows are tested against the repository's real templated Manifest. Add a test prompt for a repository containing many historical tracked LPKs; the expected behavior must stop for cleanup confirmation before deletion and then migrate to versioned Release assets only after approval.
 
-- [ ] **Step 4: Update the embedded patch version**
+- [ ] **Step 4: Add opt-in versioned Release asset preparation**
+
+Declare this workflow-call input:
+
+```yaml
+versioned-release-asset:
+  description: Copy the verified LPK to <package-id>-v<version>.lpk for GitHub Release and store publication.
+  type: boolean
+  required: false
+  default: false
+```
+
+After Release work is classified, add a shell step that validates the Action outputs are non-empty, copies the verified LPK into `${RUNNER_TEMP}/lazycat-release-assets/<package-id>-v<version>.lpk` when enabled, and otherwise returns the original path. Use this step's path consistently for existing-asset inspection, Release upload, download URL resolution, and both store publication steps. Keep validation Artifact upload unchanged.
+
+- [ ] **Step 5: Update the embedded patch version**
 
 Set `LAZYCAT_ACTION_VERSION: v1.1.1` in `action.yml`. Do not change toolkit `v0.2.0` or lzc-cli compatibility `2.0.8`.
 
-- [ ] **Step 5: Run documentation/version checks**
+- [ ] **Step 6: Run documentation/version checks**
 
 Run:
 
 ```bash
 go test ./internal/metadata ./internal/version -count=1
-rg -n "Go Template|never evaluat|v1\.1\.1" README.md README.zh-CN.md skills/lazycat-github-action action.yml
+rg -n "Go Template|never evaluat|versioned-release-asset|git ls-files|v1\.1\.1" README.md README.zh-CN.md skills/lazycat-github-action .github/workflows/lazycat.yml action.yml
 git diff --check
 ```
 
-Expected: tests pass, the contract appears in both READMEs and the Skill, `action.yml` embeds `v1.1.1`, and no whitespace errors are reported.
+Expected: tests pass, both new contracts appear in both READMEs and the Skill, the workflow input defaults to false, all Release/store paths use the prepared asset, `action.yml` embeds `v1.1.1`, and no whitespace errors are reported.
 
-- [ ] **Step 6: Commit documentation and release metadata**
+- [ ] **Step 7: Run Skill TDD and Darwin validation**
+
+Run the historical-LPK prompt without the updated Skill and record whether it deletes files or fails to ask. Run it again with the updated Skill and require count/size reporting plus a user checkpoint. Then run the Darwin nine-dimension assessment and independent prompt comparison; retain only a strict score improvement and record the result in the installed Darwin `results.tsv`.
+
+- [ ] **Step 8: Commit documentation and release metadata**
 
 ```bash
-git add README.md README.zh-CN.md skills/lazycat-github-action internal/metadata/skill_test.go action.yml
-git commit -m "docs: document templated manifest support"
+git add README.md README.zh-CN.md skills/lazycat-github-action internal/metadata .github/workflows/lazycat.yml action.yml
+git commit -m "feat: prepare versioned Release assets"
 ```
 
 ### Task 4: Run release gates and publish v1.1.1
@@ -327,10 +357,12 @@ Download `checksums.txt`, amd64/arm64 archives, and SBOMs. Run `sha256sum -c che
 **Files in temporary clone:**
 - Create: `.github/lazycat-action.yml`
 - Create: `.github/workflows/lazycat.yml`
+- Create or modify: `.gitignore`
+- Delete: all Git-tracked root `*.lpk` files after the user's approved cleanup
 
 **Interfaces:**
 - Consumes: released `ca-x/lazycat-github-action@v1` resolving to `v1.1.1`.
-- Produces: scheduled/manual review-PR automation for both `mem` and `nowledge-mem-snap`.
+- Produces: scheduled/manual direct publication for both `mem` and `nowledge-mem-snap`, GitHub Release, official store, and Miaomiao private store.
 
 - [ ] **Step 1: Re-run generated workflow validation**
 
@@ -339,24 +371,30 @@ Require:
 - `mem` service source `docker.io/nowledgelabs/mem`, stable `*-vulkan` tags, and package-version extraction;
 - `nowledge-mem-snap` service source `docker.io/czyt/nowledge-mem-snap`, stable SemVer tags;
 - `mem` as `update.version_source.image`;
-- `update.strategy: pull`;
+- `update.strategy: publish`;
 - `build.run_buildscript: false`;
 - output `dist/nowledge-mem.lpk`;
 - LazyCat delivery for both images;
-- official lint enabled, private publishing disabled;
+- official publishing and private publishing enabled with both `skip_if_version_exists: true`;
+- private name `NowledgeMem` without requiring `APP_ID`;
+- reusable workflow input `versioned-release-asset: true`;
 - reusable workflow `ca-x/lazycat-github-action/.github/workflows/lazycat.yml@v1`.
 
-- [ ] **Step 2: Run final target-repository gates**
+- [ ] **Step 2: Clean approved historical LPKs**
 
-Run actionlint, `bash -n scripts/upgrade-mem.sh`, candidate/released Action dry-run, `git diff --check`, and confirm the dry-run leaves only the two intended `.github` files untracked/changed.
+Record `git ls-files '*.lpk'`, file count, and total size in the PR description. Remove every tracked root LPK, add `*.lpk` to `.gitignore`, and confirm no LPK remains tracked. Do not delete package/build/Manifest source files.
 
-- [ ] **Step 3: Commit, push, and create PR**
+- [ ] **Step 3: Run final target-repository gates**
 
-Commit on `codex/add-lazycat-action`, push the branch, and create a PR to `lazycat-contrib/nowledge-mem-lzcapp:main` describing managed images, review-PR behavior, verification, and required Secret configuration.
+Run actionlint, `bash -n scripts/upgrade-mem.sh`, candidate/released Action dry-run, `git diff --check`, and confirm no LPK is tracked or regenerated. Verify the Release preparation path becomes `community.lazycat.app.nowledge-mem-v<version>.lpk`.
 
-- [ ] **Step 4: Report configuration**
+- [ ] **Step 4: Commit, push, and create PR**
 
-Report required `LAZYCAT_TOKEN` (or fallback `LZC_CLI_TOKEN`) for LazyCat Registry copying. State that Docker sources are public, no source Registry credentials are required, stores are not automatically published, and `PRIVATE_STORE_GROUP_CODES` is not needed for this workflow. Explain Secret precedence: Environment overrides Repository, Repository overrides Organization, and an Organization Secret must authorize this repository.
+Commit on `codex/add-lazycat-action`, push the branch, and create a PR to `lazycat-contrib/nowledge-mem-lzcapp:main` describing managed images, direct Release/store behavior, historical LPK cleanup, verification, and required Secret configuration.
+
+- [ ] **Step 5: Report configuration**
+
+Report required `LAZYCAT_TOKEN`, `APPSTORE_URL`, and `APPSTORE_TOKEN`. State that `APP_ID` is unnecessary because exact `packageId` lookup is used, Docker sources are public, and `PRIVATE_STORE_GROUP_CODES` is needed only when the private application is group-restricted. Explain Secret precedence: Environment overrides Repository, Repository overrides Organization, and an Organization Secret must authorize this repository.
 
 ## Verification Record
 

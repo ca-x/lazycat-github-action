@@ -78,3 +78,38 @@ cross-build, snapshot-release, dependency, and diff gates before releasing
 `v1.1.1`. Verify the Release archives, checksums, version metadata,
 attestations, and annotated `v1`/`v1.1.1` tags before retrying the real
 `nowledge-mem-lzcapp` dry-run.
+
+## Versioned Release Assets
+
+The reusable workflow gains an additive boolean input named
+`versioned-release-asset`. It defaults to `false`, preserving the configured
+LPK basename for existing callers. When enabled, Release upload, digest
+verification, download URL resolution, and both store publishers use a copied
+asset named:
+
+```text
+<package-id>-v<version>.lpk
+```
+
+The validation Artifact continues using the configured project output. The
+versioned copy lives in Runner temporary storage and is never committed.
+
+`nowledge-mem-lzcapp` enables this input so its private-store download URL
+points to an explicit versioned Release asset such as
+`community.lazycat.app.nowledge-mem-v0.10.23.lpk`.
+
+## Historical LPK Migration
+
+The repository Skill must inspect Git-tracked `*.lpk` files before generating
+Release-based automation. If any exist, it reports their count and total size.
+If multiple historical LPKs exist, it explicitly recommends cleanup and stops
+for user confirmation before deleting anything.
+
+After confirmation, the Skill removes tracked historical LPKs, adds an
+appropriate `*.lpk` ignore rule, keeps the configured build output outside any
+packaged content directory, and enables versioned GitHub Release assets. If the
+user declines, it preserves every historical file and reports that migration
+remains incomplete.
+
+For `nowledge-mem-lzcapp`, cleanup is already approved: remove all tracked root
+LPKs in the integration PR and prevent future LPK commits.
