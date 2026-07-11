@@ -48,5 +48,10 @@
     "id": "image-version-downgrade-guard",
     "prompt": "镜像仓库按创建时间选中了最近重建的 18.0，但 package.yml 已经是 19.0.0。请优化自动 workflow，避免它降级；如果我以后确实要回退怎么办？",
     "expected": "保持或显式设置 update.allow_downgrade: false；在镜像复制和文件写入前比较映射后的 SemVer，返回 VERSION_DOWNGRADE_BLOCKED；同版本 digest 更新继续允许；只有用户明确确认回退时才设置 allow_downgrade: true。"
+  },
+  {
+    "id": "official-file-upload-stage",
+    "prompt": "GitHub Release 已有校验过的 LPK，但官方商店提交返回 HTTP 400。请判断官方是否应该接收 Release URL，并说明如何区分失败阶段。",
+    "expected": "官方只接收重新下载并校验后的本地 LPK 文件 multipart 上传，不接收 Release URL；store.official.upload 表示文件上传失败，store.official.review 表示上传后创建审核失败；不得打印上游响应正文或盲目重复提交。"
   }
 ]

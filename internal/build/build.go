@@ -189,10 +189,6 @@ func (Builder) Build(ctx context.Context, request Request) (result Result, resul
 	if extractErr != nil || closeErr != nil {
 		return Result{}, fmt.Errorf("extract built LPK for lint: %w", errors.Join(extractErr, closeErr))
 	}
-	if err := protectExtractedManifestForLint(extractionRoot); err != nil {
-		return Result{}, err
-	}
-
 	var lintOptions []lint.Option
 	if request.Official {
 		lintOptions = append(lintOptions, lint.WithOfficial())
@@ -230,26 +226,6 @@ func (Builder) Build(ctx context.Context, request Request) (result Result, resul
 		TargetPlatform: platform.TargetPlatform,
 		Warnings:       warnings,
 	}, nil
-}
-
-func protectExtractedManifestForLint(root string) error {
-	manifestPath := filepath.Join(root, "manifest.yml")
-	data, err := os.ReadFile(manifestPath)
-	if err != nil {
-		return fmt.Errorf("read extracted manifest for lint: %w", err)
-	}
-	analysis, err := manifest.Analyze(data)
-	if err != nil {
-		return fmt.Errorf("protect extracted manifest for lint: %w", err)
-	}
-	protected, err := analysis.Document().Bytes()
-	if err != nil {
-		return fmt.Errorf("encode protected manifest for lint: %w", err)
-	}
-	if err := os.WriteFile(manifestPath, protected, 0o600); err != nil {
-		return fmt.Errorf("write protected manifest for lint: %w", err)
-	}
-	return nil
 }
 
 func rootCauseMessage(err error) string {

@@ -416,6 +416,8 @@ stores:
 
 `skip_if_version_exists: true` 会在 LPK 校验完成后，通过精确包名匿名查询官方商店。线上最新版本字符串与已校验 LPK 版本相同时，Action 返回 `published: false`、`skipped: true`，不会解析开发者 Token，也不会提交 LPK。应用不存在时继续发布；其他查询错误直接失败，避免冒险重复提交。该选项默认 `false`，`dry-run` 仍然完全不发起远端请求。
 
+官方发布始终把已验证的本地 LPK 文件作为 multipart 数据上传，绝不会把 GitHub Release URL 发送给官方平台。复用 Release Asset 时，会先把精确版本文件下载到项目目录下并重新校验。失败会安全地区分 `store.official.upload` 与 `store.official.review`，但不会打印上游响应正文。
+
 reusable workflow 接受 `LAZYCAT_TOKEN`、`LZC_CLI_TOKEN`，或者 `LAZYCAT_USERNAME` 加 `LAZYCAT_PASSWORD`。推荐使用 token。
 
 ### 喵喵私有商店

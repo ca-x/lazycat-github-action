@@ -176,7 +176,7 @@ func uploadLPK(ctx context.Context, client *http.Client, baseURL, token, filenam
 		return appstore.UploadInfo{}, err
 	}
 	request.Header.Set("Content-Type", multipartWriter.FormDataContentType())
-	body, requestErr := doRequest(client, request)
+	body, requestErr := doRequest(client, request, "store.official.upload")
 	if requestErr != nil {
 		_ = reader.CloseWithError(requestErr)
 	}
@@ -232,7 +232,7 @@ func submitReview(ctx context.Context, client *http.Client, baseURL, token strin
 		return err
 	}
 	request.Header.Set("Content-Type", "application/json")
-	_, err = doRequest(client, request)
+	_, err = doRequest(client, request, "store.official.review")
 	return err
 }
 
@@ -246,7 +246,7 @@ func authenticatedRequest(ctx context.Context, method, target, token string, bod
 	return request, nil
 }
 
-func doRequest(client *http.Client, request *http.Request) ([]byte, error) {
+func doRequest(client *http.Client, request *http.Request, op string) ([]byte, error) {
 	response, err := client.Do(request)
 	if err != nil {
 		if request.Context().Err() != nil {
@@ -266,7 +266,7 @@ func doRequest(client *http.Client, request *http.Request) ([]byte, error) {
 		} else if response.StatusCode == http.StatusForbidden {
 			code = lpkgo.CodePermissionDenied
 		}
-		return nil, &lpkgo.Error{Code: code, Op: "store.official.request", StatusCode: response.StatusCode, Retryable: response.StatusCode >= 500, Cause: errors.New("official platform rejected the request")}
+		return nil, &lpkgo.Error{Code: code, Op: op, StatusCode: response.StatusCode, Retryable: response.StatusCode >= 500, Cause: errors.New("official platform rejected the request")}
 	}
 	return body, nil
 }

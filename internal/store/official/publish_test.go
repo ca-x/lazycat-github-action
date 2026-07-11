@@ -16,9 +16,60 @@ import (
 
 	"github.com/ca-x/lazycat-github-action/internal/config"
 	"github.com/ca-x/lazycat-github-action/internal/store/official"
+	lpkgo "github.com/lib-x/lzc-toolkit-go"
 	"github.com/lib-x/lzc-toolkit-go/auth"
 	"github.com/lib-x/lzc-toolkit-go/lpk"
 )
+
+func TestPublisherReportsOfficialUploadFailureStage(t *testing.T) {
+	path, digest := publishLPK(t)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v3/developer/app/check/exist":
+			_, _ = response.Write([]byte(`{"exist":true}`))
+		case "/api/v3/developer/app/lpk/upload":
+			http.Error(response, "rejected", http.StatusBadRequest)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	_, err := (official.Publisher{BaseURL: server.URL, HTTPClient: server.Client()}).Publish(context.Background(), official.Request{
+		Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+	})
+	var toolkitError *lpkgo.Error
+	if !errors.As(err, &toolkitError) || toolkitError.Op != "store.official.upload" || toolkitError.StatusCode != http.StatusBadRequest {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestPublisherReportsOfficialReviewFailureStage(t *testing.T) {
+	path, digest := publishLPK(t)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v3/developer/app/check/exist":
+			_, _ = response.Write([]byte(`{"exist":true}`))
+		case "/api/v3/developer/app/lpk/upload":
+			_, _ = fmt.Fprintf(response, `{"package":"cloud.lazycat.apps.publish-demo","version":"1.0.0","iconPath":"/icon.png","url":"/demo.lpk","sha256":"%s","unsupportedPlatforms":[],"minOsVersion":"1.3.0","lpkSize":123,"imageSize":0}`, digest)
+		case "/api/v3/developer/app/cloud.lazycat.apps.publish-demo/review/create":
+			http.Error(response, "rejected", http.StatusBadRequest)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	_, err := (official.Publisher{BaseURL: server.URL, HTTPClient: server.Client()}).Publish(context.Background(), official.Request{
+		Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+	})
+	var toolkitError *lpkgo.Error
+	if !errors.As(err, &toolkitError) || toolkitError.Op != "store.official.review" || toolkitError.StatusCode != http.StatusBadRequest {
+		t.Fatalf("err=%v", err)
+	}
+}
 
 func TestPublisherUsesToolkitProtocolAndReturnsVerifiedResult(t *testing.T) {
 	path, digest := publishLPK(t)

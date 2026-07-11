@@ -416,6 +416,8 @@ stores:
 
 `skip_if_version_exists: true` performs an anonymous exact-package lookup after the LPK is verified. If the latest official version string equals the verified LPK version, the Action succeeds with `published: false` and `skipped: true` without resolving a developer token or submitting the LPK. Not-found continues publishing; any other lookup failure stops the operation instead of risking a duplicate submission. The option defaults to `false`, and `dry-run` remains network-free.
 
+Official publishing always uploads the verified local LPK file as multipart data; it never sends the GitHub Release URL to the official platform. A recovered Release Asset is first downloaded beneath the project root and revalidated. Failures identify the safe stage as `store.official.upload` or `store.official.review` without printing the upstream response body.
+
 The reusable workflow accepts `LAZYCAT_TOKEN`, `LZC_CLI_TOKEN`, or `LAZYCAT_USERNAME` plus `LAZYCAT_PASSWORD` as secrets. Token authentication is recommended.
 
 ### MiaoMiao private store

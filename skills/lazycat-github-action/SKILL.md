@@ -207,6 +207,8 @@ Before finishing:
 | Post-delete count mismatches | Compare against the approved inventory | STOP and report the remaining tracked files |
 | Versioned asset identity differs | Recompute name, URL, and SHA from verified LPK | STOP before either store submission |
 | Official publish rejects registry | Use `delivery.mode: lazycat` for every managed runtime image | STOP if any managed runtime remains direct/mirror |
+| `store.official.upload` fails | Confirm the exact verified local LPK path, package/version/SHA256, official lint, and multipart file upload | STOP; never replace the file with a Release URL |
+| `store.official.review` fails | Treat the LPK upload as completed and inspect application/version review eligibility | STOP before blindly uploading or reviewing the same version again |
 | ARM64 Runner produced ARM app | Honor `LAZYCAT_TARGET_ARCH=amd64` | STOP until the build proves Linux x86_64 output |
 | Private publish has no URL | Resolve the verified GitHub Release Asset | STOP before `publish-private` |
 | Equal store version is submitted again | Enable `skip_if_version_exists` and inspect `onlineVersion` | STOP on lookup errors other than not-found |
