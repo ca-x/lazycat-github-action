@@ -132,6 +132,17 @@ Both READMEs and the repository Agent Skill document:
 - network-free `dry-run` behavior;
 - additive skipped-result fields.
 
+After the functional Skill update and its normal metadata/evaluation tests pass, run the explicitly requested `darwin-skill` workflow against `skills/lazycat-github-action/SKILL.md`:
+
+1. Create and obtain approval for two or three representative test prompts.
+2. Record the nine-dimension baseline, including runtime-neutrality and the anti-pattern blacklist.
+3. Use independent judges for with-Skill versus baseline output evaluation.
+4. Apply only changes that strictly improve the measured score without changing the Skill's core purpose.
+5. Stop at Darwin's required human checkpoint and obtain approval for the optimized Skill before release.
+6. Re-run the repository Skill validation and metadata tests after the accepted optimization.
+
+Darwin artifacts such as test prompts and evaluation records may be committed when they are scoped to this repository Skill and contain no credentials. Generated visual result cards are review artifacts and are not release requirements unless explicitly requested for the repository.
+
 This backward-compatible feature release is `v1.1.0`. `action.yml` embeds `v1.1.0`. After local and GitHub CI gates pass, create and push annotated tag `v1.1.0`, verify the GitHub Release assets, checksums, SBOMs, binary version metadata, and provenance, then move annotated floating tag `v1` to the same release commit.
 
 The floating tag must not move until the immutable `v1.1.0` release is verified.
