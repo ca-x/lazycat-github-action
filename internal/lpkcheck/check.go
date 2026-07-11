@@ -12,6 +12,7 @@ import (
 
 	"github.com/ca-x/lazycat-github-action/internal/platform"
 	"github.com/lib-x/lzc-toolkit-go/lpk"
+	"github.com/lib-x/lzc-toolkit-go/manifest"
 )
 
 type Request struct {
@@ -48,16 +49,17 @@ func File(ctx context.Context, request Request) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("open LPK %q: %w", path, err)
 	}
-	effective, manifestErr := reader.EffectiveManifest(ctx)
+	packageDocument, packageErr := reader.PackageInfo(ctx)
 	closeErr := reader.Close()
-	if manifestErr != nil || closeErr != nil {
-		return Result{}, fmt.Errorf("read LPK manifest: %w", errors.Join(manifestErr, closeErr))
+	if packageErr != nil || closeErr != nil {
+		return Result{}, fmt.Errorf("read LPK package metadata: %w", errors.Join(packageErr, closeErr))
 	}
-	if effective.PackageInfo == nil {
-		return Result{}, errors.New("read LPK manifest: package metadata is missing")
+	var packageInfo manifest.PackageInfo
+	if err := packageDocument.Decode(&packageInfo); err != nil {
+		return Result{}, fmt.Errorf("decode LPK package metadata: %w", err)
 	}
-	packageID := strings.TrimSpace(effective.PackageInfo.Package)
-	version := strings.TrimSpace(effective.PackageInfo.Version)
+	packageID := strings.TrimSpace(packageInfo.Package)
+	version := strings.TrimSpace(packageInfo.Version)
 	if expected := strings.TrimSpace(request.ExpectedPackageID); expected != "" && packageID != expected {
 		return Result{}, fmt.Errorf("verify LPK package %q: expected %q", packageID, expected)
 	}

@@ -3,6 +3,7 @@ package build_test
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,6 +120,37 @@ func TestBuilderBasicProfileDoesNotFailForOfficialOnlyWarnings(t *testing.T) {
 	}
 }
 
+func TestBuilderSupportsTemplateControlsInBuiltManifest(t *testing.T) {
+	info := templatedFixtureProject(t)
+	result, err := (actionbuild.Builder{}).Build(context.Background(), actionbuild.Request{
+		Project: info, Version: "1.2.3", Tag: "v1.2.3", Official: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PackageID != "cloud.lazycat.action.templated" || result.Version != "1.2.3" {
+		t.Fatalf("result=%#v", result)
+	}
+
+	reader, err := lpk.OpenFile(context.Background(), result.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestEntry, err := reader.OpenEntry(context.Background(), "manifest.yml")
+	if err != nil {
+		_ = reader.Close()
+		t.Fatal(err)
+	}
+	manifestData, readErr := io.ReadAll(manifestEntry)
+	closeErr := errors.Join(manifestEntry.Close(), reader.Close())
+	if readErr != nil || closeErr != nil {
+		t.Fatal(errors.Join(readErr, closeErr))
+	}
+	if !strings.Contains(string(manifestData), "{{- if .U.multi_instance }}") {
+		t.Fatalf("source manifest lost template control: %s", manifestData)
+	}
+}
+
 func TestBuilderRejectsMismatchedPackageVersion(t *testing.T) {
 	info := fixtureProject(t)
 	_, err := (actionbuild.Builder{}).Build(context.Background(), actionbuild.Request{
@@ -171,6 +203,47 @@ func fixtureProject(t *testing.T) project.Info {
 		ManifestFile: filepath.Join(root, "lzc-manifest.yml"),
 		Output:       filepath.Join(t.TempDir(), "dist", "app.lpk"),
 		PackageID:    "cloud.lazycat.action.fixture",
+		Version:      "1.2.3",
+		Kind:         project.KindStatic,
+	}
+}
+
+func templatedFixtureProject(t *testing.T) project.Info {
+	t.Helper()
+	root := t.TempDir()
+	files := map[string]string{
+		"lzc-build.yml": "manifest: ./lzc-manifest.yml\ncontentdir: ./content\n",
+		"package.yml": `package: cloud.lazycat.action.templated
+version: 1.2.3
+name: Templated Action Fixture
+description: Templated static fixture
+`,
+		"lzc-manifest.yml": `application:
+  subdomain: templated
+{{- if .U.multi_instance }}
+  multi_instance: true
+{{- end }}
+  routes:
+    - /=file:///lzcapp/pkg/content
+`,
+		"content/index.html": "fixture\n",
+	}
+	for name, contents := range files {
+		filename := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filename, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return project.Info{
+		Root:         root,
+		BuildConfig:  filepath.Join(root, "lzc-build.yml"),
+		PackageFile:  filepath.Join(root, "package.yml"),
+		ManifestFile: filepath.Join(root, "lzc-manifest.yml"),
+		Output:       filepath.Join(root, "dist", "app.lpk"),
+		PackageID:    "cloud.lazycat.action.templated",
 		Version:      "1.2.3",
 		Kind:         project.KindStatic,
 	}

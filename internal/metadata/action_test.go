@@ -89,8 +89,8 @@ func TestReusableWorkflowContractAndActionRefs(t *testing.T) {
 			continue
 		}
 		parts := strings.Split(value, "@")
-		if len(parts) != 2 || (!isCommitSHA(parts[1]) && !isMajorTag(parts[1])) {
-			t.Fatalf("third-party Action must use a commit SHA or major vN tag: %s", value)
+		if len(parts) != 2 || !isMajorTag(parts[1]) {
+			t.Fatalf("third-party Action must use a major vN tag: %s", value)
 		}
 	}
 	workflow := string(data)
@@ -125,18 +125,6 @@ func TestReusableWorkflowContractAndActionRefs(t *testing.T) {
 	if !strings.Contains(workflow, managedPaths) {
 		t.Fatal("workflow PR does not restrict changes to the managed package and Manifest paths")
 	}
-}
-
-func isCommitSHA(value string) bool {
-	if len(value) != 40 {
-		return false
-	}
-	for _, character := range value {
-		if !strings.ContainsRune("0123456789abcdef", character) {
-			return false
-		}
-	}
-	return true
 }
 
 func isMajorTag(value string) bool {
@@ -285,8 +273,8 @@ func TestActionMetadataExposesStableContract(t *testing.T) {
 	if document.Runs.Using != "composite" {
 		t.Fatalf("runs.using=%q", document.Runs.Using)
 	}
-	if !strings.Contains(string(data), "LAZYCAT_ACTION_VERSION: v1.1.1") {
-		t.Fatal("action.yml must bootstrap release v1.1.1")
+	if !strings.Contains(string(data), "LAZYCAT_ACTION_VERSION: v1.1.2") {
+		t.Fatal("action.yml must bootstrap release v1.1.2")
 	}
 }
 

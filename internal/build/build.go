@@ -10,12 +10,14 @@ import (
 	"strings"
 
 	"github.com/ca-x/lazycat-github-action/internal/lpkcheck"
+	"github.com/ca-x/lazycat-github-action/internal/manifesttemplate"
 	"github.com/ca-x/lazycat-github-action/internal/platform"
 	"github.com/ca-x/lazycat-github-action/internal/project"
 	lpkgo "github.com/lib-x/lzc-toolkit-go"
 	toolkitbuild "github.com/lib-x/lzc-toolkit-go/build"
 	"github.com/lib-x/lzc-toolkit-go/lint"
 	"github.com/lib-x/lzc-toolkit-go/lpk"
+	"github.com/lib-x/lzc-toolkit-go/manifest"
 )
 
 type Request struct {
@@ -157,22 +159,23 @@ func (Builder) Build(ctx context.Context, request Request) (result Result, resul
 	if err != nil {
 		return Result{}, fmt.Errorf("reopen built LPK: %w", err)
 	}
-	effective, effectiveErr := reader.EffectiveManifest(ctx)
-	if effectiveErr != nil {
+	packageDocument, packageErr := reader.PackageInfo(ctx)
+	if packageErr != nil {
 		_ = reader.Close()
-		return Result{}, fmt.Errorf("read built LPK manifest: %w", effectiveErr)
+		return Result{}, fmt.Errorf("read built LPK package metadata: %w", packageErr)
 	}
-	if effective.PackageInfo == nil {
+	var packageInfo manifest.PackageInfo
+	if err := packageDocument.Decode(&packageInfo); err != nil {
 		_ = reader.Close()
-		return Result{}, errors.New("read built LPK manifest: package metadata is missing")
+		return Result{}, fmt.Errorf("decode built LPK package metadata: %w", err)
 	}
-	if effective.PackageInfo.Package != request.Project.PackageID {
+	if packageInfo.Package != request.Project.PackageID {
 		_ = reader.Close()
-		return Result{}, fmt.Errorf("verify built LPK: package %q does not match expected %q", effective.PackageInfo.Package, request.Project.PackageID)
+		return Result{}, fmt.Errorf("verify built LPK: package %q does not match expected %q", packageInfo.Package, request.Project.PackageID)
 	}
-	if effective.PackageInfo.Version != request.Version {
+	if packageInfo.Version != request.Version {
 		_ = reader.Close()
-		return Result{}, fmt.Errorf("verify built LPK: version %q does not match expected %q", effective.PackageInfo.Version, request.Version)
+		return Result{}, fmt.Errorf("verify built LPK: version %q does not match expected %q", packageInfo.Version, request.Version)
 	}
 
 	extractionParent, err := os.MkdirTemp("", "lazycat-action-lint-*")
@@ -186,6 +189,9 @@ func (Builder) Build(ctx context.Context, request Request) (result Result, resul
 	closeErr := reader.Close()
 	if extractErr != nil || closeErr != nil {
 		return Result{}, fmt.Errorf("extract built LPK for lint: %w", errors.Join(extractErr, closeErr))
+	}
+	if err := protectExtractedManifestForLint(extractionRoot); err != nil {
+		return Result{}, err
 	}
 
 	var lintOptions []lint.Option
@@ -218,13 +224,29 @@ func (Builder) Build(ctx context.Context, request Request) (result Result, resul
 	}
 	return Result{
 		Path:           output,
-		PackageID:      effective.PackageInfo.Package,
-		Version:        effective.PackageInfo.Version,
+		PackageID:      packageInfo.Package,
+		Version:        packageInfo.Version,
 		SHA256:         digest,
 		Size:           size,
 		TargetPlatform: platform.TargetPlatform,
 		Warnings:       warnings,
 	}, nil
+}
+
+func protectExtractedManifestForLint(root string) error {
+	manifestPath := filepath.Join(root, "manifest.yml")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("read extracted manifest for lint: %w", err)
+	}
+	protected, err := manifesttemplate.Protect(data)
+	if err != nil {
+		return fmt.Errorf("protect extracted manifest for lint: %w", err)
+	}
+	if err := os.WriteFile(manifestPath, protected.Bytes(), 0o600); err != nil {
+		return fmt.Errorf("write protected manifest for lint: %w", err)
+	}
+	return nil
 }
 
 func rootCauseMessage(err error) string {

@@ -224,14 +224,14 @@ jobs:
 
       - name: Set up Node from input
         if: contains(steps.toolchains.outputs.value, ',node,') && inputs.node-version != ''
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node-version }}
           cache: ${{ inputs.node-package-manager == 'npm' && 'npm' || '' }}
 
       - name: Set up Node from .node-version
         if: contains(steps.toolchains.outputs.value, ',node,') && inputs.node-version == ''
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
           cache: ${{ inputs.node-package-manager == 'npm' && 'npm' || '' }}
@@ -258,14 +258,14 @@ jobs:
 
       - name: Set up Rust
         if: contains(steps.toolchains.outputs.value, ',rust,')
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ inputs.rust-toolchain != '' && inputs.rust-toolchain || steps.rust-toolchain-file.outputs.value }}
           targets: x86_64-unknown-linux-gnu
 
       - name: Log in to source Registry
         if: env.REGISTRY != '' && env.REGISTRY_USERNAME != '' && env.REGISTRY_PASSWORD != ''
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ env.REGISTRY_USERNAME }}
@@ -279,7 +279,7 @@ jobs:
 
       - name: Set up Docker Buildx
         if: contains(steps.toolchains.outputs.value, ',docker,')
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        uses: docker/setup-buildx-action@v3
 
       - name: Determine source date
         id: source-date
@@ -337,7 +337,7 @@ jobs:
 
       - name: Create update pull request
         if: steps.lazycat.outputs.operation == 'check' && steps.lazycat.outputs.changed == 'true' && steps.lazycat.outputs.update-strategy == 'pull' && !inputs.dry-run
-        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7
+        uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ github.token }}
           branch: lazycat/update-${{ inputs.image-id != '' && inputs.image-id || 'all' }}
@@ -375,7 +375,7 @@ jobs:
 
       - name: Classify Release work
         id: release-state
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@v7
         env:
           RELEASE_TAG: ${{ steps.lazycat.outputs.tag }}
           LPK_PATH: ${{ steps.lazycat.outputs.lpk-path }}
@@ -466,7 +466,7 @@ jobs:
       - name: Inspect existing Release Asset
         id: asset-check
         if: steps.release-state.outputs.should-release == 'true'
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@v7
         env:
           RELEASE_TAG: ${{ steps.lazycat.outputs.tag }}
           LPK_PATH: ${{ steps.release-asset.outputs.lpk-path }}
@@ -504,7 +504,7 @@ jobs:
 
       - name: Upload GitHub Release Asset
         if: steps.asset-check.outcome == 'success' && steps.asset-check.outputs.skip-upload != 'true'
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.lazycat.outputs.tag }}
           name: ${{ steps.lazycat.outputs.tag }}
@@ -516,7 +516,7 @@ jobs:
       - name: Resolve Release Asset URL
         id: asset-url
         if: steps.asset-check.outcome == 'success'
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@v7
         env:
           RELEASE_TAG: ${{ steps.lazycat.outputs.tag }}
           LPK_PATH: ${{ steps.release-asset.outputs.lpk-path }}
@@ -576,7 +576,7 @@ jobs:
 
       - name: Merge store publishing results
         id: store-results
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@v7
         env:
           OFFICIAL_RESULT: ${{ steps.publish-official.outputs.store-results }}
           PRIVATE_RESULT: ${{ steps.publish-private.outputs.store-results }}
@@ -592,7 +592,7 @@ jobs:
 
       - name: Sync tag/release version to default branch
         if: steps.asset-url.outputs.download-url != '' && steps.lazycat.outputs.changed == 'true' && (github.ref_type == 'tag' || github.event_name == 'release')
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@v7
         env:
           PACKAGE_FILE: ${{ steps.lazycat.outputs.package-file }}
           VERSION: ${{ steps.lazycat.outputs.version }}

@@ -32,6 +32,36 @@ func TestFileValidatesBuiltLPK(t *testing.T) {
 	}
 }
 
+func TestFileValidatesBuiltLPKWithTemplateControls(t *testing.T) {
+	info := fixtureProject(t)
+	manifest := `application:
+  subdomain: fixture
+{{- if .U.multi_instance }}
+  multi_instance: true
+{{- end }}
+  routes:
+    - /=file:///lzcapp/pkg/content
+`
+	if err := os.WriteFile(info.ManifestFile, []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	built, err := (actionbuild.Builder{}).Build(context.Background(), actionbuild.Request{
+		Project: info, Version: "1.2.3", Tag: "v1.2.3",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := lpkcheck.File(context.Background(), lpkcheck.Request{
+		ProjectRoot: info.Root, Path: built.Path, ExpectedPackageID: info.PackageID, ExpectedVersion: info.Version,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PackageID != info.PackageID || result.Version != info.Version || result.SHA256 != built.SHA256 {
+		t.Fatalf("result=%#v built=%#v", result, built)
+	}
+}
+
 func TestFileRejectsUntrustedArtifactInputs(t *testing.T) {
 	info := fixtureProject(t)
 	built, err := (actionbuild.Builder{}).Build(context.Background(), actionbuild.Request{Project: info, Version: "1.2.3", Tag: "v1.2.3"})
