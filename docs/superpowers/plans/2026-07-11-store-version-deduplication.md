@@ -427,4 +427,13 @@ Update this plan with CI run ID, release URL, asset verification, tag commit, an
 - GoReleaser 2.17.0 snapshot release and `scripts/verify-release-artifacts.sh` passed; both archives contain only `lazycat-action`, and `dist/checksums.txt` verifies both archives.
 - Local ShellCheck is unavailable in this environment. The exact-head GitHub CI ShellCheck job remains a mandatory release gate.
 - Credential scan found only GitHub `${{ secrets.* }}` references and documented placeholder values; no concrete credential was committed.
-- Darwin Skill optimization and all remote push/tag/Release gates remain pending.
+- Remote push/tag/Release gates remain pending.
+
+## Darwin Verification Record
+
+- The repository Skill was evaluated with four representative prompts and three real `lazycat-contrib` repositories: `new-api-lzcapp`, `lazycat-mcp`, and `apps-scheduler`.
+- Baseline score was 80.2. The first accepted checkpoint improvement reached 82.8; an anti-pattern blacklist attempt was rejected by two judges and reverted.
+- User feedback established automatic GitHub workflow creation as the Skill's primary outcome. Real-repository validation exposed and then fixed workflow-mode selection, LPK output-under-contentdir, implicit buildscript, and unnecessary Secret inheritance defects.
+- Final Darwin score is 88.4. The Skill remains below 150% of its original size, runtime-neutrality scan is clean, and `go test ./internal/metadata` passes.
+- Real-project evidence: all three generated Action/workflow pairs passed actionlint; both Exec projects built LPKs containing Linux x86-64 binaries; the multi-service Docker project manages only `new-api`, leaves Redis unmanaged, explicitly disables buildscript execution, and does not inherit unused Secrets.
+- Darwin test prompts are committed at `skills/lazycat-github-action/test-prompts.json`; detailed experiment history is recorded in the installed Darwin `results.tsv`.
