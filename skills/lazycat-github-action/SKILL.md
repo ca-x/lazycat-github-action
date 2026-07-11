@@ -169,7 +169,7 @@ Private publishing requires:
 - optional GitHub Secret `PRIVATE_STORE_GROUP_CODES`, comma-separated, for private groups;
 - a real GitHub Release Asset URL and the local SHA256.
 
-When `APP_ID` is absent, preserve a confirmed `stores.private.name`: publishing searches by exact package ID first and then by that application name. Reuse is valid only after the returned package ID matches the verified LPK.
+When `APP_ID` is absent, preserve a confirmed `stores.private.name`: publishing searches by exact package ID first and then calls authenticated `GET /api/v1/apps/by-name?name=...`. The resolver must return the unique exact-name app for which the Token can upload versions. A 404 permits app creation; ambiguity, authorization failure, an inexact name, or `canUploadVersion: false` must STOP. A name-resolved historical app may have a different package ID; use its numeric ID only for `POST /api/v1/apps/{id}/versions`.
 
 Private stores support `lazycat`, `direct`, `mirror`, static Web, and Exec applications. Never enable the official store merely to get stricter lint for a direct/mirror application; that configuration is intentionally invalid.
 
@@ -214,7 +214,7 @@ Before finishing:
 | Equal store version is submitted again | Enable `skip_if_version_exists` and inspect `onlineVersion` | STOP on lookup errors other than not-found |
 | Release exists but a store is behind | Recover only `<package-id>-v<version>.lpk` and verify both GitHub/local SHA256 | STOP if tag, exact asset, or digest is missing |
 | Private application is invisible | Add `PRIVATE_STORE_GROUP_CODES` as a GitHub Secret | STOP rather than commit or print group codes |
-| Existing private app conflicts after package lookup | Confirm `stores.private.name` matches the store application name, or use the exact `APP_ID` Secret | STOP if the returned application's package ID differs from the LPK |
+| Existing private app conflicts after package lookup | Confirm `stores.private.name` exactly matches the store application and that the store exposes `/api/v1/apps/by-name` | STOP on 401/403/409, an inexact response name, or missing upload permission |
 | `VERSION_DOWNGRADE_BLOCKED` | Correct an accidental `sort: created` rule or stale tag mapping | Set `allow_downgrade: true` only after explicit rollback confirmation |
 
 ## Do Not

@@ -115,22 +115,28 @@ func TestClientCreatesExternalVersionForExistingApp(t *testing.T) {
 	}
 }
 
-func TestClientFindsExistingApplicationByNameWhenPackageSearchIsEmpty(t *testing.T) {
+func TestClientResolvesExistingApplicationByNameWhenHistoricalPackageDiffers(t *testing.T) {
 	const appName = "Existing App"
-	queries := make([]string, 0, 2)
+	const historicalPackageID = "community.lazycat.historical.app"
+	packageQueries := 0
+	nameResolutions := 0
 	posts := 0
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch {
 		case request.Method == http.MethodGet && request.URL.Path == "/api/v1/apps":
-			query := request.URL.Query().Get("q")
-			queries = append(queries, query)
-			if query == appName {
-				_, _ = response.Write([]byte(`{"apps":[{"id":42,"packageId":"cloud.lazycat.example.app"}]}`))
-				return
+			packageQueries++
+			if query := request.URL.Query().Get("q"); query != packageID {
+				t.Errorf("package query=%q", query)
 			}
 			_, _ = response.Write([]byte(`{"apps":[]}`))
+		case request.Method == http.MethodGet && request.URL.Path == "/api/v1/apps/by-name":
+			nameResolutions++
+			if name := request.URL.Query().Get("name"); name != appName {
+				t.Errorf("name=%q", name)
+			}
+			_, _ = response.Write([]byte(`{"app":{"id":42,"packageId":"` + historicalPackageID + `","name":"Existing App","canUploadVersion":true}}`))
 		case request.Method == http.MethodGet && request.URL.Path == "/api/v1/apps/42":
-			_, _ = response.Write([]byte(`{"app":{"id":42,"packageId":"cloud.lazycat.example.app","versions":[]}}`))
+			_, _ = response.Write([]byte(`{"app":{"id":42,"packageId":"` + historicalPackageID + `","name":"Existing App","versions":[]}}`))
 		case request.Method == http.MethodPost && request.URL.Path == "/api/v1/apps/42/versions":
 			posts++
 			response.WriteHeader(http.StatusCreated)
@@ -150,8 +156,38 @@ func TestClientFindsExistingApplicationByNameWhenPackageSearchIsEmpty(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(queries, ",") != packageID+","+appName || posts != 1 || result.AppID != "42" || result.VersionID != "56" || result.Created || result.Existing {
-		t.Fatalf("queries=%v posts=%d result=%#v", queries, posts, result)
+	if packageQueries != 1 || nameResolutions != 1 || posts != 1 || result.AppID != "42" || result.VersionID != "56" || result.PackageID != historicalPackageID || result.Created || result.Existing {
+		t.Fatalf("packageQueries=%d nameResolutions=%d posts=%d result=%#v", packageQueries, nameResolutions, posts, result)
+	}
+}
+
+func TestClientStopsWhenNameResolutionIsAmbiguous(t *testing.T) {
+	posts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodPost {
+			posts++
+		}
+		if request.URL.Path == "/api/v1/apps" {
+			_, _ = response.Write([]byte(`{"apps":[]}`))
+			return
+		}
+		if request.URL.Path == "/api/v1/apps/by-name" {
+			response.WriteHeader(http.StatusConflict)
+			_, _ = response.Write([]byte(`{"error":{"code":"APP_NAME_AMBIGUOUS","message":"Multiple writable apps have this name"}}`))
+			return
+		}
+		http.NotFound(response, request)
+	}))
+	defer server.Close()
+	client, err := private.New(private.Options{BaseURL: server.URL, Token: "lcst_test", HTTPClient: server.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Publish(context.Background(), private.Request{
+		PackageID: packageID, Name: "Duplicate App", Version: version, DownloadURL: downloadURL, SHA256: digest,
+	})
+	if !errors.Is(err, lpkgo.ErrConflict) || posts != 0 {
+		t.Fatalf("err=%v posts=%d", err, posts)
 	}
 }
 

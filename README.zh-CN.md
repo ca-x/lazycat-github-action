@@ -446,7 +446,7 @@ PRIVATE_STORE_GROUP_CODES=ABC123,LATE23
 
 `APP_ID` 和 `PRIVATE_STORE_GROUP_CODES` 都是可选项。分组码属于访问凭据，必须以逗号分隔的 GitHub Secret 保存。它只用于匿名查询线上最新版本，由 toolkit 默认通过 `X-Group-Codes` 请求头发送，不会进入 Action inputs、outputs、summary 或结果 JSON。toolkit 会清除 Cookie jar 并禁止重定向，防止分组码被转发到其他来源。
 
-启用 `skip_if_version_exists: true` 后，Action 会在读取 `APPSTORE_TOKEN` 前通过精确包名查询喵喵商店。版本相同则成功跳过；应用不存在时继续发布；其他查询错误直接失败。真正发布时，如果没有 `APP_ID`，写客户端会先按 `packageId` 精确查找；如果商店搜索只索引应用名称，再用 `stores.private.name` 回退查询。只有候选应用的 `packageId` 与已校验 LPK 完全一致时才会复用，否则创建新应用或由商店返回冲突。提供 `APP_ID` 时，会先确认该应用的 `packageId` 与 LPK 一致，再增加版本。
+启用 `skip_if_version_exists: true` 后，Action 会在读取 `APPSTORE_TOKEN` 前通过精确包名查询喵喵商店。版本相同则成功跳过；应用不存在时继续发布；其他查询错误直接失败。真正发布时，如果没有 `APP_ID`，写客户端会先按 `packageId` 精确查找，再用 `stores.private.name` 调用带 Token 的 `GET /api/v1/apps/by-name?name=...` 接口。商店只返回当前 Token 有权上传版本的唯一精确同名应用；404 时创建新应用，同名歧义或鉴权错误直接停止。按名称解析出的历史应用可以保留不同的 `packageId`，Action 只使用其数字 ID 追加新的外部版本。提供 `APP_ID` 时，仍会先确认该应用的 `packageId` 与 LPK 一致。
 
 ### Release/商店对账
 

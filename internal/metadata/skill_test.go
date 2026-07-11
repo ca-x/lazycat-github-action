@@ -220,7 +220,7 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 		"release-store-reconciliation":      {"精确命名", "GitHub sha256 digest", "本地 SHA256", "官方商店补交", "喵喵商店", "独立跳过", "不重建", "不改名", "不猜测"},
 		"official-file-upload-stage":        {"本地 LPK 文件", "multipart", "store.official.upload", "store.official.review", "不得打印"},
 		"named-version-template-groups":     {"version", "build", "{version}.{build}.0", "20260603.1.0", "fail closed"},
-		"private-name-fallback":             {"stores.private.name", "packageId", "应用名称", "完全一致", "停止"},
+		"private-name-fallback":             {"stores.private.name", "packageId", "应用名称", "/api/v1/apps/by-name", "404", "停止"},
 		"image-version-downgrade-guard":     {"allow_downgrade: false", "SemVer", "VERSION_DOWNGRADE_BLOCKED", "同版本", "明确确认"},
 	} {
 		expected, found := promptIDs[id]
