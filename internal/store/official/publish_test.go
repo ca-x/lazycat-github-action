@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -78,6 +80,51 @@ func TestPublisherUsesToolkitProtocolAndReturnsVerifiedResult(t *testing.T) {
 	}
 }
 
+func TestPublisherUploadsLPKWithTemplateControls(t *testing.T) {
+	path, digest := publishTemplatedLPK(t)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v3/developer/app/check/exist":
+			_, _ = response.Write([]byte(`{"exist":true}`))
+		case "/api/v3/developer/app/lpk/upload":
+			if err := request.ParseMultipartForm(2 << 20); err != nil {
+				t.Error(err)
+			}
+			file, _, err := request.FormFile("file")
+			if err != nil {
+				t.Error(err)
+			} else {
+				data, readErr := io.ReadAll(file)
+				closeErr := file.Close()
+				if readErr != nil || closeErr != nil {
+					t.Error(errors.Join(readErr, closeErr))
+				}
+				uploadedDigest := fmt.Sprintf("%x", sha256.Sum256(data))
+				if uploadedDigest != digest {
+					t.Errorf("uploaded digest=%s want=%s", uploadedDigest, digest)
+				}
+			}
+			_, _ = fmt.Fprintf(response, `{"package":"cloud.lazycat.apps.publish-demo","version":"1.0.0","iconPath":"/icon.png","url":"/demo.lpk","sha256":"%s","unsupportedPlatforms":[],"minOsVersion":"1.3.0","lpkSize":123,"imageSize":0}`, digest)
+		case "/api/v3/developer/app/cloud.lazycat.apps.publish-demo/review/create":
+			_, _ = response.Write([]byte(`{"success":true}`))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	result, err := (official.Publisher{BaseURL: server.URL, HTTPClient: server.Client()}).Publish(context.Background(), official.Request{
+		Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Published || result.PackageID != "cloud.lazycat.apps.publish-demo" || result.Version != "1.0.0" || result.SHA256 != digest {
+		t.Fatalf("result=%#v", result)
+	}
+}
+
 func TestPublisherRejectsUntrustedUploadMetadata(t *testing.T) {
 	path, digest := publishLPK(t)
 	reviewed := false
@@ -99,7 +146,7 @@ func TestPublisherRejectsUntrustedUploadMetadata(t *testing.T) {
 		Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
 		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
 	})
-	if err == nil || !reviewed {
+	if err == nil || reviewed {
 		t.Fatalf("err=%v reviewed=%v", err, reviewed)
 	}
 }
@@ -129,10 +176,24 @@ func TestPublisherDoesNotForwardTokenAcrossRedirect(t *testing.T) {
 }
 
 func publishLPK(t *testing.T) (string, string) {
+	return publishLPKWithManifest(t, "application:\n  subdomain: publish-demo\n  image: registry.lazycat.cloud/demo/app:1.0.0\n", false)
+}
+
+func publishTemplatedLPK(t *testing.T) (string, string) {
+	return publishLPKWithManifest(t, `application:
+  subdomain: publish-demo
+  image: registry.lazycat.cloud/demo/app:1.0.0
+{{- if .U.multi_instance }}
+  multi_instance: true
+{{- end }}
+`, true)
+}
+
+func publishLPKWithManifest(t *testing.T, manifestData string, allowTemplate bool) (string, string) {
 	t.Helper()
 	root := fstest.MapFS{
 		"package.yml":  {Data: []byte("package: cloud.lazycat.apps.publish-demo\nversion: 1.0.0\nname: Publish Demo\nmin_os_version: 1.3.0\nlocales:\n  en:\n    name: Publish Demo\n"), Mode: 0o644},
-		"manifest.yml": {Data: []byte("application:\n  subdomain: publish-demo\n  image: registry.lazycat.cloud/demo/app:1.0.0\n"), Mode: 0o644},
+		"manifest.yml": {Data: []byte(manifestData), Mode: 0o644},
 		"icon.png":     {Data: []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}, Mode: 0o644},
 	}
 	path := filepath.Join(t.TempDir(), "application.lpk")
@@ -140,7 +201,7 @@ func publishLPK(t *testing.T) (string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lpk.Write(context.Background(), file, lpk.WriteRequest{Layout: lpk.LayoutV2, Files: root, Strict: true}); err != nil {
+	if _, err := lpk.Write(context.Background(), file, lpk.WriteRequest{Layout: lpk.LayoutV2, Files: root, Strict: true, AllowManifestTemplate: allowTemplate}); err != nil {
 		_ = file.Close()
 		t.Fatal(err)
 	}

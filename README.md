@@ -4,7 +4,7 @@
 
 `ca-x/lazycat-github-action` checks Docker image versions, updates explicit LazyCat Manifest targets, builds LPK files, creates update pull requests, and attaches validated LPK files to GitHub Releases.
 
-The Action uses [`github.com/lib-x/lzc-toolkit-go`](https://github.com/lib-x/lzc-toolkit-go) `v0.2.0`. Its compatibility baseline is `@lazycatcloud/lzc-cli` `2.0.8`.
+The Action uses [`github.com/lib-x/lzc-toolkit-go`](https://github.com/lib-x/lzc-toolkit-go) `v0.3.0`. Its compatibility baseline is `@lazycatcloud/lzc-cli` `2.0.8`.
 
 Current scope:
 

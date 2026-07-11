@@ -2,9 +2,13 @@ package official
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,6 +23,8 @@ import (
 )
 
 var sha256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+const maxResponseBytes = 4 << 20
 
 type Request struct {
 	Provider        auth.TokenProvider
@@ -72,12 +78,6 @@ func (publisher Publisher) Publish(ctx context.Context, request Request) (Result
 	if len(changelogs) == 0 {
 		return Result{}, publishError(lpkgo.CodeInvalidArgument, errors.New("at least one changelog locale is required"))
 	}
-	file, err := os.Open(request.LPKPath)
-	if err != nil {
-		return Result{}, publishError(lpkgo.CodeCommandFailed, errors.New("unable to open LPK for official publishing"))
-	}
-	defer file.Close()
-
 	var application *appstore.CreateApplicationRequest
 	if request.CreateIfMissing {
 		language := strings.TrimSpace(request.Application.Language)
@@ -100,24 +100,187 @@ func (publisher Publisher) Publish(ctx context.Context, request Request) (Result
 	if filename == "" {
 		filename = filepath.Base(request.LPKPath)
 	}
-	client := appstore.New(appstore.Options{BaseURL: publisher.BaseURL, HTTPClient: httpx.NoRedirect(publisher.HTTPClient, 30*time.Second), Token: request.Provider})
-	published, err := client.Publish(ctx, appstore.PublishRequest{
-		Package: file, FileName: filename, Changelogs: changelogs,
-		CreateIfMissing: request.CreateIfMissing, Application: application,
-	})
+	token, err := request.Provider.Token(ctx)
 	if err != nil {
 		return Result{}, sanitizePublishError(err)
 	}
-	uploadPackage := strings.TrimSpace(published.Upload.Package)
-	uploadVersion := strings.TrimSpace(published.Upload.Version)
-	uploadDigest := strings.ToLower(strings.TrimSpace(published.Upload.SHA256))
+	baseURL := strings.TrimRight(strings.TrimSpace(publisher.BaseURL), "/")
+	if baseURL == "" {
+		baseURL = appstore.DefaultBaseURL
+	}
+	httpClient := httpx.NoRedirect(publisher.HTTPClient, 30*time.Second)
+	client := appstore.New(appstore.Options{BaseURL: baseURL, HTTPClient: httpClient, Token: auth.StaticToken(token)})
+	exists, err := client.CheckApplication(ctx, packageID)
+	if err != nil {
+		return Result{}, sanitizePublishError(err)
+	}
+	created := false
+	if !exists {
+		if !request.CreateIfMissing || application == nil {
+			return Result{}, publishError(lpkgo.CodeNotFound, errors.New("official application does not exist"))
+		}
+		if err := client.CreateApplication(ctx, *application); err != nil {
+			return Result{}, sanitizePublishError(err)
+		}
+		created = true
+	}
+	upload, err := uploadLPK(ctx, httpClient, baseURL, token, request.LPKPath, filename)
+	if err != nil {
+		return Result{}, err
+	}
+	uploadPackage := strings.TrimSpace(upload.Package)
+	uploadVersion := strings.TrimSpace(upload.Version)
+	uploadDigest := strings.ToLower(strings.TrimSpace(upload.SHA256))
 	if uploadPackage != packageID || uploadVersion != version || uploadDigest != digest {
 		return Result{}, publishError(lpkgo.CodeRemoteUnavailable, errors.New("official upload metadata does not match the verified LPK"))
 	}
+	if err := submitReview(ctx, httpClient, baseURL, token, upload, changelogs); err != nil {
+		return Result{}, err
+	}
 	return Result{
-		Published: true, Created: published.Created, PackageID: uploadPackage, Version: uploadVersion,
-		UploadURL: strings.TrimSpace(published.Upload.URL), SHA256: uploadDigest,
+		Published: true, Created: created, PackageID: uploadPackage, Version: uploadVersion,
+		UploadURL: strings.TrimSpace(upload.URL), SHA256: uploadDigest,
 	}, nil
+}
+
+func uploadLPK(ctx context.Context, client *http.Client, baseURL, token, filename, formFilename string) (appstore.UploadInfo, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return appstore.UploadInfo{}, publishError(lpkgo.CodeCommandFailed, errors.New("unable to open LPK for official publishing"))
+	}
+	defer file.Close()
+
+	reader, writer := io.Pipe()
+	multipartWriter := multipart.NewWriter(writer)
+	done := make(chan error, 1)
+	go func() {
+		part, writeErr := multipartWriter.CreateFormFile("file", formFilename)
+		if writeErr == nil {
+			_, writeErr = io.Copy(part, contextReader{ctx: ctx, reader: file})
+		}
+		if writeErr == nil {
+			writeErr = multipartWriter.Close()
+		}
+		if writeErr != nil {
+			_ = writer.CloseWithError(writeErr)
+		} else {
+			writeErr = writer.Close()
+		}
+		done <- writeErr
+	}()
+
+	request, err := authenticatedRequest(ctx, http.MethodPost, baseURL+"/api/v3/developer/app/lpk/upload", token, reader)
+	if err != nil {
+		_ = reader.CloseWithError(err)
+		<-done
+		return appstore.UploadInfo{}, err
+	}
+	request.Header.Set("Content-Type", multipartWriter.FormDataContentType())
+	body, requestErr := doRequest(client, request)
+	if requestErr != nil {
+		_ = reader.CloseWithError(requestErr)
+	}
+	writeErr := <-done
+	if requestErr != nil {
+		return appstore.UploadInfo{}, requestErr
+	}
+	if writeErr != nil {
+		return appstore.UploadInfo{}, publishError(lpkgo.CodeCommandFailed, errors.New("unable to stream LPK for official publishing"))
+	}
+	var upload appstore.UploadInfo
+	if err := json.Unmarshal(body, &upload); err != nil {
+		return appstore.UploadInfo{}, publishError(lpkgo.CodeRemoteUnavailable, errors.New("official platform returned invalid upload metadata"))
+	}
+	if strings.TrimSpace(upload.Package) == "" || strings.TrimSpace(upload.Version) == "" || strings.TrimSpace(upload.URL) == "" || strings.TrimSpace(upload.SHA256) == "" {
+		return appstore.UploadInfo{}, publishError(lpkgo.CodeRemoteUnavailable, errors.New("official platform returned incomplete upload metadata"))
+	}
+	return upload, nil
+}
+
+func submitReview(ctx context.Context, client *http.Client, baseURL, token string, upload appstore.UploadInfo, changelogs map[string]string) error {
+	body := struct {
+		Version struct {
+			Package              string            `json:"package"`
+			Name                 string            `json:"name"`
+			IconPath             string            `json:"icon_path"`
+			PackagePath          string            `json:"pkg_path"`
+			PackageHash          string            `json:"pkg_hash"`
+			UnsupportedPlatforms []string          `json:"unsupported_platforms"`
+			MinOSVersion         string            `json:"min_os_version"`
+			LPKSize              int64             `json:"lpk_size"`
+			ImageSize            int64             `json:"image_size"`
+			Changelogs           map[string]string `json:"changelogs"`
+		} `json:"version"`
+	}{}
+	body.Version.Package = upload.Package
+	body.Version.Name = upload.Version
+	body.Version.IconPath = upload.IconPath
+	body.Version.PackagePath = upload.URL
+	body.Version.PackageHash = upload.SHA256
+	body.Version.UnsupportedPlatforms = append([]string(nil), upload.UnsupportedPlatforms...)
+	body.Version.MinOSVersion = upload.MinOSVersion
+	body.Version.LPKSize = upload.LPKSize
+	body.Version.ImageSize = upload.ImageSize
+	body.Version.Changelogs = changelogs
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return publishError(lpkgo.CodeInvalidArgument, errors.New("unable to encode official review request"))
+	}
+	target := baseURL + "/api/v3/developer/app/" + url.PathEscape(strings.TrimSpace(upload.Package)) + "/review/create"
+	request, err := authenticatedRequest(ctx, http.MethodPost, target, token, strings.NewReader(string(encoded)))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	_, err = doRequest(client, request)
+	return err
+}
+
+func authenticatedRequest(ctx context.Context, method, target, token string, body io.Reader) (*http.Request, error) {
+	request, err := http.NewRequestWithContext(ctx, method, target, body)
+	if err != nil {
+		return nil, publishError(lpkgo.CodeInvalidArgument, errors.New("unable to create official platform request"))
+	}
+	request.Header.Set("X-User-Token", token)
+	request.AddCookie(&http.Cookie{Name: "userToken", Value: token, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	return request, nil
+}
+
+func doRequest(client *http.Client, request *http.Request) ([]byte, error) {
+	response, err := client.Do(request)
+	if err != nil {
+		if request.Context().Err() != nil {
+			return nil, publishError(lpkgo.CodeCancelled, request.Context().Err())
+		}
+		return nil, publishError(lpkgo.CodeRemoteUnavailable, errors.New("official platform request failed"))
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+	if err != nil || len(body) > maxResponseBytes {
+		return nil, publishError(lpkgo.CodeRemoteUnavailable, errors.New("official platform response could not be read safely"))
+	}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		code := lpkgo.CodeRemoteUnavailable
+		if response.StatusCode == http.StatusUnauthorized {
+			code = lpkgo.CodeUnauthenticated
+		} else if response.StatusCode == http.StatusForbidden {
+			code = lpkgo.CodePermissionDenied
+		}
+		return nil, &lpkgo.Error{Code: code, Op: "store.official.request", StatusCode: response.StatusCode, Retryable: response.StatusCode >= 500, Cause: errors.New("official platform rejected the request")}
+	}
+	return body, nil
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (reader contextReader) Read(data []byte) (int, error) {
+	if err := reader.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return reader.reader.Read(data)
 }
 
 func sanitizePublishError(err error) error {

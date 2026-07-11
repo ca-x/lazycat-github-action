@@ -5,7 +5,7 @@ import "github.com/ca-x/lazycat-github-action/internal/platform"
 var ActionVersion = "dev"
 
 const (
-	ToolkitVersion      = "v0.2.0"
+	ToolkitVersion      = "v0.3.0"
 	ReferenceCLIPackage = "@lazycatcloud/lzc-cli"
 	ReferenceCLIVersion = "2.0.8"
 )
