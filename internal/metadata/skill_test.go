@@ -80,4 +80,71 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	if !strings.Contains(string(workflow), "PRIVATE_STORE_GROUP_CODES") || !strings.Contains(string(workflow), "GitHub Secret") || !strings.Contains(string(workflow), "Repository overrides Organization") {
 		t.Fatal("workflow reference must document private group codes as a GitHub Secret")
 	}
+	for _, required := range []string{
+		"historical LPK migration",
+		"Go Template Manifest",
+		"git ls-files '*.lpk'",
+		"total bytes",
+		"before deleting tracked LPKs",
+		"declines",
+		"preserve every tracked LPK",
+		"*.lpk",
+		"versioned-release-asset: true",
+		"<package-id>-v<version>.lpk",
+		"never execute or evaluate",
+		"if`, `else`, `end`, `with`, and `range",
+		"fail closed",
+		"Do Not",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("SKILL.md missing expanded contract %q", required)
+		}
+	}
+	for _, name := range []string{"references/configuration.md", "references/workflows.md", "assets/lazycat-workflow.yml"} {
+		data, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), "versioned-release-asset") {
+			t.Fatalf("%s is missing versioned-release-asset", name)
+		}
+	}
+	for _, name := range []string{"references/configuration.md", "references/workflows.md"} {
+		data, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, required := range []string{"Go Template", "never evaluat", "fail closed"} {
+			if !strings.Contains(string(data), required) {
+				t.Fatalf("%s is missing template contract %q", name, required)
+			}
+		}
+	}
+	prompts, err := os.ReadFile(filepath.Join(root, "test-prompts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var promptCases []struct {
+		ID       string `json:"id"`
+		Prompt   string `json:"prompt"`
+		Expected string `json:"expected"`
+	}
+	if err := json.Unmarshal(prompts, &promptCases); err != nil {
+		t.Fatal(err)
+	}
+	if len(promptCases) != 6 {
+		t.Fatalf("test-prompts.json cases=%d, want 6", len(promptCases))
+	}
+	promptIDs := make(map[string]bool, len(promptCases))
+	for _, prompt := range promptCases {
+		if prompt.ID == "" || prompt.Prompt == "" || prompt.Expected == "" {
+			t.Fatalf("incomplete test prompt=%#v", prompt)
+		}
+		promptIDs[prompt.ID] = true
+	}
+	for _, id := range []string{"historical-lpk-migration", "go-template-manifest-preservation"} {
+		if !promptIDs[id] {
+			t.Fatalf("test-prompts.json missing %q", id)
+		}
+	}
 }

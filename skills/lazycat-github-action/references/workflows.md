@@ -40,10 +40,19 @@ jobs:
       config: .github/lazycat-action.yml
       toolchains: go
       go-version: 1.25.x
+      versioned-release-asset: true
     secrets: inherit
 ```
 
-Use `update.version_source.type: git`. The workflow updates `package.yml.version`, builds, uploads the Release Asset, and syncs the version to the default branch.
+Use `update.version_source.type: git`. The workflow updates `package.yml.version`, builds, uploads the Release Asset, and syncs the version to the default branch. With `versioned-release-asset: true`, the Release filename is `<package-id>-v<version>.lpk`; both stores receive the same verified URL and SHA256.
+
+## Historical LPK migration checkpoint
+
+Before writing Release automation, run `git ls-files '*.lpk'`, then report the tracked file count and total bytes. Stop for an explicit yes/no confirmation immediately before deleting those files, even if broad repository editing was already authorized. A decline preserves every tracked LPK. Approval removes only the reported files, verifies the result, and adds `*.lpk` plus the generated output directory to `.gitignore`; ignore rules alone do not untrack files. Never rewrite history or backfill older Releases without a separate request.
+
+## Go Template Manifest workflow safety
+
+Detect standalone `if`/`else`/`end`/`with`/`range` controls before parsing; you must never evaluate a repository Go Template Manifest. Protect and restore exact control lines, leave inline expressions unchanged, and fail closed on collisions, invalid protected YAML, marker loss/duplication, ambiguous targets, or an unexpected template diff. Compare control lines before/after and run the actual LazyCat build or validation command.
 
 ## Release-triggered private/official publication
 

@@ -31,6 +31,12 @@ stores:
 
 Unknown fields fail validation. Paths must remain under `project.root`. Output must end in `.lpk`.
 
+`project.output` is the verified build output and validation Artifact. When the caller sets reusable-workflow input `versioned-release-asset: true`, the workflow copies that verified file to `<package-id>-v<version>.lpk` for the GitHub Release and both stores. The copy stays beside the verified LPK under `project.root`; its URL and SHA256 must be identical for official and private publication.
+
+## Go Template Manifest handling
+
+Manifests may contain standalone Go Template controls `if`, `else`, `end`, `with`, and `range`. Detect them before YAML parsing, never evaluate repository templates, protect each control line during inspection/editing, and restore its exact bytes, indentation, order, and trim markers. Inline expressions remain unchanged. Fail closed on marker collisions, missing/duplicate markers, invalid protected YAML, ambiguous image targets, or changed control lines; do not replace template values with guessed deployment data.
+
 ## Version source
 
 - `type: image`: Docker automation; `image` must name one configured image ID.

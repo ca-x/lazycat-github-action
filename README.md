@@ -37,6 +37,16 @@ Use the composite Action directly when another workflow already handles GitHub m
 
 Callers do not compile this repository. The bootstrap downloads a checksum-verified Action binary for the Runner architecture.
 
+## Using the Skill
+
+Ask an agent naturally, for example: “Inspect this LazyCat repository, create the GitHub workflows for versioned Release publishing to both stores, and preserve the Go Template Manifest.” The repository Skill inspects `package.yml`, `lzc-build.yml`, the configured Manifest, toolchain files, `.gitignore`, tracked `*.lpk` files, and existing `.github/` content. It creates or updates `.github/lazycat-action.yml` and the necessary `.github/workflows/*.yml`, then reports every changed file, verification result, unresolved decision, and required GitHub Secret name without reading Secret values.
+
+The Skill pauses before generated project files when paths, image ownership, strategy, stores, or toolchains cannot be proven. For historical LPK migration it runs `git ls-files '*.lpk'`, reports the tracked count and total bytes, and shows a separate visible STOP immediately before deletion. Declining preserves all files. Approval removes only the inventoried files and adds `*.lpk`/output ignore rules; it never rewrites history or backfills old Releases without a separate request.
+
+For version-bearing releases, set `versioned-release-asset: true`. The verified build output remains the validation Artifact, while the Release and both stores use the same `<package-id>-v<version>.lpk` URL and SHA256.
+
+Go Template Manifests are never evaluated. Standalone `if`, `else`, `end`, `with`, and `range` control lines are protected and restored exactly, including indentation and trim markers; inline expressions remain untouched. The edit fails closed on marker loss/collision, invalid protected YAML, ambiguous targets, or unexpected template changes, and verifies the control lines plus the real build before completion.
+
 ## Runner architecture and LazyCat target
 
 The Action host and the LazyCat application target are separate:

@@ -18,5 +18,15 @@
     "id": "automatic-workflow-creation",
     "prompt": "检查当前 LazyCat 项目，直接帮我创建定时检查镜像和 release 发布需要的 GitHub workflows，不要只给示例。",
     "expected": "先检查 package/build/manifest 和现有 workflows；在授权范围内创建或更新 .github/lazycat-action.yml 与 .github/workflows/*.yml；保留无关 jobs；运行 actionlint；报告文件、Secrets 和未决占位值。"
+  },
+  {
+    "id": "historical-lpk-migration",
+    "prompt": "这个 LazyCat 应用仓库里有很多历史 LPK。请迁移为 GitHub Release 自动发布带明确版本号的 LPK，同时发布官方商店和喵喵私有商店。你可以直接处理。",
+    "expected": "先用 git ls-files '*.lpk' 清点并报告 tracked LPK 数量、总字节和路径；在删除前可见 STOP 并要求明确 yes/no，即使用户已说可以直接处理；拒绝时保留全部文件，批准时只删除已清点文件、验证 tracked 数量并添加 *.lpk/输出目录 ignore；不擅自重写历史或回填旧 Release；设置 versioned-release-asset: true，使用 <package-id>-v<version>.lpk，并确保两个商店使用相同 URL 和 SHA256。"
+  },
+  {
+    "id": "go-template-manifest-preservation",
+    "prompt": "Manifest 有 Go Template 条件块。请自动创建 GitHub workflows 更新两个镜像并发布商店，不要破坏模板。",
+    "expected": "在 YAML 处理前识别独立 if/else/end/with/range 控制行；绝不执行或求值模板；逐字节保护并恢复控制行、缩进和 trim marker，内联表达式保持原样；marker 冲突、丢失/重复、受保护 YAML 无效、镜像目标歧义或模板 diff 异常时 fail closed；对比前后控制行并运行真实 LazyCat build/validation；仍须确认无法从仓库证明的版本来源镜像和商店集合。"
   }
 ]

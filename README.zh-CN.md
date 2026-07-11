@@ -37,6 +37,16 @@ jobs:
 
 调用方不需要编译本项目。启动脚本会按 Runner 架构下载 Action 二进制，并校验发布包 SHA256。
 
+## 使用 Skill
+
+可以直接用自然语言要求 Agent，例如：“检查这个 LazyCat 仓库，创建同时发布两个商店的版本化 GitHub Release workflow，并保护 Go Template Manifest。”仓库 Skill 会检查 `package.yml`、`lzc-build.yml`、配置的 Manifest、工具链文件、`.gitignore`、Git 已跟踪的 `*.lpk` 和已有 `.github/` 内容；随后创建或更新 `.github/lazycat-action.yml` 与所需的 `.github/workflows/*.yml`，并报告所有变更文件、验证结果、未决问题和必需的 GitHub Secret 名称，但不会读取 Secret 值。
+
+如果路径、镜像归属、策略、商店或工具链无法从仓库证明，Skill 会在生成项目文件前暂停确认。迁移历史 LPK 时，它先运行 `git ls-files '*.lpk'`，报告已跟踪文件数量和总字节数，并在删除前显示单独、醒目的 STOP。用户拒绝时保留全部文件；批准后只删除清点过的文件，并添加 `*.lpk` 和输出目录 ignore 规则。除非另行提出请求，否则绝不重写 Git 历史或回填旧 Release。
+
+需要带版本号的 Release 文件时，设置 `versioned-release-asset: true`。原始已验证构建输出继续作为 validation Artifact；Release 和两个商店统一使用 `<package-id>-v<version>.lpk` 的 URL 与 SHA256。
+
+Go Template Manifest 永远不会被执行或求值。独立的 `if`、`else`、`end`、`with`、`range` 控制行会连同缩进和 trim marker 被原样保护、恢复，内联表达式保持不变。marker 丢失/冲突、保护后 YAML 无效、目标歧义或模板意外变化时会 fail closed；完成前还会验证控制行和真实构建。
+
 ## Runner 架构和 LazyCat 目标架构
 
 Action 的运行机器和 LazyCat 应用目标是两件事：

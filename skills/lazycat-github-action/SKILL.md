@@ -1,11 +1,11 @@
 ---
 name: lazycat-github-action
-description: Use this skill to automatically inspect a LazyCat LPK repository and create or update its .github/lazycat-action.yml and GitHub workflows. Trigger whenever the user asks to set up, generate, automate, review, or debug LazyCat GitHub Actions, including Docker image updates, stable/beta/nightly channels, explicit service binding, LazyCat/direct/mirror delivery, static Web or Exec builds, official or MiaoMiao store publishing, Release Assets, and ARM64 runners that must still produce linux/amd64 applications.
+description: Use when setting up, generating, reviewing, or debugging LazyCat GitHub Actions for LPK repositories, including Docker image updates, release/store publishing, historical LPK migration or cleanup, versioned Release assets, Go Template Manifest preservation, static or Exec builds, and ARM64 runners targeting linux/amd64.
 ---
 
 # LazyCat GitHub Action
 
-Automatically create or update `ca-x/lazycat-github-action@v1` configuration and workflows from the application's real package, build, and Manifest files. Keep image targets, build tools, publication policy, and target architecture explicit.
+Use it to automatically inspect the repository, then create or update `ca-x/lazycat-github-action@v1` configuration and workflows from the application's real package, build, and Manifest files. Keep image targets, build tools, publication policy, and target architecture explicit.
 
 ## Primary outcome: working GitHub workflows
 
@@ -40,8 +40,29 @@ Read these files when present:
 3. The configured Manifest: application image, services, routes, Exec launch commands.
 4. Project toolchain files: `go.mod`, `Cargo.toml`, `rust-toolchain.toml`, `package.json`, lockfile, Dockerfile.
 5. Existing `.github/lazycat-action.yml` and workflows.
+6. `git status --short`, tracked historical LPKs, `.gitignore`, and pre-existing or untracked `.github/` files.
 
 Do not infer a “main service” from route order, service order, or the first image. Ask for or identify the exact image that drives the application version and the exact service/application field each image updates.
+
+## Historical LPK migration
+
+Before generating Release automation, inventory tracked LPKs with `git ls-files '*.lpk'`. Report the file count and total bytes; do not confuse untracked files with Git history. Keep the configured build output outside packaged content.
+
+## 🔴 CHECKPOINT — before deleting tracked LPKs
+
+Show the tracked paths, count, and total bytes, recommend cleanup, and **STOP for an explicit yes/no answer immediately before deletion**. General authorization such as “handle it directly” is not deletion approval.
+
+- If the user declines, preserve every tracked LPK and report that the migration remains incomplete.
+- If the user approves, remove only the inventoried tracked LPKs, verify the post-delete tracked count, and add `*.lpk` plus the generated output directory to `.gitignore`. An ignore rule does not untrack a file by itself.
+- Never rewrite Git history or backfill historical GitHub Releases unless the user separately requests that work.
+
+Future version-bearing releases use `versioned-release-asset: true`. The verified build output remains the validation Artifact; Release upload and both store consumers use the same copied `<package-id>-v<version>.lpk`, URL, and SHA256.
+
+## Go Template Manifest safety
+
+Before YAML handling, detect standalone Go Template controls: `if`, `else`, `end`, `with`, and `range`, including indentation and trim markers. You must never execute or evaluate repository templates or invent deployment values.
+
+Protect every standalone control line, perform the narrow YAML inspection/edit, and restore each line byte-for-byte in its original order. Leave inline expressions such as `PASSWORD={{.U.password}}` untouched, and fail closed on a reserved-marker collision, invalid protected YAML, lost or duplicated markers, missing or duplicate image targets, or any unexpected control-line/diff change. Verify the ordered control lines before and after, then run the real LazyCat build or validation command. An ordinary YAML parse/serialize round trip over the raw templated Manifest is unsafe.
 
 ## 🔴 CHECKPOINT — before writing project files
 
@@ -106,6 +127,15 @@ The reusable workflow's `toolchains` input must match `build.toolchains` in Acti
 
 Set `build.run_buildscript: false` explicitly when `lzc-build.yml` has no `buildscript`; the Action default is `true`. Add `secrets: inherit` or explicit secret mappings only when the generated workflow actually needs Registry or store credentials. A public-image scheduled PR workflow with stores disabled should not inherit unrelated repository Secrets.
 
+For versioned Release assets, set the reusable workflow input exactly:
+
+```yaml
+with:
+  versioned-release-asset: true
+```
+
+The final asset name is `<package-id>-v<version>.lpk`. Verify that package ID, package version, Release tag, asset filename, store download URL, and SHA256 agree; official and private stores must receive the same URL and SHA.
+
 Copy [assets/lazycat-action.yml](assets/lazycat-action.yml) and [assets/lazycat-workflow.yml](assets/lazycat-workflow.yml) as starting points, then replace only values confirmed from the inspected project. Read [references/workflows.md](references/workflows.md) for tag/release, permissions, secrets, PR, and store examples.
 
 ## Configure stores
@@ -147,17 +177,33 @@ Before finishing:
 6. Confirm permissions include `contents: write` and `pull-requests: write` for the reusable workflow.
 7. Confirm secrets are referenced, never embedded.
 8. Confirm `PRIVATE_STORE_GROUP_CODES` is a GitHub Secret when private groups are required.
-9. Run `actionlint` and the project's build/test commands.
+9. Confirm standalone Go Template control lines are byte-identical and were never evaluated.
+10. Confirm a versioned Release and both stores resolve the same asset URL and SHA256.
+11. Run `actionlint` and the project's build/test commands.
 
 ## Common failures
 
-| Symptom | Correction |
-|---|---|
-| Wrong service image updated | Add or correct explicit `service`; never infer it |
-| Official publish rejects registry | Use `delivery.mode: lazycat` for every managed runtime image |
-| ARM64 Runner produced ARM app | Fix buildscript to consume `LAZYCAT_TARGET_ARCH=amd64` |
-| Private publish has no URL | Upload/resolve the GitHub Release Asset before `publish-private` |
-| Equal store version is submitted again | Set that store's `skip_if_version_exists: true` and inspect `onlineVersion` |
-| Private application is invisible | Add `PRIVATE_STORE_GROUP_CODES` as a GitHub Secret; never commit the codes |
-| GitHub-hosted Runner cannot use local login | Store token as a GitHub secret; local files are not inherited |
-| Docker unexpectedly required | Remove `docker` toolchain unless buildscript actually invokes Docker |
+| Symptom | First repair | Still failing |
+|---|---|---|
+| Wrong service image updated | Correct the explicit `service`; never infer it | STOP if the target is missing or duplicated |
+| Templated YAML does not parse | Protect supported standalone controls | STOP on invalid protected YAML or marker collision |
+| Control-line order/hash changed | Restore exact original control lines | STOP without writing if any marker is lost or duplicated |
+| Tracked-LPK inventory fails | Re-run `git ls-files '*.lpk'` and byte accounting | STOP; do not delete from an incomplete inventory |
+| Post-delete count mismatches | Compare against the approved inventory | STOP and report the remaining tracked files |
+| Versioned asset identity differs | Recompute name, URL, and SHA from verified LPK | STOP before either store submission |
+| Official publish rejects registry | Use `delivery.mode: lazycat` for every managed runtime image | STOP if any managed runtime remains direct/mirror |
+| ARM64 Runner produced ARM app | Honor `LAZYCAT_TARGET_ARCH=amd64` | STOP until the build proves Linux x86_64 output |
+| Private publish has no URL | Resolve the verified GitHub Release Asset | STOP before `publish-private` |
+| Equal store version is submitted again | Enable `skip_if_version_exists` and inspect `onlineVersion` | STOP on lookup errors other than not-found |
+| Private application is invisible | Add `PRIVATE_STORE_GROUP_CODES` as a GitHub Secret | STOP rather than commit or print group codes |
+
+## Do Not
+
+- Do not delete tracked LPKs based only on broad repository-edit authorization.
+- Do not claim `.gitignore` removed files that are already tracked.
+- Do not rewrite history or backfill old Releases as part of routine cleanup.
+- Do not execute, render, or evaluate a Go Template Manifest with invented values.
+- Do not round-trip a raw templated Manifest through an ordinary YAML serializer.
+- Do not publish an unversioned final asset when versioned naming was requested.
+- Do not overwrite pre-existing or untracked `.github/` work.
+- Do not expose Secret values in configuration, logs, outputs, summaries, or examples.
