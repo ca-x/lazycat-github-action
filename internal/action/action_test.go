@@ -109,7 +109,7 @@ func TestRunPublishesOfficialStoreAndReturnsStableJSON(t *testing.T) {
 			}
 			return publishflow.Result{
 				Artifact: lpkcheckResult(filepath.Join(root, "dist", "app.lpk")),
-				Official: &official.Result{Published: true, PackageID: "cloud.lazycat.example", Version: "1.2.3", SHA256: strings.Repeat("a", 64)},
+				Official: &official.Result{Published: false, Skipped: true, OnlineVersion: "1.2.3", PackageID: "cloud.lazycat.example", Version: "1.2.3", SHA256: strings.Repeat("a", 64)},
 			}, nil
 		},
 	}
@@ -120,7 +120,7 @@ func TestRunPublishesOfficialStoreAndReturnsStableJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Operation != "publish-official" || result.SHA256 != strings.Repeat("a", 64) || !result.OfficialStoreEnabled || string(result.StoreResults) == "{}" || !strings.Contains(string(result.StoreResults), `"published":true`) {
+	if result.Operation != "publish-official" || result.SHA256 != strings.Repeat("a", 64) || !result.OfficialStoreEnabled || string(result.StoreResults) == "{}" || !strings.Contains(string(result.StoreResults), `"skipped":true`) || !strings.Contains(string(result.StoreResults), `"onlineVersion":"1.2.3"`) {
 		t.Fatalf("result=%#v", result)
 	}
 }

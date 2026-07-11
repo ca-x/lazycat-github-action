@@ -19,15 +19,17 @@ type Request struct {
 }
 
 type Result struct {
-	Published   bool   `json:"published"`
-	Created     bool   `json:"created"`
-	Existing    bool   `json:"existing"`
-	AppID       string `json:"appId"`
-	VersionID   string `json:"versionId"`
-	PackageID   string `json:"packageId"`
-	Version     string `json:"version"`
-	DownloadURL string `json:"downloadUrl"`
-	SHA256      string `json:"sha256"`
+	Published     bool   `json:"published"`
+	Skipped       bool   `json:"skipped"`
+	Created       bool   `json:"created"`
+	Existing      bool   `json:"existing"`
+	AppID         string `json:"appId"`
+	VersionID     string `json:"versionId"`
+	PackageID     string `json:"packageId"`
+	Version       string `json:"version"`
+	OnlineVersion string `json:"onlineVersion,omitempty"`
+	DownloadURL   string `json:"downloadUrl"`
+	SHA256        string `json:"sha256"`
 }
 
 type identifier string

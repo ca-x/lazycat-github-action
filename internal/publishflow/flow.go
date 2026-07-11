@@ -16,6 +16,7 @@ import (
 	"github.com/ca-x/lazycat-github-action/internal/project"
 	"github.com/ca-x/lazycat-github-action/internal/store/official"
 	private "github.com/ca-x/lazycat-github-action/internal/store/private"
+	"github.com/ca-x/lazycat-github-action/internal/storelookup"
 	lpkgo "github.com/lib-x/lzc-toolkit-go"
 )
 
@@ -61,6 +62,7 @@ type Flow struct {
 	Verify          func(context.Context, lpkcheck.Request) (lpkcheck.Result, error)
 	ResolveAuth     func(context.Context, platformauth.Request) (platformauth.Result, error)
 	PublishOfficial func(context.Context, official.Request) (official.Result, error)
+	LookupVersion   storelookup.Lookup
 	LookupEnv       func(string) (string, bool)
 	NewPrivate      func(private.Options) (PrivatePublisher, error)
 }
@@ -72,6 +74,7 @@ func Default() Flow {
 		Verify:          lpkcheck.File,
 		ResolveAuth:     resolver.Resolve,
 		PublishOfficial: officialPublisher.Publish,
+		LookupVersion:   storelookup.Default,
 		LookupEnv:       os.LookupEnv,
 		NewPrivate: func(options private.Options) (PrivatePublisher, error) {
 			return private.New(options)
@@ -135,17 +138,73 @@ func (flow Flow) Publish(ctx context.Context, request Request) (Result, error) {
 		}
 	}
 	result := Result{Artifact: artifact}
+	onlineVersion, skip, err := flow.checkExisting(ctx, request, artifact)
+	if err != nil {
+		return Result{}, err
+	}
+	if skip {
+		switch request.Target {
+		case TargetOfficial:
+			result.Official = &official.Result{
+				Skipped: true, PackageID: artifact.PackageID, Version: artifact.Version,
+				OnlineVersion: onlineVersion, SHA256: artifact.SHA256,
+			}
+		case TargetPrivate:
+			result.Private = &private.Result{
+				Skipped: true, PackageID: artifact.PackageID, Version: artifact.Version,
+				OnlineVersion: onlineVersion, DownloadURL: strings.TrimSpace(request.DownloadURL), SHA256: artifact.SHA256,
+			}
+		}
+		return result, nil
+	}
 	switch request.Target {
 	case TargetOfficial:
-		return flow.publishOfficial(ctx, request, result)
+		return flow.publishOfficial(ctx, request, result, onlineVersion)
 	case TargetPrivate:
-		return flow.publishPrivate(ctx, request, result)
+		return flow.publishPrivate(ctx, request, result, onlineVersion)
 	default:
 		panic("validated publish target became invalid")
 	}
 }
 
-func (flow Flow) publishOfficial(ctx context.Context, request Request, result Result) (Result, error) {
+func (flow Flow) checkExisting(ctx context.Context, request Request, artifact lpkcheck.Result) (string, bool, error) {
+	if request.DryRun {
+		return "", false, nil
+	}
+	enabled := false
+	lookupRequest := storelookup.Request{PackageID: artifact.PackageID}
+	switch request.Target {
+	case TargetOfficial:
+		enabled = request.Config.Stores.Official.SkipIfVersionExists
+		lookupRequest.Store = storelookup.StoreOfficial
+	case TargetPrivate:
+		enabled = request.Config.Stores.Private.SkipIfVersionExists
+		lookupRequest.Store = storelookup.StorePrivate
+		lookup := flow.LookupEnv
+		if lookup == nil {
+			lookup = os.LookupEnv
+		}
+		lookupRequest.BaseURL = envValue(lookup, "APPSTORE_URL")
+		lookupRequest.GroupCodes = commaSeparated(envValue(lookup, "PRIVATE_STORE_GROUP_CODES"))
+	}
+	if !enabled {
+		return "", false, nil
+	}
+	if flow.LookupVersion == nil {
+		return "", false, errors.New("store version lookup dependency is unavailable")
+	}
+	lookupResult, err := flow.LookupVersion(ctx, lookupRequest)
+	if err != nil {
+		if errors.Is(err, lpkgo.ErrNotFound) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("query %s store latest version: %w", request.Target, err)
+	}
+	onlineVersion := strings.TrimSpace(lookupResult.OnlineVersion)
+	return onlineVersion, onlineVersion == artifact.Version, nil
+}
+
+func (flow Flow) publishOfficial(ctx context.Context, request Request, result Result, onlineVersion string) (Result, error) {
 	changelog := strings.TrimSpace(request.Changelog)
 	if changelog == "" {
 		return Result{}, errors.New("official publishing requires a changelog")
@@ -174,10 +233,11 @@ func (flow Flow) publishOfficial(ctx context.Context, request Request, result Re
 		return Result{}, fmt.Errorf("publish official store: %w", err)
 	}
 	result.Official = &published
+	result.Official.OnlineVersion = onlineVersion
 	return result, nil
 }
 
-func (flow Flow) publishPrivate(ctx context.Context, request Request, result Result) (Result, error) {
+func (flow Flow) publishPrivate(ctx context.Context, request Request, result Result, onlineVersion string) (Result, error) {
 	lookup := flow.LookupEnv
 	if lookup == nil {
 		lookup = os.LookupEnv
@@ -226,10 +286,22 @@ func (flow Flow) publishPrivate(ctx context.Context, request Request, result Res
 		return Result{}, fmt.Errorf("publish private store: %w", err)
 	}
 	result.Private = &published
+	result.Private.OnlineVersion = onlineVersion
 	return result, nil
 }
 
 func envValue(lookup func(string) (string, bool), name string) string {
 	value, _ := lookup(name)
 	return strings.TrimSpace(value)
+}
+
+func commaSeparated(value string) []string {
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part = strings.TrimSpace(part); part != "" {
+			result = append(result, part)
+		}
+	}
+	return result
 }
