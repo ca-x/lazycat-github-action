@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -215,6 +217,29 @@ func TestFlowReturnsStructuredLazyCatCopyResult(t *testing.T) {
 	}
 }
 
+func TestFlowHandlesConcurrentProgressCallbacks(t *testing.T) {
+	flow := imageflow.Flow{
+		Registry:  &fakeRegistry{bySource: map[string][]versioning.Candidate{"ghcr.io/acme/web": {{Tag: "v2.0.0", Digest: digest("w"), Created: created(2)}}}},
+		Deliverer: concurrentProgressDeliverer{},
+		ReadManifest: func(string, []manifestedit.Target) ([]manifestedit.Current, error) {
+			return []manifestedit.Current{{ID: "web", RuntimeRef: "registry.lazycat.cloud/acme/web:v1", UpstreamRef: "ghcr.io/acme/web:v1.0.0"}}, nil
+		},
+		ApplyManifest: func(string, []manifestedit.Update) ([]manifestedit.Change, error) {
+			return []manifestedit.Change{{ID: "web", Changed: true}}, nil
+		},
+	}
+	cfg := imageConfig()
+	cfg.Images = cfg.Images[1:]
+	cfg.Images[0].Delivery.Mode = "lazycat"
+	result, err := flow.Check(t.Context(), imageflow.Request{Config: cfg, Project: project.Info{ManifestFile: "manifest.yml", Version: "1.0.0"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Changed || len(result.Images) != 1 || !result.Images[0].Copied {
+		t.Fatalf("result=%#v", result)
+	}
+}
+
 func TestFlowRefreshesMutableCreatedLazyCatImageAndRemainsIdempotent(t *testing.T) {
 	candidate := versioning.Candidate{Tag: "nightly", Digest: "sha256:a1b2c3d4e5f6" + strings.Repeat("0", 52), Created: time.Date(2026, 7, 10, 15, 30, 20, 0, time.UTC)}
 	cfg := imageConfig()
@@ -386,6 +411,27 @@ type fakeDeliverer struct {
 	calls      int
 	last       delivery.Request
 	copyResult bool
+}
+
+type concurrentProgressDeliverer struct{}
+
+func (concurrentProgressDeliverer) Deliver(_ context.Context, request delivery.Request) (delivery.Result, error) {
+	var wg sync.WaitGroup
+	for layer := range 8 {
+		wg.Go(func() {
+			for progress := 0; progress <= 100; progress += 25 {
+				request.OnProgress(appstore.CopyProgress{Layers: []appstore.LayerProgress{{Hash: fmt.Sprintf("sha256:%02d", layer), Progress: progress}}})
+			}
+		})
+	}
+	wg.Wait()
+	request.OnProgress(appstore.CopyProgress{Finished: true})
+	runtimeRef := "registry.lazycat.cloud/" + request.Image.ID + ":" + request.Tag
+	copyResult := appstore.CopyImageResult{
+		SourceImage: request.SourceRef, Platform: "amd64", LazyCatImage: runtimeRef,
+		Progress: appstore.CopyProgress{Finished: true},
+	}
+	return delivery.Result{Mode: "lazycat", RuntimeRef: runtimeRef, Copied: true, CopyResult: &copyResult}, nil
 }
 
 func (deliverer *fakeDeliverer) Deliver(_ context.Context, request delivery.Request) (delivery.Result, error) {

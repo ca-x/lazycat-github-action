@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/ca-x/lazycat-github-action/internal/platformauth"
@@ -215,5 +217,106 @@ func TestProviderCachesResolvedLoginToken(t *testing.T) {
 	}
 	if loginCalls != 1 {
 		t.Fatalf("login calls=%d", loginCalls)
+	}
+}
+
+func TestProviderCachesOneSuccessfulConcurrentResolution(t *testing.T) {
+	var loginCalls atomic.Int64
+	provider := platformauth.NewProvider(platformauth.Resolver{
+		LookupEnv: func(name string) (string, bool) {
+			values := map[string]string{"LAZYCAT_USERNAME": "developer", "LAZYCAT_PASSWORD": "secret"}
+			value, found := values[name]
+			return value, found
+		},
+		Login: func(context.Context, auth.Credentials) (auth.Session, error) {
+			loginCalls.Add(1)
+			return auth.Session{Token: "login-token"}, nil
+		},
+	}, func() string { return "" })
+
+	start := make(chan struct{})
+	results := make(chan string, 16)
+	errors := make(chan error, 16)
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Go(func() {
+			<-start
+			token, err := provider.Token(t.Context())
+			results <- token
+			errors <- err
+		})
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for token := range results {
+		if token != "login-token" {
+			t.Fatalf("token=%q", token)
+		}
+	}
+	if loginCalls.Load() != 1 {
+		t.Fatalf("login calls=%d", loginCalls.Load())
+	}
+}
+
+func TestProviderRetriesAfterConcurrentResolutionFailure(t *testing.T) {
+	var loginCalls atomic.Int64
+	provider := platformauth.NewProvider(platformauth.Resolver{
+		LookupEnv: func(name string) (string, bool) {
+			values := map[string]string{"LAZYCAT_USERNAME": "developer", "LAZYCAT_PASSWORD": "secret"}
+			value, found := values[name]
+			return value, found
+		},
+		Login: func(context.Context, auth.Credentials) (auth.Session, error) {
+			if loginCalls.Add(1) == 1 {
+				return auth.Session{}, errors.New("temporary login failure")
+			}
+			return auth.Session{Token: "login-token"}, nil
+		},
+	}, func() string { return "" })
+
+	start := make(chan struct{})
+	results := make(chan string, 2)
+	errors := make(chan error, 2)
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Go(func() {
+			<-start
+			token, err := provider.Token(t.Context())
+			results <- token
+			errors <- err
+		})
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errors)
+
+	successes := 0
+	failures := 0
+	for err := range errors {
+		if err != nil {
+			failures++
+		} else {
+			successes++
+		}
+	}
+	for token := range results {
+		if token != "" && token != "login-token" {
+			t.Fatalf("token=%q", token)
+		}
+	}
+	if successes != 1 || failures != 1 || loginCalls.Load() != 2 {
+		t.Fatalf("successes=%d failures=%d login calls=%d", successes, failures, loginCalls.Load())
+	}
+	token, err := provider.Token(t.Context())
+	if err != nil || token != "login-token" || loginCalls.Load() != 2 {
+		t.Fatalf("token=%q err=%v login calls=%d", token, err, loginCalls.Load())
 	}
 }
