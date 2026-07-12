@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ca-x/lazycat-github-action/internal/config"
 )
@@ -44,7 +45,180 @@ update:
 				if strings.Join(got.Stores.Official.Locales, ",") != "zh,en" {
 					t.Fatalf("official locales=%v", got.Stores.Official.Locales)
 				}
+				retry := got.Stores.Official.Retry
+				if retry.Enabled || retry.MaxAttempts != 3 || retry.InitialDelay != 2*time.Second || retry.MaxDelay != 30*time.Second {
+					t.Fatalf("official retry=%#v", retry)
+				}
 			},
+		},
+		{
+			name: "official retry values are retained",
+			yaml: `version: 1
+project: {}
+update:
+  version_source:
+    type: git
+stores:
+  official:
+    retry:
+      enabled: true
+      max_attempts: 7
+      initial_delay: 750ms
+      max_delay: 45s
+`,
+			check: func(t *testing.T, got config.Config) {
+				want := config.OfficialRetry{
+					Enabled:      true,
+					MaxAttempts:  7,
+					InitialDelay: 750 * time.Millisecond,
+					MaxDelay:     45 * time.Second,
+				}
+				if got.Stores.Official.Retry != want {
+					t.Fatalf("official retry=%#v want %#v", got.Stores.Official.Retry, want)
+				}
+			},
+		},
+		{
+			name: "malformed official retry duration",
+			yaml: `version: 1
+project: {}
+update:
+  version_source:
+    type: git
+stores:
+  official:
+    retry:
+      initial_delay: soon
+`,
+			wantErr: "time.Duration",
+		},
+		{
+			name: "official retry attempts below minimum",
+			yaml: `version: 1
+project: {}
+update:
+  version_source:
+    type: git
+stores:
+  official:
+    retry:
+      enabled: true
+      max_attempts: 1
+`,
+			wantErr: "max_attempts must be between 2 and 10",
+		},
+		{
+			name: "official retry attempts above maximum",
+			yaml: `version: 1
+project: {}
+update:
+  version_source:
+    type: git
+stores:
+  official:
+    retry:
+      enabled: true
+      max_attempts: 11
+`,
+			wantErr: "max_attempts must be between 2 and 10",
+		},
+		{
+			name: "official retry initial delay below minimum",
+			yaml: `version: 1
+project: {}
+update:
+  version_source:
+    type: git
+stores:
+  official:
+    retry:
+      enabled: true
+      initial_delay: 99ms
+`,
+			wantErr: "initial_delay must be between 100ms and 1m",
+		},
+		{
+			name: "official retry initial delay above maximum",
+			yaml: `version: 1
+project: {}
+update:
+  version_source:
+    type: git
+stores:
+  official:
+    retry:
+      enabled: true
+      initial_delay: 1m1s
+`,
+			wantErr: "initial_delay must be between 100ms and 1m",
+		},
+		{
+			name: "official retry maximum delay below initial delay",
+			yaml: `version: 1
+project: {}
+update:
+  version_source:
+    type: git
+stores:
+  official:
+    retry:
+      enabled: true
+      initial_delay: 2s
+      max_delay: 1s
+`,
+			wantErr: "max_delay must be at least initial_delay",
+		},
+		{
+			name: "official retry maximum delay above maximum",
+			yaml: `version: 1
+project: {}
+update:
+  version_source:
+    type: git
+stores:
+  official:
+    retry:
+      enabled: true
+      max_delay: 5m1s
+`,
+			wantErr: "max_delay must not exceed 5m",
+		},
+		{
+			name: "disabled official retry retains compatibility values",
+			yaml: `version: 1
+project: {}
+update:
+  version_source:
+    type: git
+stores:
+  official:
+    retry:
+      enabled: false
+      max_attempts: 1
+      initial_delay: 1ns
+      max_delay: 2ns
+`,
+			check: func(t *testing.T, got config.Config) {
+				retry := got.Stores.Official.Retry
+				if retry.Enabled || retry.MaxAttempts != 1 || retry.InitialDelay != time.Nanosecond || retry.MaxDelay != 2*time.Nanosecond {
+					t.Fatalf("official retry=%#v", retry)
+				}
+			},
+		},
+		{
+			name: "unknown official retry field",
+			yaml: `version: 1
+project: {}
+update:
+  version_source:
+    type: git
+stores:
+  official:
+    retry:
+      enabled: true
+      delay_multiplier: 2
+`,
+			wantErr: "field delay_multiplier not found",
 		},
 		{
 			name: "store metadata is normalized",

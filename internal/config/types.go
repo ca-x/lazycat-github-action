@@ -1,5 +1,7 @@
 package config
 
+import "time"
+
 type Strategy string
 
 const (
@@ -82,6 +84,14 @@ type OfficialStore struct {
 	CreateIfMissing     bool                `yaml:"create_if_missing"`
 	Locales             []string            `yaml:"changelog_locales"`
 	Application         OfficialApplication `yaml:"application"`
+	Retry               OfficialRetry       `yaml:"retry"`
+}
+
+type OfficialRetry struct {
+	Enabled      bool          `yaml:"enabled"`
+	MaxAttempts  int           `yaml:"max_attempts"`
+	InitialDelay time.Duration `yaml:"initial_delay"`
+	MaxDelay     time.Duration `yaml:"max_delay"`
 }
 
 type OfficialApplication struct {

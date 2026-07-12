@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -71,6 +72,15 @@ func applyDefaults(value *Config) {
 	if value.Build.RunBuildScript == nil {
 		enabled := true
 		value.Build.RunBuildScript = &enabled
+	}
+	if value.Stores.Official.Retry.MaxAttempts == 0 {
+		value.Stores.Official.Retry.MaxAttempts = 3
+	}
+	if value.Stores.Official.Retry.InitialDelay == 0 {
+		value.Stores.Official.Retry.InitialDelay = 2 * time.Second
+	}
+	if value.Stores.Official.Retry.MaxDelay == 0 {
+		value.Stores.Official.Retry.MaxDelay = 30 * time.Second
 	}
 
 	value.Project.Root = filepath.Clean(strings.TrimSpace(value.Project.Root))
@@ -152,6 +162,21 @@ func validate(value Config) error {
 	}
 	if !value.Stores.Official.CreateIfMissing && hasOfficialApplication(value.Stores.Official.Application) {
 		return errors.New("official application metadata requires create_if_missing=true")
+	}
+	if value.Stores.Official.Retry.Enabled {
+		retry := value.Stores.Official.Retry
+		if retry.MaxAttempts < 2 || retry.MaxAttempts > 10 {
+			return errors.New("official retry max_attempts must be between 2 and 10")
+		}
+		if retry.InitialDelay < 100*time.Millisecond || retry.InitialDelay > time.Minute {
+			return errors.New("official retry initial_delay must be between 100ms and 1m")
+		}
+		if retry.MaxDelay < retry.InitialDelay {
+			return errors.New("official retry max_delay must be at least initial_delay")
+		}
+		if retry.MaxDelay > 5*time.Minute {
+			return errors.New("official retry max_delay must not exceed 5m")
+		}
 	}
 	for _, locale := range value.Stores.Official.Locales {
 		if !imageIDPattern.MatchString(locale) {
