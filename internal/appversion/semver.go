@@ -13,10 +13,7 @@ func IsValid(value string) bool {
 }
 
 func Normalize(raw string) (string, string, error) {
-	value := strings.TrimSpace(raw)
-	if strings.HasPrefix(value, "v") {
-		value = strings.TrimPrefix(value, "v")
-	}
+	value := strings.TrimPrefix(strings.TrimSpace(raw), "v")
 	if !IsValid(value) {
 		return "", "", fmt.Errorf("invalid version %q: expected SemVer with an optional leading v", raw)
 	}

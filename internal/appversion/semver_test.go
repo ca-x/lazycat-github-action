@@ -16,7 +16,7 @@ func TestNormalize(t *testing.T) {
 			t.Fatalf("raw=%q version=%q tag=%q", raw, version, tag)
 		}
 	}
-	for _, raw := range []string{"V1.2.3", "1.2", "1.2.3-01"} {
+	for _, raw := range []string{"V1.2.3", "vv1.2.3", "1.2", "1.2.3-01"} {
 		if _, _, err := appversion.Normalize(raw); err == nil {
 			t.Fatalf("raw=%q unexpectedly passed", raw)
 		}

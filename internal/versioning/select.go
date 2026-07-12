@@ -195,7 +195,6 @@ func mapVersion(rule Rule, tag string) (string, error) {
 			}
 			groups[name] = matches[index]
 		}
-		value = groups["version"]
 	}
 	template := rule.VersionTemplate
 	if template == "" {
