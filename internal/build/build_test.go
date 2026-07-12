@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/ca-x/lazycat-github-action/internal/project"
 	toolkitbuild "github.com/lib-x/lzc-toolkit-go/build"
 	"github.com/lib-x/lzc-toolkit-go/lpk"
+	"go.yaml.in/yaml/v3"
 )
 
 func TestBuilderBuildsVerifiesAndHashesLPKForLinuxAMD64(t *testing.T) {
@@ -88,6 +90,30 @@ func TestBuilderBuildsVerifiesAndHashesLPKForLinuxAMD64(t *testing.T) {
 	reader, err := lpk.OpenFile(context.Background(), result.Path)
 	if err != nil {
 		t.Fatal(err)
+	}
+	packageEntry, err := reader.OpenEntry(context.Background(), "package.yml")
+	if err != nil {
+		_ = reader.Close()
+		t.Fatal(err)
+	}
+	packageData, readErr := io.ReadAll(packageEntry)
+	packageCloseErr := packageEntry.Close()
+	if readErr != nil || packageCloseErr != nil {
+		_ = reader.Close()
+		t.Fatal(errors.Join(readErr, packageCloseErr))
+	}
+	var packageDocument map[string]any
+	if err := yaml.Unmarshal(packageData, &packageDocument); err != nil {
+		_ = reader.Close()
+		t.Fatal(err)
+	}
+	wantPermissions := map[string]any{
+		"required": []any{"lightos.manage"},
+		"optional": []any{"user.notify"},
+	}
+	if !reflect.DeepEqual(packageDocument["permissions"], wantPermissions) {
+		_ = reader.Close()
+		t.Fatalf("permissions = %#v, want %#v", packageDocument["permissions"], wantPermissions)
 	}
 	effective, effectiveErr := reader.EffectiveManifest(context.Background())
 	closeErr := reader.Close()
