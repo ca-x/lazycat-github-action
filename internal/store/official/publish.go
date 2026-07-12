@@ -6,17 +6,21 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ca-x/lazycat-github-action/internal/config"
 	"github.com/ca-x/lazycat-github-action/internal/httpx"
+	"github.com/cloudflare/backoff"
 	lpkgo "github.com/lib-x/lzc-toolkit-go"
 	"github.com/lib-x/lzc-toolkit-go/appstore"
 	"github.com/lib-x/lzc-toolkit-go/auth"
@@ -38,6 +42,8 @@ type Request struct {
 	CreateIfMissing bool
 	Application     config.OfficialApplication
 	DefaultName     string
+	Retry           config.OfficialRetry
+	Logger          *slog.Logger
 }
 
 type Result struct {
@@ -55,6 +61,8 @@ type Result struct {
 type Publisher struct {
 	BaseURL    string
 	HTTPClient *http.Client
+	NewDelay   func(max, initial time.Duration) func() time.Duration
+	Wait       func(context.Context, time.Duration) error
 }
 
 func (publisher Publisher) Publish(ctx context.Context, request Request) (Result, error) {
@@ -109,8 +117,136 @@ func (publisher Publisher) Publish(ctx context.Context, request Request) (Result
 	if baseURL == "" {
 		baseURL = appstore.DefaultBaseURL
 	}
+	maxAttempts := 1
+	if request.Retry.Enabled && request.Retry.MaxAttempts > 1 {
+		maxAttempts = request.Retry.MaxAttempts
+	}
 	httpClient := httpx.NoRedirect(publisher.HTTPClient, 30*time.Second)
+	var retryAfter *retryAfterRecorder
+	var nextDelay func() time.Duration
+	var wait func(context.Context, time.Duration) error
+	var logger *slog.Logger
+	if maxAttempts > 1 {
+		retryAfter = newRetryAfterRecorder(httpClient.Transport)
+		httpClient.Transport = retryAfter
+		policy := backoff.New(request.Retry.MaxDelay, request.Retry.InitialDelay)
+		nextDelay = policy.Duration
+		if publisher.NewDelay != nil {
+			nextDelay = publisher.NewDelay(request.Retry.MaxDelay, request.Retry.InitialDelay)
+		}
+		wait = publisher.Wait
+		if wait == nil {
+			wait = waitForRetry
+		}
+		logger = request.Logger
+		if logger == nil {
+			logger = slog.Default()
+		}
+	}
 	client := appstore.New(appstore.Options{BaseURL: baseURL, HTTPClient: httpClient, Token: auth.StaticToken(token)})
+	created := false
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if retryAfter != nil {
+			retryAfter.Reset()
+		}
+		result, err := publishAttempt(ctx, request, client, httpClient, baseURL, token, packageID, version, digest, filename, application, changelogs)
+		created = created || result.Created
+		if err == nil {
+			result.Created = created
+			return result, nil
+		}
+		if attempt == maxAttempts || !retryablePublishError(err) {
+			return Result{}, err
+		}
+		delay := max(nextDelay(), retryAfter.Delay())
+		if request.Retry.MaxDelay > 0 {
+			delay = min(delay, request.Retry.MaxDelay)
+		}
+		var toolkitError *lpkgo.Error
+		_ = errors.As(err, &toolkitError)
+		attributes := []any{
+			"store", "official",
+			"attempt", attempt,
+			"max_attempts", maxAttempts,
+			"delay", delay,
+			"code", toolkitError.Code,
+		}
+		if toolkitError.StatusCode != 0 {
+			attributes = append(attributes, "status", toolkitError.StatusCode)
+		}
+		logger.Warn("official store publication retry scheduled", attributes...)
+		if err := wait(ctx, delay); err != nil {
+			return Result{}, publishError(lpkgo.CodeCancelled, err)
+		}
+	}
+	return Result{}, publishError(lpkgo.CodeRemoteUnavailable, errors.New("official platform publishing failed"))
+}
+
+type retryAfterRecorder struct {
+	base  http.RoundTripper
+	mutex sync.Mutex
+	delay time.Duration
+}
+
+func newRetryAfterRecorder(base http.RoundTripper) *retryAfterRecorder {
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return &retryAfterRecorder{base: base}
+}
+
+func (recorder *retryAfterRecorder) RoundTrip(request *http.Request) (*http.Response, error) {
+	response, err := recorder.base.RoundTrip(request)
+	if err != nil || response == nil || (response.StatusCode != http.StatusTooManyRequests && response.StatusCode < http.StatusInternalServerError) {
+		return response, err
+	}
+	if delay, ok := parseRetryAfter(response.Header.Get("Retry-After"), time.Now()); ok {
+		recorder.mutex.Lock()
+		recorder.delay = max(recorder.delay, delay)
+		recorder.mutex.Unlock()
+	}
+	return response, err
+}
+
+func (recorder *retryAfterRecorder) Reset() {
+	recorder.mutex.Lock()
+	recorder.delay = 0
+	recorder.mutex.Unlock()
+}
+
+func (recorder *retryAfterRecorder) Delay() time.Duration {
+	recorder.mutex.Lock()
+	defer recorder.mutex.Unlock()
+	return recorder.delay
+}
+
+func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	if seconds, err := strconv.ParseInt(value, 10, 64); err == nil {
+		if seconds < 0 || seconds > int64((time.Duration(1<<63-1))/time.Second) {
+			return 0, false
+		}
+		return time.Duration(seconds) * time.Second, true
+	}
+	date, err := http.ParseTime(value)
+	if err != nil || date.Before(now) {
+		return 0, false
+	}
+	return date.Sub(now), true
+}
+
+func publishAttempt(
+	ctx context.Context,
+	request Request,
+	client *appstore.Client,
+	httpClient *http.Client,
+	baseURL, token, packageID, version, digest, filename string,
+	application *appstore.CreateApplicationRequest,
+	changelogs map[string]string,
+) (Result, error) {
 	exists, err := client.CheckApplication(ctx, packageID)
 	if err != nil {
 		return Result{}, sanitizePublishError(err)
@@ -127,21 +263,46 @@ func (publisher Publisher) Publish(ctx context.Context, request Request) (Result
 	}
 	upload, err := uploadLPK(ctx, httpClient, baseURL, token, request.LPKPath, filename)
 	if err != nil {
-		return Result{}, err
+		return Result{Created: created}, err
 	}
 	uploadPackage := strings.TrimSpace(upload.Package)
 	uploadVersion := strings.TrimSpace(upload.Version)
 	uploadDigest := strings.ToLower(strings.TrimSpace(upload.SHA256))
 	if uploadPackage != packageID || uploadVersion != version || uploadDigest != digest {
-		return Result{}, publishError(lpkgo.CodeRemoteUnavailable, errors.New("official upload metadata does not match the verified LPK"))
+		return Result{Created: created}, publishError(lpkgo.CodeIntegrityMismatch, errors.New("official upload metadata does not match the verified LPK"))
 	}
 	if err := submitReview(ctx, httpClient, baseURL, token, upload, changelogs); err != nil {
-		return Result{}, err
+		return Result{Created: created}, err
 	}
 	return Result{
 		Published: true, Created: created, PackageID: uploadPackage, Version: uploadVersion,
 		UploadURL: strings.TrimSpace(upload.URL), SHA256: uploadDigest,
 	}, nil
+}
+
+func retryablePublishError(err error) bool {
+	var toolkitError *lpkgo.Error
+	if !errors.As(err, &toolkitError) {
+		return false
+	}
+	if toolkitError.Code == lpkgo.CodeCancelled || toolkitError.Code == lpkgo.CodeDeadlineExceeded {
+		return false
+	}
+	return toolkitError.Retryable ||
+		(toolkitError.Code == lpkgo.CodeRemoteUnavailable && toolkitError.StatusCode == 0) ||
+		toolkitError.StatusCode == http.StatusTooManyRequests ||
+		toolkitError.StatusCode >= http.StatusInternalServerError
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func uploadLPK(ctx context.Context, client *http.Client, baseURL, token, filename, formFilename string) (appstore.UploadInfo, error) {
@@ -190,10 +351,10 @@ func uploadLPK(ctx context.Context, client *http.Client, baseURL, token, filenam
 	}
 	var upload appstore.UploadInfo
 	if err := json.Unmarshal(body, &upload); err != nil {
-		return appstore.UploadInfo{}, publishError(lpkgo.CodeRemoteUnavailable, errors.New("official platform returned invalid upload metadata"))
+		return appstore.UploadInfo{}, publishResponseError(lpkgo.CodeRemoteUnavailable, errors.New("official platform returned invalid upload metadata"))
 	}
 	if strings.TrimSpace(upload.Package) == "" || strings.TrimSpace(upload.Version) == "" || strings.TrimSpace(upload.URL) == "" || strings.TrimSpace(upload.SHA256) == "" {
-		return appstore.UploadInfo{}, publishError(lpkgo.CodeRemoteUnavailable, errors.New("official platform returned incomplete upload metadata"))
+		return appstore.UploadInfo{}, publishResponseError(lpkgo.CodeRemoteUnavailable, errors.New("official platform returned incomplete upload metadata"))
 	}
 	return upload, nil
 }
@@ -267,7 +428,7 @@ func doRequest(client *http.Client, request *http.Request, op string) ([]byte, e
 		} else if response.StatusCode == http.StatusForbidden {
 			code = lpkgo.CodePermissionDenied
 		}
-		return nil, &lpkgo.Error{Code: code, Op: op, StatusCode: response.StatusCode, Retryable: response.StatusCode >= 500, Cause: errors.New("official platform rejected the request")}
+		return nil, &lpkgo.Error{Code: code, Op: op, StatusCode: response.StatusCode, Retryable: response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500, Cause: errors.New("official platform rejected the request")}
 	}
 	return body, nil
 }
@@ -297,4 +458,8 @@ func sanitizePublishError(err error) error {
 
 func publishError(code lpkgo.Code, cause error) error {
 	return &lpkgo.Error{Code: code, Op: "store.official.publish", Cause: fmt.Errorf("%w", cause)}
+}
+
+func publishResponseError(code lpkgo.Code, cause error) error {
+	return &lpkgo.Error{Code: code, Op: "store.official.publish", StatusCode: http.StatusOK, Cause: fmt.Errorf("%w", cause)}
 }

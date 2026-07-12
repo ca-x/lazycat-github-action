@@ -1,18 +1,22 @@
 package official_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/ca-x/lazycat-github-action/internal/config"
 	"github.com/ca-x/lazycat-github-action/internal/store/official"
@@ -20,6 +24,580 @@ import (
 	"github.com/lib-x/lzc-toolkit-go/auth"
 	"github.com/lib-x/lzc-toolkit-go/lpk"
 )
+
+func TestPublisherRetryDefaultsOffAfterOneCompleteAttempt(t *testing.T) {
+	path, digest := publishLPK(t)
+	checks := 0
+	uploads := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v3/developer/app/check/exist":
+			checks++
+			_, _ = response.Write([]byte(`{"exist":true}`))
+		case "/api/v3/developer/app/lpk/upload":
+			uploads++
+			http.Error(response, "unavailable", http.StatusServiceUnavailable)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	_, err := (official.Publisher{BaseURL: server.URL, HTTPClient: server.Client()}).Publish(context.Background(), official.Request{
+		Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+		Retry: config.OfficialRetry{Enabled: false, MaxAttempts: 3, InitialDelay: 2 * time.Second, MaxDelay: 30 * time.Second},
+	})
+	if err == nil || checks != 1 || uploads != 1 {
+		t.Fatalf("err=%v checks=%d uploads=%d", err, checks, uploads)
+	}
+}
+
+func TestPublisherRetryDisabledIgnoresDelayValuesAndCallbacks(t *testing.T) {
+	path, digest := publishLPK(t)
+	uploads := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v3/developer/app/check/exist":
+			_, _ = response.Write([]byte(`{"exist":true}`))
+		case "/api/v3/developer/app/lpk/upload":
+			uploads++
+			http.Error(response, "unavailable", http.StatusServiceUnavailable)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	_, err := (official.Publisher{
+		BaseURL: server.URL, HTTPClient: server.Client(),
+		NewDelay: func(_, _ time.Duration) func() time.Duration {
+			panic("disabled retry initialized delay policy")
+		},
+		Wait: func(context.Context, time.Duration) error {
+			panic("disabled retry waited")
+		},
+	}).Publish(context.Background(), official.Request{
+		Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+		Retry: config.OfficialRetry{Enabled: false, MaxAttempts: -1, InitialDelay: -time.Second, MaxDelay: -time.Second},
+	})
+	if err == nil || uploads != 1 {
+		t.Fatalf("err=%v uploads=%d", err, uploads)
+	}
+}
+
+func TestPublisherRetryRepeatsCompleteAttemptAfterTransientUploadFailure(t *testing.T) {
+	path, digest := publishLPK(t)
+	checks := 0
+	uploads := 0
+	reviews := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v3/developer/app/check/exist":
+			checks++
+			_, _ = response.Write([]byte(`{"exist":true}`))
+		case "/api/v3/developer/app/lpk/upload":
+			uploads++
+			if err := request.ParseMultipartForm(2 << 20); err != nil {
+				t.Error(err)
+			}
+			if uploads == 1 {
+				http.Error(response, "unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = fmt.Fprintf(response, `{"package":"cloud.lazycat.apps.publish-demo","version":"1.0.0","iconPath":"/icon.png","url":"/demo.lpk","sha256":"%s","unsupportedPlatforms":[],"minOsVersion":"1.3.0","lpkSize":123,"imageSize":0}`, digest)
+		case "/api/v3/developer/app/cloud.lazycat.apps.publish-demo/review/create":
+			reviews++
+			_, _ = response.Write([]byte(`{"success":true}`))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	publisher := official.Publisher{
+		BaseURL: server.URL, HTTPClient: server.Client(),
+		NewDelay: func(_, _ time.Duration) func() time.Duration {
+			return func() time.Duration { return 0 }
+		},
+		Wait: func(context.Context, time.Duration) error { return nil },
+	}
+	result, err := publisher.Publish(context.Background(), official.Request{
+		Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+		Retry: config.OfficialRetry{Enabled: true, MaxAttempts: 2, InitialDelay: time.Second, MaxDelay: 10 * time.Second},
+	})
+	if err != nil || !result.Published || checks != 2 || uploads != 2 || reviews != 1 {
+		t.Fatalf("err=%v result=%#v checks=%d uploads=%d reviews=%d", err, result, checks, uploads, reviews)
+	}
+}
+
+func TestPublisherRetryPreservesApplicationCreatedAcrossAttempts(t *testing.T) {
+	path, digest := publishLPK(t)
+	checks := 0
+	creates := 0
+	uploads := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v3/developer/app/check/exist":
+			checks++
+			_, _ = fmt.Fprintf(response, `{"exist":%t}`, checks > 1)
+		case "/api/v3/developer/app/create":
+			creates++
+			_, _ = response.Write([]byte(`{"success":true}`))
+		case "/api/v3/developer/app/lpk/upload":
+			uploads++
+			if uploads == 1 {
+				http.Error(response, "unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = fmt.Fprintf(response, `{"package":"cloud.lazycat.apps.publish-demo","version":"1.0.0","iconPath":"/icon.png","url":"/demo.lpk","sha256":"%s","unsupportedPlatforms":[],"minOsVersion":"1.3.0","lpkSize":123,"imageSize":0}`, digest)
+		case "/api/v3/developer/app/cloud.lazycat.apps.publish-demo/review/create":
+			_, _ = response.Write([]byte(`{"success":true}`))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	result, err := (official.Publisher{
+		BaseURL: server.URL, HTTPClient: server.Client(),
+		NewDelay: func(_, _ time.Duration) func() time.Duration {
+			return func() time.Duration { return 0 }
+		},
+		Wait: func(context.Context, time.Duration) error { return nil },
+	}).Publish(context.Background(), official.Request{
+		Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"}, CreateIfMissing: true,
+		Application: config.OfficialApplication{Language: "en", Name: "Publish Demo"},
+		Retry:       config.OfficialRetry{Enabled: true, MaxAttempts: 2, InitialDelay: time.Second, MaxDelay: 10 * time.Second},
+	})
+	if err != nil || !result.Created || checks != 2 || creates != 1 || uploads != 2 {
+		t.Fatalf("err=%v result=%#v checks=%d creates=%d uploads=%d", err, result, checks, creates, uploads)
+	}
+}
+
+func TestPublisherRetryDoesNotRepeatHTTP400(t *testing.T) {
+	path, digest := publishLPK(t)
+	uploads := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v3/developer/app/check/exist":
+			_, _ = response.Write([]byte(`{"exist":true}`))
+		case "/api/v3/developer/app/lpk/upload":
+			uploads++
+			http.Error(response, "bad request", http.StatusBadRequest)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	_, err := (official.Publisher{
+		BaseURL: server.URL, HTTPClient: server.Client(),
+		NewDelay: func(_, _ time.Duration) func() time.Duration {
+			return func() time.Duration { return 0 }
+		},
+		Wait: func(context.Context, time.Duration) error { return nil },
+	}).Publish(context.Background(), official.Request{
+		Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+		Retry: config.OfficialRetry{Enabled: true, MaxAttempts: 3, InitialDelay: time.Second, MaxDelay: 10 * time.Second},
+	})
+	var toolkitError *lpkgo.Error
+	if !errors.As(err, &toolkitError) || toolkitError.StatusCode != http.StatusBadRequest || uploads != 1 {
+		t.Fatalf("err=%v uploads=%d", err, uploads)
+	}
+}
+
+func TestPublisherRetryExhaustionReturnsFinalErrorAndExactAttemptCount(t *testing.T) {
+	path, digest := publishLPK(t)
+	uploads := 0
+	waits := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v3/developer/app/check/exist":
+			_, _ = response.Write([]byte(`{"exist":true}`))
+		case "/api/v3/developer/app/lpk/upload":
+			uploads++
+			http.Error(response, "unavailable", http.StatusServiceUnavailable)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	_, err := (official.Publisher{
+		BaseURL: server.URL, HTTPClient: server.Client(),
+		NewDelay: func(_, _ time.Duration) func() time.Duration {
+			return func() time.Duration { return time.Millisecond }
+		},
+		Wait: func(context.Context, time.Duration) error {
+			waits++
+			return nil
+		},
+	}).Publish(context.Background(), official.Request{
+		Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+		Retry: config.OfficialRetry{Enabled: true, MaxAttempts: 3, InitialDelay: time.Second, MaxDelay: 10 * time.Second},
+	})
+	var toolkitError *lpkgo.Error
+	if !errors.As(err, &toolkitError) || toolkitError.Op != "store.official.upload" || toolkitError.StatusCode != http.StatusServiceUnavailable || !toolkitError.Retryable || uploads != 3 || waits != 2 {
+		t.Fatalf("err=%#v uploads=%d waits=%d", toolkitError, uploads, waits)
+	}
+}
+
+func TestPublisherRetryResolvesTokenOnceAcrossAttempts(t *testing.T) {
+	path, digest := publishLPK(t)
+	provider := &countingTokenProvider{token: "ci-token"}
+	uploads := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v3/developer/app/check/exist":
+			_, _ = response.Write([]byte(`{"exist":true}`))
+		case "/api/v3/developer/app/lpk/upload":
+			uploads++
+			http.Error(response, "unavailable", http.StatusServiceUnavailable)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	_, _ = (official.Publisher{
+		BaseURL: server.URL, HTTPClient: server.Client(),
+		NewDelay: func(_, _ time.Duration) func() time.Duration {
+			return func() time.Duration { return 0 }
+		},
+		Wait: func(context.Context, time.Duration) error { return nil },
+	}).Publish(context.Background(), official.Request{
+		Provider: provider, LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+		Retry: config.OfficialRetry{Enabled: true, MaxAttempts: 3, InitialDelay: time.Second, MaxDelay: 10 * time.Second},
+	})
+	if provider.calls != 1 || uploads != 3 {
+		t.Fatalf("token calls=%d uploads=%d", provider.calls, uploads)
+	}
+}
+
+func TestPublisherRetryCancellationDuringWaitStopsBeforeNextAttempt(t *testing.T) {
+	path, digest := publishLPK(t)
+	checks := 0
+	uploads := 0
+	waiting := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v3/developer/app/check/exist":
+			checks++
+			_, _ = response.Write([]byte(`{"exist":true}`))
+		case "/api/v3/developer/app/lpk/upload":
+			uploads++
+			http.Error(response, "unavailable", http.StatusServiceUnavailable)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := (official.Publisher{
+			BaseURL: server.URL, HTTPClient: server.Client(),
+			NewDelay: func(_, _ time.Duration) func() time.Duration {
+				return func() time.Duration { return time.Hour }
+			},
+			Wait: func(ctx context.Context, _ time.Duration) error {
+				close(waiting)
+				<-ctx.Done()
+				return ctx.Err()
+			},
+		}).Publish(ctx, official.Request{
+			Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+			Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+			Retry: config.OfficialRetry{Enabled: true, MaxAttempts: 3, InitialDelay: time.Second, MaxDelay: 10 * time.Second},
+		})
+		done <- err
+	}()
+	<-waiting
+	cancel()
+	select {
+	case err := <-done:
+		var toolkitError *lpkgo.Error
+		if !errors.As(err, &toolkitError) || toolkitError.Code != lpkgo.CodeCancelled || checks != 1 || uploads != 1 {
+			t.Fatalf("err=%v checks=%d uploads=%d", err, checks, uploads)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("publish did not return promptly after retry wait cancellation")
+	}
+}
+
+func TestPublisherRetryAfterLargerDelayIsSelectedAndCapped(t *testing.T) {
+	path, digest := publishLPK(t)
+	uploads := 0
+	var waited time.Duration
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v3/developer/app/check/exist":
+			_, _ = response.Write([]byte(`{"exist":true}`))
+		case "/api/v3/developer/app/lpk/upload":
+			uploads++
+			if uploads == 1 {
+				response.Header().Set("Retry-After", "60")
+				http.Error(response, "unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = fmt.Fprintf(response, `{"package":"cloud.lazycat.apps.publish-demo","version":"1.0.0","iconPath":"/icon.png","url":"/demo.lpk","sha256":"%s","unsupportedPlatforms":[],"minOsVersion":"1.3.0","lpkSize":123,"imageSize":0}`, digest)
+		case "/api/v3/developer/app/cloud.lazycat.apps.publish-demo/review/create":
+			_, _ = response.Write([]byte(`{"success":true}`))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	_, err := (official.Publisher{
+		BaseURL: server.URL, HTTPClient: server.Client(),
+		NewDelay: func(_, _ time.Duration) func() time.Duration {
+			return func() time.Duration { return 2 * time.Second }
+		},
+		Wait: func(_ context.Context, delay time.Duration) error {
+			waited = delay
+			return nil
+		},
+	}).Publish(context.Background(), official.Request{
+		Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+		Retry: config.OfficialRetry{Enabled: true, MaxAttempts: 2, InitialDelay: time.Second, MaxDelay: 10 * time.Second},
+	})
+	if err != nil || waited != 10*time.Second {
+		t.Fatalf("err=%v waited=%s", err, waited)
+	}
+}
+
+func TestPublisherRetryWarningContainsOnlySafeStructuredFields(t *testing.T) {
+	path, digest := publishLPK(t)
+	uploads := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v3/developer/app/check/exist":
+			_, _ = response.Write([]byte(`{"exist":true}`))
+		case "/api/v3/developer/app/lpk/upload":
+			uploads++
+			if uploads == 1 {
+				http.Error(response, "server-secret", http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = fmt.Fprintf(response, `{"package":"cloud.lazycat.apps.publish-demo","version":"1.0.0","iconPath":"/icon.png","url":"/demo.lpk","sha256":"%s","unsupportedPlatforms":[],"minOsVersion":"1.3.0","lpkSize":123,"imageSize":0}`, digest)
+		case "/api/v3/developer/app/cloud.lazycat.apps.publish-demo/review/create":
+			_, _ = response.Write([]byte(`{"success":true}`))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	_, err := (official.Publisher{
+		BaseURL: server.URL, HTTPClient: server.Client(),
+		NewDelay: func(_, _ time.Duration) func() time.Duration {
+			return func() time.Duration { return 2 * time.Second }
+		},
+		Wait: func(context.Context, time.Duration) error { return nil },
+	}).Publish(context.Background(), official.Request{
+		Provider: auth.StaticToken("token-secret"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"}, Logger: logger,
+		Retry: config.OfficialRetry{Enabled: true, MaxAttempts: 2, InitialDelay: time.Second, MaxDelay: 10 * time.Second},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record map[string]any
+	if err := json.NewDecoder(&logs).Decode(&record); err != nil {
+		t.Fatalf("decode warning: %v; logs=%q", err, logs.String())
+	}
+	allowed := map[string]bool{
+		"time": true, "level": true, "msg": true, "store": true, "attempt": true,
+		"max_attempts": true, "delay": true, "code": true, "status": true,
+	}
+	for key := range record {
+		if !allowed[key] {
+			t.Fatalf("unsafe warning field %q in %#v", key, record)
+		}
+	}
+	if len(record) != len(allowed) || record["level"] != "WARN" || record["msg"] != "official store publication retry scheduled" || record["store"] != "official" || record["attempt"] != float64(1) || record["max_attempts"] != float64(2) || record["delay"] != float64(2*time.Second) || record["code"] != string(lpkgo.CodeRemoteUnavailable) || record["status"] != float64(http.StatusServiceUnavailable) {
+		t.Fatalf("warning=%#v", record)
+	}
+	if strings.Contains(logs.String(), "token-secret") || strings.Contains(logs.String(), "server-secret") {
+		t.Fatalf("warning leaked secret: %s", logs.String())
+	}
+}
+
+func TestPublisherAttemptMarksTransientUploadAndReviewErrorsRetryable(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		stage  string
+		status int
+	}{
+		{name: "upload 429", stage: "upload", status: http.StatusTooManyRequests},
+		{name: "upload 500", stage: "upload", status: http.StatusInternalServerError},
+		{name: "review 429", stage: "review", status: http.StatusTooManyRequests},
+		{name: "review 500", stage: "review", status: http.StatusInternalServerError},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path, digest := publishLPK(t)
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				switch request.URL.Path {
+				case "/api/v3/developer/app/check/exist":
+					_, _ = response.Write([]byte(`{"exist":true}`))
+				case "/api/v3/developer/app/lpk/upload":
+					if test.stage == "upload" {
+						http.Error(response, "transient", test.status)
+						return
+					}
+					_, _ = fmt.Fprintf(response, `{"package":"cloud.lazycat.apps.publish-demo","version":"1.0.0","iconPath":"/icon.png","url":"/demo.lpk","sha256":"%s","unsupportedPlatforms":[],"minOsVersion":"1.3.0","lpkSize":123,"imageSize":0}`, digest)
+				case "/api/v3/developer/app/cloud.lazycat.apps.publish-demo/review/create":
+					http.Error(response, "transient", test.status)
+				default:
+					http.NotFound(response, request)
+				}
+			}))
+			defer server.Close()
+
+			_, err := (official.Publisher{BaseURL: server.URL, HTTPClient: server.Client()}).Publish(context.Background(), official.Request{
+				Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+				Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+			})
+			var toolkitError *lpkgo.Error
+			if !errors.As(err, &toolkitError) || toolkitError.Op != "store.official."+test.stage || toolkitError.StatusCode != test.status || !toolkitError.Retryable {
+				t.Fatalf("err=%#v", toolkitError)
+			}
+		})
+	}
+}
+
+func TestPublisherRetryDoesNotRepeatInvalidUploadMetadata(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		response func(string) string
+		wantCode lpkgo.Code
+	}{
+		{
+			name: "mismatched identity",
+			response: func(string) string {
+				return `{"package":"cloud.lazycat.apps.publish-demo","version":"9.9.9","url":"/demo.lpk","sha256":"bad"}`
+			},
+			wantCode: lpkgo.CodeIntegrityMismatch,
+		},
+		{
+			name:     "invalid JSON",
+			response: func(string) string { return `{` },
+			wantCode: lpkgo.CodeRemoteUnavailable,
+		},
+		{
+			name: "incomplete metadata",
+			response: func(digest string) string {
+				return fmt.Sprintf(`{"package":"cloud.lazycat.apps.publish-demo","version":"1.0.0","sha256":"%s"}`, digest)
+			},
+			wantCode: lpkgo.CodeRemoteUnavailable,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path, digest := publishLPK(t)
+			uploads := 0
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				switch request.URL.Path {
+				case "/api/v3/developer/app/check/exist":
+					_, _ = response.Write([]byte(`{"exist":true}`))
+				case "/api/v3/developer/app/lpk/upload":
+					uploads++
+					_, _ = response.Write([]byte(test.response(digest)))
+				default:
+					http.NotFound(response, request)
+				}
+			}))
+			defer server.Close()
+
+			_, err := (official.Publisher{
+				BaseURL: server.URL, HTTPClient: server.Client(),
+				NewDelay: func(_, _ time.Duration) func() time.Duration {
+					return func() time.Duration { return 0 }
+				},
+				Wait: func(context.Context, time.Duration) error { return nil },
+			}).Publish(context.Background(), official.Request{
+				Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+				Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+				Retry: config.OfficialRetry{Enabled: true, MaxAttempts: 3, InitialDelay: time.Second, MaxDelay: 10 * time.Second},
+			})
+			var toolkitError *lpkgo.Error
+			if !errors.As(err, &toolkitError) || toolkitError.Code != test.wantCode || toolkitError.Retryable || uploads != 1 {
+				t.Fatalf("err=%#v uploads=%d", toolkitError, uploads)
+			}
+		})
+	}
+}
+
+func TestPublisherRetryRepeatsStatuslessRemoteUnavailable(t *testing.T) {
+	path, digest := publishLPK(t)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v3/developer/app/check/exist":
+			_, _ = response.Write([]byte(`{"exist":true}`))
+		case "/api/v3/developer/app/lpk/upload":
+			_, _ = fmt.Fprintf(response, `{"package":"cloud.lazycat.apps.publish-demo","version":"1.0.0","iconPath":"/icon.png","url":"/demo.lpk","sha256":"%s","unsupportedPlatforms":[],"minOsVersion":"1.3.0","lpkSize":123,"imageSize":0}`, digest)
+		case "/api/v3/developer/app/cloud.lazycat.apps.publish-demo/review/create":
+			_, _ = response.Write([]byte(`{"success":true}`))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	httpClient := server.Client()
+	baseTransport := httpClient.Transport
+	checks := 0
+	httpClient.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path == "/api/v3/developer/app/check/exist" {
+			checks++
+			if checks == 1 {
+				return nil, errors.New("transient network failure")
+			}
+		}
+		return baseTransport.RoundTrip(request)
+	})
+	result, err := (official.Publisher{
+		BaseURL: server.URL, HTTPClient: httpClient,
+		NewDelay: func(_, _ time.Duration) func() time.Duration {
+			return func() time.Duration { return 0 }
+		},
+		Wait: func(context.Context, time.Duration) error { return nil },
+	}).Publish(context.Background(), official.Request{
+		Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+		Retry: config.OfficialRetry{Enabled: true, MaxAttempts: 2, InitialDelay: time.Second, MaxDelay: 10 * time.Second},
+	})
+	if err != nil || !result.Published || checks != 2 {
+		t.Fatalf("err=%v result=%#v checks=%d", err, result, checks)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (roundTrip roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return roundTrip(request)
+}
+
+type countingTokenProvider struct {
+	token string
+	calls int
+}
+
+func (provider *countingTokenProvider) Token(context.Context) (string, error) {
+	provider.calls++
+	return provider.token, nil
+}
 
 func TestPublisherReportsOfficialUploadFailureStage(t *testing.T) {
 	path, digest := publishLPK(t)

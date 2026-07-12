@@ -9,6 +9,8 @@ require (
 
 require github.com/Masterminds/semver/v3 v3.5.0
 
+require github.com/cloudflare/backoff v0.0.0-20240920015135-e46b80a3a7d0
+
 require (
 	github.com/docker/cli v29.5.3+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.9.3 // indirect
