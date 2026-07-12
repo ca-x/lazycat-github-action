@@ -1,6 +1,7 @@
 package versioning_test
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/ca-x/lazycat-github-action/internal/versioning"
 )
+
+var benchmarkSelection versioning.Selection
 
 func TestSelectStableAndBeta(t *testing.T) {
 	candidates := []versioning.Candidate{
@@ -127,6 +130,48 @@ func TestSelectRejectsInvalidRulesAndCandidates(t *testing.T) {
 			}
 		})
 	}
+}
+
+func BenchmarkSelectStable1000(b *testing.B) {
+	candidates := benchmarkCandidates(1000)
+	rule := versioning.Rule{Channel: versioning.ChannelStable, Sort: versioning.SortSemVer}
+	b.ReportAllocs()
+	for b.Loop() {
+		selection, err := versioning.Select(rule, candidates)
+		if err != nil {
+			b.Fatal(err)
+		}
+		benchmarkSelection = selection
+	}
+}
+
+func BenchmarkSelectCustomCreated1000(b *testing.B) {
+	candidates := benchmarkCandidates(1000)
+	rule := versioning.Rule{
+		Channel:  versioning.ChannelCustom,
+		Sort:     versioning.SortCreated,
+		TagRegex: regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`),
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		selection, err := versioning.Select(rule, candidates)
+		if err != nil {
+			b.Fatal(err)
+		}
+		benchmarkSelection = selection
+	}
+}
+
+func benchmarkCandidates(count int) []versioning.Candidate {
+	candidates := make([]versioning.Candidate, 0, count)
+	for index := range count {
+		candidates = append(candidates, versioning.Candidate{
+			Tag:     fmt.Sprintf("v1.%d.%d", index/100, index%100),
+			Digest:  digest(fmt.Sprintf("%x", index%16)),
+			Created: time.Date(2026, 1, 1+index%28, 0, 0, index, 0, time.UTC),
+		})
+	}
+	return candidates
 }
 
 func digest(character string) string { return "sha256:" + strings.Repeat(character, 64) }

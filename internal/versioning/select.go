@@ -119,7 +119,7 @@ func rankMappedCandidates(rule Rule, filtered []Candidate) ([]Selection, error) 
 			}
 			return nil, err
 		}
-		parsed, err := semver.NewVersion(mapped)
+		parsed, err := semver.StrictNewVersion(mapped)
 		if err != nil {
 			return nil, fmt.Errorf("parse mapped version %q: %w", mapped, err)
 		}
