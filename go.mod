@@ -3,7 +3,7 @@ module github.com/ca-x/lazycat-github-action
 go 1.25.0
 
 require (
-	github.com/lib-x/lzc-toolkit-go v0.3.2
+	github.com/lib-x/lzc-toolkit-go v0.3.3
 	go.yaml.in/yaml/v3 v3.0.4
 )
 
