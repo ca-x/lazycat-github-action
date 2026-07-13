@@ -87,6 +87,58 @@ func TestRunBuildCallsDependenciesInOrderAndReturnsStableResult(t *testing.T) {
 	}
 }
 
+func TestRunBuildKeepsOfficialWarningsStoreScoped(t *testing.T) {
+	tests := []struct {
+		name         string
+		official     bool
+		private      bool
+		wantOfficial bool
+	}{
+		{name: "dual store", official: true, private: true, wantOfficial: true},
+		{name: "private only", private: true, wantOfficial: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			cfg := gitConfig()
+			cfg.Stores.Official.Enabled = test.official
+			cfg.Stores.Private.Enabled = test.private
+			var buildRequest actionbuild.Request
+			deps := action.Dependencies{
+				Host:       platform.Host{OS: "linux", Arch: "amd64"},
+				ResultDir:  filepath.Join(root, "results"),
+				LoadConfig: func(string) (config.Config, error) { return cfg, nil },
+				Inspect: func(context.Context, config.Project) (project.Info, error) {
+					return project.Info{
+						Root: root, PackageFile: filepath.Join(root, "package.yml"), Output: filepath.Join(root, "dist", "app.lpk"),
+						PackageID: "cloud.lazycat.example", Version: "1.2.3",
+					}, nil
+				},
+				SetVersion: func(string, string) (yamledit.Change, error) { return yamledit.Change{}, nil },
+				Build: func(_ context.Context, request actionbuild.Request) (actionbuild.Result, error) {
+					buildRequest = request
+					return actionbuild.Result{
+						Path: request.Project.Output, PackageID: request.Project.PackageID, Version: request.Version,
+						SHA256: strings.Repeat("a", 64), TargetPlatform: "linux/amd64",
+						Warnings: []lpkgo.Warning{{Code: "unknown-manifest-fields", Path: "services.web.container_name"}},
+					}, nil
+				},
+			}
+
+			result, err := action.Run(context.Background(), action.Input{Operation: action.OperationBuild, Version: "1.2.3"}, deps)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if buildRequest.Official != test.wantOfficial || buildRequest.FailOnWarnings {
+				t.Fatalf("build request=%#v", buildRequest)
+			}
+			if len(result.Warnings) != 1 || result.Warnings[0].Path != "services.web.container_name" {
+				t.Fatalf("warnings=%#v", result.Warnings)
+			}
+		})
+	}
+}
+
 func TestRunPublishesOfficialStoreAndReturnsStableJSON(t *testing.T) {
 	root := t.TempDir()
 	cfg := gitConfig()

@@ -341,7 +341,6 @@ func runBuild(ctx context.Context, input Input, cfg config.Config, info project.
 		Channel:         input.Channel,
 		SourceDateEpoch: input.SourceDateEpoch,
 		Official:        cfg.Stores.Official.Enabled,
-		FailOnWarnings:  cfg.Stores.Official.Enabled,
 		RunBuildScript:  cfg.Build.ShouldRunBuildScript(),
 	})
 	if err != nil {
@@ -410,7 +409,7 @@ func runCheck(ctx context.Context, input Input, cfg config.Config, info project.
 	built, err := dependencies.Build(ctx, actionbuild.Request{
 		Project: updated, Version: checked.Version, Tag: input.Tag, Channel: checked.Channel,
 		SourceDateEpoch: input.SourceDateEpoch, Official: cfg.Stores.Official.Enabled,
-		FailOnWarnings: cfg.Stores.Official.Enabled, RunBuildScript: cfg.Build.ShouldRunBuildScript(),
+		RunBuildScript: cfg.Build.ShouldRunBuildScript(),
 	})
 	if err != nil {
 		rollbackVersion(dependencies, info.PackageFile, change)

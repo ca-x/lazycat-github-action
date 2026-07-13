@@ -138,6 +138,28 @@ func TestBuilderOfficialWarningsCanFailTheBuild(t *testing.T) {
 	}
 }
 
+func TestBuilderOfficialAllowsCompatibilityWarnings(t *testing.T) {
+	info := compatibilityWarningFixtureProject(t)
+	result, err := (actionbuild.Builder{}).Build(context.Background(), actionbuild.Request{
+		Project: info, Version: "1.2.3", Tag: "v1.2.3", Official: true, FailOnWarnings: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Path != info.Output {
+		t.Fatalf("path=%q want=%q", result.Path, info.Output)
+	}
+	if _, err := os.Stat(result.Path); err != nil {
+		t.Fatal(err)
+	}
+	for _, warning := range result.Warnings {
+		if warning.Code == "unknown-manifest-fields" && warning.Path == "services.web.container_name" {
+			return
+		}
+	}
+	t.Fatalf("warnings=%#v", result.Warnings)
+}
+
 func TestBuilderBasicProfileDoesNotFailForOfficialOnlyWarnings(t *testing.T) {
 	info := fixtureProject(t)
 	_, err := (actionbuild.Builder{}).Build(context.Background(), actionbuild.Request{
@@ -322,6 +344,37 @@ description: Templated static fixture
 		ManifestFile: filepath.Join(root, "lzc-manifest.yml"),
 		Output:       filepath.Join(root, "dist", "app.lpk"),
 		PackageID:    "cloud.lazycat.action.templated",
+		Version:      "1.2.3",
+		Kind:         project.KindStatic,
+	}
+}
+
+func compatibilityWarningFixtureProject(t *testing.T) project.Info {
+	t.Helper()
+	root := t.TempDir()
+	files := map[string][]byte{
+		"lzc-build.yml":      []byte("manifest: ./lzc-manifest.yml\ncontentdir: ./content\nicon: ./icon.png\n"),
+		"package.yml":        []byte("package: cloud.lazycat.action.compatibility\nversion: 1.2.3\nname: Compatibility Fixture\ndescription: Compatibility fixture\nlocales:\n  en:\n    name: Compatibility Fixture\n"),
+		"lzc-manifest.yml":   []byte("application:\n  subdomain: compatibility\nservices:\n  web:\n    image: registry.lazycat.cloud/demo/web:1.2.3\n    container_name: compatibility-web\n"),
+		"content/index.html": []byte("fixture\n"),
+		"icon.png":           {0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a},
+	}
+	for name, contents := range files {
+		filename := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filename, contents, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return project.Info{
+		Root:         root,
+		BuildConfig:  filepath.Join(root, "lzc-build.yml"),
+		PackageFile:  filepath.Join(root, "package.yml"),
+		ManifestFile: filepath.Join(root, "lzc-manifest.yml"),
+		Output:       filepath.Join(root, "dist", "app.lpk"),
+		PackageID:    "cloud.lazycat.action.compatibility",
 		Version:      "1.2.3",
 		Kind:         project.KindStatic,
 	}

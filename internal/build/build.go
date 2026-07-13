@@ -213,12 +213,21 @@ func (builder Builder) Build(ctx context.Context, request Request) (result Resul
 	}
 	warnings := append([]lpkgo.Warning(nil), toolkitResult.Warnings...)
 	warnings = append(warnings, lintWarnings...)
-	if request.FailOnWarnings && len(lintWarnings) > 0 {
+	blockingWarnings := lintWarnings
+	if request.Official {
+		blockingWarnings = make([]lpkgo.Warning, 0, len(lintWarnings))
+		for _, warning := range lintWarnings {
+			if lint.IsOfficialWarning(warning) {
+				blockingWarnings = append(blockingWarnings, warning)
+			}
+		}
+	}
+	if request.FailOnWarnings && len(blockingWarnings) > 0 {
 		profile := "basic lint"
 		if request.Official {
 			profile = "official lint"
 		}
-		return Result{}, fmt.Errorf("%s reported %d warning(s)", profile, len(lintWarnings))
+		return Result{}, fmt.Errorf("%s reported %d warning(s)", profile, len(blockingWarnings))
 	}
 
 	digest, size, err := lpkcheck.HashFile(ctx, temporary)
