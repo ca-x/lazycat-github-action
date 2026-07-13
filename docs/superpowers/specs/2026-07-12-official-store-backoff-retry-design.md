@@ -28,11 +28,11 @@ The fully populated example is documented, while the shipped starter asset inclu
 
 ## Retry boundary
 
-Retry the complete official publication attempt rather than hiding retries inside a generic HTTP transport. Each attempt therefore obtains a fresh upload reader and reopens the LPK file. This avoids replaying a consumed multipart body and keeps retry behavior specific to official publication.
+Retry at the official publication-operation boundary rather than inside a generic HTTP transport. A retry before review submission obtains a fresh upload reader, reopens the LPK file, and repeats the application existence check. This avoids replaying a consumed multipart body and keeps retry behavior specific to official publication.
 
 Credential resolution remains outside the retry loop. Token acquisition failures are not network publication failures and must return immediately.
 
-Before a retry, the next attempt repeats the official application existence check. Creation is only attempted when the application is still absent. Upload and review endpoints may receive a repeated request if the connection fails after the server processed it but before the runner received a response; the official APIs must therefore be treated as idempotent for the same package/version artifact. The retry loop never changes package metadata, version, digest, or changelog.
+Creation is only attempted when the application is still absent. Upload failures can restart the operation because reopening and re-uploading the same verified package/version/digest is safe. Review creation is a non-idempotent POST with no pending-review lookup or idempotency key, so an ambiguous status-less network failure or 5xx response from `store.official.review` is returned without replaying upload/review. HTTP 429 remains retryable because it explicitly means the review request was rate-limited. The retry loop never changes package metadata, version, digest, or changelog.
 
 ## Retry classification
 
@@ -42,9 +42,15 @@ Retry only errors represented by `*lpkgo.Error` where:
 - `Code` is `REMOTE_UNAVAILABLE` and there is no HTTP status, representing connection, TLS, timeout, response-read, or connection-reset failures; or
 - the status is HTTP 429 or 5xx.
 
+For `store.official.review`, narrow that rule to HTTP 429 only. Do not replay a review after a status-less network failure or 5xx because the server may already have accepted it.
+
 Do not retry cancellation, deadline expiry, invalid configuration, authentication or permission failures, not-found, local file errors, metadata mismatches, or other 4xx responses. Context cancellation interrupts both active requests and backoff waits immediately.
 
 HTTP 429 and 5xx errors must be marked retryable at their source. If a valid `Retry-After` value is available, the wait is the greater of that value and the Cloudflare jittered delay, capped by `max_delay`. Response bodies and credentials remain excluded from logs and errors.
+
+## Official precheck ordering
+
+After generic LPK verification, an enabled `skip_if_version_exists` lookup runs before official lint precheck. Equality or a newer online SemVer is a no-op and must skip without official credentials, publication, or a redundant lint failure. When publication remains necessary, the official precheck runs before credential resolution. The publisher repeats the precheck for direct callers as defense in depth.
 
 ## Backoff and observability
 
@@ -74,7 +80,7 @@ No Action input or reusable-workflow input is added; project YAML remains the si
 
 - Configuration tests cover defaults, explicit values, malformed durations, invalid ranges, and disabled compatibility.
 - Official publisher tests prove default-off makes exactly one attempt.
-- Retry tests prove a transient connection/5xx failure succeeds on a later attempt, a 4xx fails once, exhaustion returns the final error, and cancellation stops a backoff wait promptly.
+- Retry tests prove a transient upload connection/5xx failure succeeds on a later attempt, a 4xx fails once, an ambiguous review 5xx is not replayed, exhaustion returns the final error, and cancellation stops a backoff wait promptly.
 - Tests inject deterministic delay generation and waiting so they do not sleep or depend on jitter.
 - Existing official publish, publish-flow, metadata, full test, race, staticcheck, and repository verification suites must remain green.
 

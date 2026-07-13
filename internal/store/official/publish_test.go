@@ -334,6 +334,39 @@ func TestPublisherRetryCancellationDuringWaitStopsBeforeNextAttempt(t *testing.T
 	}
 }
 
+func TestPublisherRetryDeadlineDuringWaitPreservesDeadlineCode(t *testing.T) {
+	path, digest := publishLPK(t)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v3/developer/app/check/exist":
+			_, _ = response.Write([]byte(`{"exist":true}`))
+		case "/api/v3/developer/app/lpk/upload":
+			http.Error(response, "unavailable", http.StatusServiceUnavailable)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	_, err := (official.Publisher{
+		BaseURL: server.URL, HTTPClient: server.Client(),
+		NewDelay: func(_, _ time.Duration) func() time.Duration {
+			return func() time.Duration { return time.Second }
+		},
+		Wait: func(context.Context, time.Duration) error {
+			return context.DeadlineExceeded
+		},
+	}).Publish(context.Background(), official.Request{
+		Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+		Retry: config.OfficialRetry{Enabled: true, MaxAttempts: 3, InitialDelay: time.Second, MaxDelay: 10 * time.Second},
+	})
+	var toolkitError *lpkgo.Error
+	if !errors.As(err, &toolkitError) || toolkitError.Code != lpkgo.CodeDeadlineExceeded {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestPublisherRetryAfterLargerDelayIsSelectedAndCapped(t *testing.T) {
 	path, digest := publishLPK(t)
 	uploads := 0
@@ -517,6 +550,49 @@ func TestPublisherAttemptMarksTransientUploadAndReviewErrorsRetryable(t *testing
 				t.Fatalf("err=%#v", toolkitError)
 			}
 		})
+	}
+}
+
+func TestPublisherRetryDoesNotReplayAmbiguousReviewFailure(t *testing.T) {
+	path, digest := publishLPK(t)
+	checks := 0
+	uploads := 0
+	reviews := 0
+	waits := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v3/developer/app/check/exist":
+			checks++
+			_, _ = response.Write([]byte(`{"exist":true}`))
+		case "/api/v3/developer/app/lpk/upload":
+			uploads++
+			_, _ = fmt.Fprintf(response, `{"package":"cloud.lazycat.apps.publish-demo","version":"1.0.0","iconPath":"/icon.png","url":"/demo.lpk","sha256":"%s","unsupportedPlatforms":[],"minOsVersion":"1.3.0","lpkSize":123,"imageSize":0}`, digest)
+		case "/api/v3/developer/app/cloud.lazycat.apps.publish-demo/review/create":
+			reviews++
+			http.Error(response, "accepted but response failed", http.StatusInternalServerError)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	_, err := (official.Publisher{
+		BaseURL: server.URL, HTTPClient: server.Client(),
+		NewDelay: func(_, _ time.Duration) func() time.Duration {
+			return func() time.Duration { return 0 }
+		},
+		Wait: func(context.Context, time.Duration) error {
+			waits++
+			return nil
+		},
+	}).Publish(context.Background(), official.Request{
+		Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+		Retry: config.OfficialRetry{Enabled: true, MaxAttempts: 3, InitialDelay: time.Second, MaxDelay: 10 * time.Second},
+	})
+	var toolkitError *lpkgo.Error
+	if !errors.As(err, &toolkitError) || toolkitError.Op != "store.official.review" || toolkitError.StatusCode != http.StatusInternalServerError || checks != 1 || uploads != 1 || reviews != 1 || waits != 0 {
+		t.Fatalf("err=%#v checks=%d uploads=%d reviews=%d waits=%d", toolkitError, checks, uploads, reviews, waits)
 	}
 }
 

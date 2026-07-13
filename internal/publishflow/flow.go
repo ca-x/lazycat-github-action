@@ -152,14 +152,6 @@ func (flow Flow) Publish(ctx context.Context, request Request) (Result, error) {
 			return Result{}, &lpkgo.Error{Code: lpkgo.CodeIntegrityMismatch, Op: "publishflow.verify", Cause: errors.New("local LPK SHA256 does not match the confirmed Release Asset SHA256")}
 		}
 	}
-	if request.Target == TargetOfficial {
-		if flow.PrecheckOfficial == nil {
-			return Result{}, errors.New("official precheck dependency is unavailable")
-		}
-		if err := flow.PrecheckOfficial(ctx, artifact.Path); err != nil {
-			return Result{}, fmt.Errorf("precheck official publish artifact: %w", err)
-		}
-	}
 	result := Result{Artifact: artifact}
 	onlineVersion, skipReason, err := flow.checkExisting(ctx, request, artifact)
 	if err != nil {
@@ -180,6 +172,14 @@ func (flow Flow) Publish(ctx context.Context, request Request) (Result, error) {
 			}
 		}
 		return result, nil
+	}
+	if request.Target == TargetOfficial {
+		if flow.PrecheckOfficial == nil {
+			return Result{}, errors.New("official precheck dependency is unavailable")
+		}
+		if err := flow.PrecheckOfficial(ctx, artifact.Path); err != nil {
+			return Result{}, fmt.Errorf("precheck official publish artifact: %w", err)
+		}
 	}
 	switch request.Target {
 	case TargetOfficial:

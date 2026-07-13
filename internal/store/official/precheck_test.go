@@ -46,6 +46,7 @@ func TestPublisherOfficialPrecheckRejectsOfficialWarningBeforeProviderOrNetwork(
 }
 
 func TestPrecheckFileRejectsNilContext(t *testing.T) {
+	//lint:ignore SA1012 This negative test verifies the explicit nil-context rejection contract.
 	err := official.PrecheckFile(nil, filepath.Join(t.TempDir(), "application.lpk"))
 	var toolkitError *lpkgo.Error
 	if !errors.As(err, &toolkitError) || toolkitError.Code != lpkgo.CodeInvalidArgument || toolkitError.Op != "store.official.precheck" {

@@ -182,7 +182,7 @@ func (publisher Publisher) Publish(ctx context.Context, request Request) (Result
 		}
 		logger.Warn("official store publication retry scheduled", attributes...)
 		if err := wait(ctx, delay); err != nil {
-			return Result{}, publishError(lpkgo.CodeCancelled, err)
+			return Result{}, publishContextError(err)
 		}
 	}
 	return Result{}, publishError(lpkgo.CodeRemoteUnavailable, errors.New("official platform publishing failed"))
@@ -314,6 +314,9 @@ func retryablePublishError(err error) bool {
 	if toolkitError.StatusCode >= 600 {
 		return false
 	}
+	if toolkitError.Op == "store.official.review" {
+		return toolkitError.StatusCode == http.StatusTooManyRequests
+	}
 	return toolkitError.Retryable ||
 		(toolkitError.Code == lpkgo.CodeRemoteUnavailable && toolkitError.StatusCode == 0) ||
 		isRetryableHTTPStatus(toolkitError.StatusCode)
@@ -437,9 +440,12 @@ func doRequest(client *http.Client, request *http.Request, op string) ([]byte, e
 	response, err := client.Do(request)
 	if err != nil {
 		if contextErr := request.Context().Err(); contextErr != nil {
-			return nil, publishContextError(contextErr)
+			return nil, &lpkgo.Error{Code: contextErrorCode(contextErr), Op: op, Cause: contextErr}
 		}
-		return nil, publishError(lpkgo.CodeRemoteUnavailable, errors.New("official platform request failed"))
+		return nil, &lpkgo.Error{
+			Code: lpkgo.CodeRemoteUnavailable, Op: op, Retryable: true,
+			Cause: errors.New("official platform request failed"),
+		}
 	}
 	defer response.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))

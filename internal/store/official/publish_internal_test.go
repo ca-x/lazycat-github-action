@@ -48,6 +48,29 @@ func TestRetryablePublishErrorRejectsNon4294xxEvenWhenFlagged(t *testing.T) {
 	}
 }
 
+func TestRetryablePublishErrorDoesNotReplayAmbiguousReviewOutcomes(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		want   bool
+	}{
+		{name: "review rate limit", status: http.StatusTooManyRequests, want: true},
+		{name: "review server error", status: http.StatusInternalServerError, want: false},
+		{name: "review network outcome unknown", status: 0, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := &lpkgo.Error{
+				Code: lpkgo.CodeRemoteUnavailable, Op: "store.official.review",
+				StatusCode: test.status, Retryable: true, Cause: errors.New("review failed"),
+			}
+			if got := retryablePublishError(err); got != test.want {
+				t.Fatalf("retryable=%v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 func TestParseRetryAfterHTTPDate(t *testing.T) {
 	now := time.Date(2026, time.July, 13, 8, 0, 0, 0, time.UTC)
 	value := now.Add(45 * time.Second).Format(http.TimeFormat)

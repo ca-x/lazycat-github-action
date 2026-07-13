@@ -66,7 +66,7 @@ func TestPublishOfficialPropagatesVerifiedArtifactAndRetryPolicy(t *testing.T) {
 	}
 }
 
-func TestPublishOfficialPrecheckRunsBeforeLookupAuthenticationAndPublish(t *testing.T) {
+func TestPublishOfficialPrecheckRunsAfterLookupBeforeAuthenticationAndPublish(t *testing.T) {
 	var calls []string
 	precheckErr := &lpkgo.Error{Code: lpkgo.CodeInvalidManifest, Op: "store.official.precheck"}
 	flow := publishflow.Flow{
@@ -82,8 +82,8 @@ func TestPublishOfficialPrecheckRunsBeforeLookupAuthenticationAndPublish(t *test
 			return precheckErr
 		},
 		LookupVersion: func(context.Context, storelookup.Request) (storelookup.Result, error) {
-			t.Fatal("official precheck failure must prevent version lookup")
-			return storelookup.Result{}, nil
+			calls = append(calls, "lookup")
+			return storelookup.Result{}, lpkgo.ErrNotFound
 		},
 		ResolveAuth: func(context.Context, platformauth.Request) (platformauth.Result, error) {
 			t.Fatal("official precheck failure must prevent authentication")
@@ -104,7 +104,7 @@ func TestPublishOfficialPrecheckRunsBeforeLookupAuthenticationAndPublish(t *test
 	if !errors.Is(err, precheckErr) {
 		t.Fatalf("err=%v", err)
 	}
-	if strings.Join(calls, ",") != "verify,precheck" {
+	if strings.Join(calls, ",") != "verify,lookup,precheck" {
 		t.Fatalf("calls=%v", calls)
 	}
 }
@@ -144,8 +144,11 @@ func TestFlowPublishesPrivateStoreWithEnvironmentAndMetadataDefaults(t *testing.
 func TestFlowSkipsOfficialPublishWhenOnlineVersionMatches(t *testing.T) {
 	lookupCalls := 0
 	flow := publishflow.Flow{
-		Verify:           func(context.Context, lpkcheck.Request) (lpkcheck.Result, error) { return verifiedArtifact(), nil },
-		PrecheckOfficial: passOfficialPrecheck,
+		Verify: func(context.Context, lpkcheck.Request) (lpkcheck.Result, error) { return verifiedArtifact(), nil },
+		PrecheckOfficial: func(context.Context, string) error {
+			t.Fatal("official precheck must not run for an equal online version")
+			return nil
+		},
 		LookupVersion: func(_ context.Context, request storelookup.Request) (storelookup.Result, error) {
 			lookupCalls++
 			if request.Store != storelookup.StoreOfficial || request.PackageID != "cloud.lazycat.example" {
