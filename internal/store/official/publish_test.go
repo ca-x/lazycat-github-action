@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -376,6 +377,47 @@ func TestPublisherRetryAfterLargerDelayIsSelectedAndCapped(t *testing.T) {
 	}
 }
 
+func TestPublisherRetryJitterDelayWinsOverSmallerRetryAfter(t *testing.T) {
+	path, digest := publishLPK(t)
+	uploads := 0
+	var waited time.Duration
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v3/developer/app/check/exist":
+			_, _ = response.Write([]byte(`{"exist":true}`))
+		case "/api/v3/developer/app/lpk/upload":
+			uploads++
+			if uploads == 1 {
+				response.Header().Set("Retry-After", "1")
+				http.Error(response, "unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = fmt.Fprintf(response, `{"package":"cloud.lazycat.apps.publish-demo","version":"1.0.0","iconPath":"/icon.png","url":"/demo.lpk","sha256":"%s","unsupportedPlatforms":[],"minOsVersion":"1.3.0","lpkSize":123,"imageSize":0}`, digest)
+		case "/api/v3/developer/app/cloud.lazycat.apps.publish-demo/review/create":
+			_, _ = response.Write([]byte(`{"success":true}`))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	_, err := (official.Publisher{
+		BaseURL: server.URL, HTTPClient: server.Client(),
+		NewDelay: func(_, _ time.Duration) func() time.Duration { return func() time.Duration { return 7 * time.Second } },
+		Wait: func(_ context.Context, delay time.Duration) error {
+			waited = delay
+			return nil
+		},
+	}).Publish(context.Background(), official.Request{
+		Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+		Retry: config.OfficialRetry{Enabled: true, MaxAttempts: 2, InitialDelay: time.Second, MaxDelay: 10 * time.Second},
+	})
+	if err != nil || waited != 7*time.Second {
+		t.Fatalf("err=%v waited=%s", err, waited)
+	}
+}
+
 func TestPublisherRetryWarningContainsOnlySafeStructuredFields(t *testing.T) {
 	path, digest := publishLPK(t)
 	uploads := 0
@@ -478,30 +520,175 @@ func TestPublisherAttemptMarksTransientUploadAndReviewErrorsRetryable(t *testing
 	}
 }
 
+func TestPublisherRetryDoesNotRepeatStatus600(t *testing.T) {
+	path, digest := publishLPK(t)
+	uploads := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v3/developer/app/check/exist":
+			_, _ = response.Write([]byte(`{"exist":true}`))
+		case "/api/v3/developer/app/lpk/upload":
+			uploads++
+			response.WriteHeader(600)
+			_, _ = response.Write([]byte("not an HTTP 5xx response"))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	_, err := (official.Publisher{
+		BaseURL: server.URL, HTTPClient: server.Client(),
+		NewDelay: func(_, _ time.Duration) func() time.Duration { return func() time.Duration { return 0 } },
+		Wait: func(context.Context, time.Duration) error {
+			panic("status 600 waited")
+		},
+	}).Publish(context.Background(), official.Request{
+		Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+		Retry: config.OfficialRetry{Enabled: true, MaxAttempts: 3, InitialDelay: time.Second, MaxDelay: 10 * time.Second},
+	})
+	var toolkitError *lpkgo.Error
+	if !errors.As(err, &toolkitError) || toolkitError.StatusCode != 600 || toolkitError.Retryable || uploads != 1 {
+		t.Fatalf("err=%#v uploads=%d", toolkitError, uploads)
+	}
+}
+
+func TestPublisherRetryDoesNotRepeatUnreadable4xxResponse(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		status   int
+		body     func() io.ReadCloser
+		wantCode lpkgo.Code
+	}{
+		{name: "truncated 401", status: http.StatusUnauthorized, body: func() io.ReadCloser { return io.NopCloser(errorReader{}) }, wantCode: lpkgo.CodeUnauthenticated},
+		{name: "truncated 403", status: http.StatusForbidden, body: func() io.ReadCloser { return io.NopCloser(errorReader{}) }, wantCode: lpkgo.CodePermissionDenied},
+		{name: "truncated 404", status: http.StatusNotFound, body: func() io.ReadCloser { return io.NopCloser(errorReader{}) }, wantCode: lpkgo.CodeRemoteUnavailable},
+		{name: "truncated other 4xx", status: http.StatusTeapot, body: func() io.ReadCloser { return io.NopCloser(errorReader{}) }, wantCode: lpkgo.CodeRemoteUnavailable},
+		{name: "oversized 404", status: http.StatusNotFound, body: func() io.ReadCloser { return io.NopCloser(strings.NewReader(strings.Repeat("x", (4<<20)+1))) }, wantCode: lpkgo.CodeRemoteUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path, digest := publishLPK(t)
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				switch request.URL.Path {
+				case "/api/v3/developer/app/check/exist":
+					_, _ = response.Write([]byte(`{"exist":true}`))
+				case "/api/v3/developer/app/lpk/upload":
+					_, _ = fmt.Fprintf(response, `{"package":"cloud.lazycat.apps.publish-demo","version":"1.0.0","iconPath":"/icon.png","url":"/demo.lpk","sha256":"%s","unsupportedPlatforms":[],"minOsVersion":"1.3.0","lpkSize":123,"imageSize":0}`, digest)
+				default:
+					http.NotFound(response, request)
+				}
+			}))
+			defer server.Close()
+
+			httpClient := server.Client()
+			baseTransport := httpClient.Transport
+			responses := 0
+			httpClient.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				if strings.HasSuffix(request.URL.Path, "/review/create") {
+					responses++
+					return &http.Response{StatusCode: test.status, Header: make(http.Header), Body: test.body(), Request: request}, nil
+				}
+				return baseTransport.RoundTrip(request)
+			})
+			_, err := (official.Publisher{
+				BaseURL: server.URL, HTTPClient: httpClient,
+				NewDelay: func(_, _ time.Duration) func() time.Duration { return func() time.Duration { return 0 } },
+				Wait: func(context.Context, time.Duration) error {
+					panic("non-retryable 4xx response waited")
+				},
+			}).Publish(context.Background(), official.Request{
+				Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+				Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+				Retry: config.OfficialRetry{Enabled: true, MaxAttempts: 3, InitialDelay: time.Second, MaxDelay: 10 * time.Second},
+			})
+			var toolkitError *lpkgo.Error
+			if !errors.As(err, &toolkitError) || toolkitError.Code != test.wantCode || toolkitError.StatusCode != test.status || toolkitError.Retryable || responses != 1 {
+				t.Fatalf("err=%#v responses=%d", toolkitError, responses)
+			}
+		})
+	}
+}
+
+func TestPublisherRetryStopsForContextErrorDuringResponseRead(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		readErr  error
+		wantCode lpkgo.Code
+	}{
+		{name: "cancelled", readErr: context.Canceled, wantCode: lpkgo.CodeCancelled},
+		{name: "deadline", readErr: context.DeadlineExceeded, wantCode: lpkgo.CodeDeadlineExceeded},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path, digest := publishLPK(t)
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				switch request.URL.Path {
+				case "/api/v3/developer/app/check/exist":
+					_, _ = response.Write([]byte(`{"exist":true}`))
+				case "/api/v3/developer/app/lpk/upload":
+					_, _ = fmt.Fprintf(response, `{"package":"cloud.lazycat.apps.publish-demo","version":"1.0.0","iconPath":"/icon.png","url":"/demo.lpk","sha256":"%s","unsupportedPlatforms":[],"minOsVersion":"1.3.0","lpkSize":123,"imageSize":0}`, digest)
+				default:
+					http.NotFound(response, request)
+				}
+			}))
+			defer server.Close()
+
+			ctx := newManualContext()
+			httpClient := server.Client()
+			baseTransport := httpClient.Transport
+			reads := 0
+			httpClient.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				if strings.HasSuffix(request.URL.Path, "/review/create") {
+					return &http.Response{
+						StatusCode: http.StatusOK, Header: make(http.Header), Request: request,
+						Body: readCloserFunc(func([]byte) (int, error) {
+							reads++
+							ctx.finish(test.readErr)
+							return 0, test.readErr
+						}),
+					}, nil
+				}
+				return baseTransport.RoundTrip(request)
+			})
+			_, err := (official.Publisher{
+				BaseURL: server.URL, HTTPClient: httpClient,
+				NewDelay: func(_, _ time.Duration) func() time.Duration { return func() time.Duration { return 0 } },
+				Wait: func(context.Context, time.Duration) error {
+					panic("context response read error waited")
+				},
+			}).Publish(ctx, official.Request{
+				Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+				Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+				Retry: config.OfficialRetry{Enabled: true, MaxAttempts: 3, InitialDelay: time.Second, MaxDelay: 10 * time.Second},
+			})
+			var toolkitError *lpkgo.Error
+			if !errors.As(err, &toolkitError) || toolkitError.Code != test.wantCode || toolkitError.Op != "store.official.review" || toolkitError.StatusCode != http.StatusOK || reads != 1 {
+				t.Fatalf("err=%#v reads=%d", toolkitError, reads)
+			}
+		})
+	}
+}
+
 func TestPublisherRetryDoesNotRepeatInvalidUploadMetadata(t *testing.T) {
 	for _, test := range []struct {
 		name     string
 		response func(string) string
-		wantCode lpkgo.Code
 	}{
 		{
 			name: "mismatched identity",
 			response: func(string) string {
 				return `{"package":"cloud.lazycat.apps.publish-demo","version":"9.9.9","url":"/demo.lpk","sha256":"bad"}`
 			},
-			wantCode: lpkgo.CodeIntegrityMismatch,
 		},
 		{
 			name:     "invalid JSON",
 			response: func(string) string { return `{` },
-			wantCode: lpkgo.CodeRemoteUnavailable,
 		},
 		{
 			name: "incomplete metadata",
 			response: func(digest string) string {
 				return fmt.Sprintf(`{"package":"cloud.lazycat.apps.publish-demo","version":"1.0.0","sha256":"%s"}`, digest)
 			},
-			wantCode: lpkgo.CodeRemoteUnavailable,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -532,7 +719,7 @@ func TestPublisherRetryDoesNotRepeatInvalidUploadMetadata(t *testing.T) {
 				Retry: config.OfficialRetry{Enabled: true, MaxAttempts: 3, InitialDelay: time.Second, MaxDelay: 10 * time.Second},
 			})
 			var toolkitError *lpkgo.Error
-			if !errors.As(err, &toolkitError) || toolkitError.Code != test.wantCode || toolkitError.Retryable || uploads != 1 {
+			if !errors.As(err, &toolkitError) || toolkitError.Code != lpkgo.CodeRemoteUnavailable || toolkitError.Op != "store.official.publish" || toolkitError.StatusCode != 0 || toolkitError.Retryable || uploads != 1 {
 				t.Fatalf("err=%#v uploads=%d", toolkitError, uploads)
 			}
 		})
@@ -587,6 +774,60 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (roundTrip roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return roundTrip(request)
+}
+
+type errorReader struct{}
+
+func (errorReader) Read([]byte) (int, error) {
+	return 0, errors.New("truncated response")
+}
+
+type readCloserFunc func([]byte) (int, error)
+
+func (read readCloserFunc) Read(data []byte) (int, error) {
+	return read(data)
+}
+
+func (readCloserFunc) Close() error {
+	return nil
+}
+
+type manualContext struct {
+	done chan struct{}
+	once sync.Once
+	mu   sync.Mutex
+	err  error
+}
+
+func newManualContext() *manualContext {
+	return &manualContext{done: make(chan struct{})}
+}
+
+func (*manualContext) Deadline() (time.Time, bool) {
+	return time.Time{}, false
+}
+
+func (ctx *manualContext) Done() <-chan struct{} {
+	return ctx.done
+}
+
+func (ctx *manualContext) Err() error {
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	return ctx.err
+}
+
+func (*manualContext) Value(any) any {
+	return nil
+}
+
+func (ctx *manualContext) finish(err error) {
+	ctx.once.Do(func() {
+		ctx.mu.Lock()
+		ctx.err = err
+		ctx.mu.Unlock()
+		close(ctx.done)
+	})
 }
 
 type countingTokenProvider struct {

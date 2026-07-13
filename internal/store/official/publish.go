@@ -197,7 +197,7 @@ func newRetryAfterRecorder(base http.RoundTripper) *retryAfterRecorder {
 
 func (recorder *retryAfterRecorder) RoundTrip(request *http.Request) (*http.Response, error) {
 	response, err := recorder.base.RoundTrip(request)
-	if err != nil || response == nil || (response.StatusCode != http.StatusTooManyRequests && response.StatusCode < http.StatusInternalServerError) {
+	if err != nil || response == nil || !isRetryableHTTPStatus(response.StatusCode) {
 		return response, err
 	}
 	if delay, ok := parseRetryAfter(response.Header.Get("Retry-After"), time.Now()); ok {
@@ -269,7 +269,7 @@ func publishAttempt(
 	uploadVersion := strings.TrimSpace(upload.Version)
 	uploadDigest := strings.ToLower(strings.TrimSpace(upload.SHA256))
 	if uploadPackage != packageID || uploadVersion != version || uploadDigest != digest {
-		return Result{Created: created}, publishError(lpkgo.CodeIntegrityMismatch, errors.New("official upload metadata does not match the verified LPK"))
+		return Result{Created: created}, markNonRetryable(publishError(lpkgo.CodeRemoteUnavailable, errors.New("official upload metadata does not match the verified LPK")))
 	}
 	if err := submitReview(ctx, httpClient, baseURL, token, upload, changelogs); err != nil {
 		return Result{Created: created}, err
@@ -281,17 +281,33 @@ func publishAttempt(
 }
 
 func retryablePublishError(err error) bool {
+	var nonRetryable *nonRetryablePublishError
+	if errors.As(err, &nonRetryable) {
+		return false
+	}
 	var toolkitError *lpkgo.Error
 	if !errors.As(err, &toolkitError) {
 		return false
 	}
-	if toolkitError.Code == lpkgo.CodeCancelled || toolkitError.Code == lpkgo.CodeDeadlineExceeded {
+	switch toolkitError.Code {
+	case lpkgo.CodeInvalidArgument,
+		lpkgo.CodeInvalidConfig,
+		lpkgo.CodeInvalidManifest,
+		lpkgo.CodeUnauthenticated,
+		lpkgo.CodePermissionDenied,
+		lpkgo.CodeNotFound,
+		lpkgo.CodeCommandFailed,
+		lpkgo.CodeIntegrityMismatch,
+		lpkgo.CodeCancelled,
+		lpkgo.CodeDeadlineExceeded:
+		return false
+	}
+	if toolkitError.StatusCode >= 600 {
 		return false
 	}
 	return toolkitError.Retryable ||
 		(toolkitError.Code == lpkgo.CodeRemoteUnavailable && toolkitError.StatusCode == 0) ||
-		toolkitError.StatusCode == http.StatusTooManyRequests ||
-		toolkitError.StatusCode >= http.StatusInternalServerError
+		isRetryableHTTPStatus(toolkitError.StatusCode)
 }
 
 func waitForRetry(ctx context.Context, delay time.Duration) error {
@@ -351,10 +367,10 @@ func uploadLPK(ctx context.Context, client *http.Client, baseURL, token, filenam
 	}
 	var upload appstore.UploadInfo
 	if err := json.Unmarshal(body, &upload); err != nil {
-		return appstore.UploadInfo{}, publishResponseError(lpkgo.CodeRemoteUnavailable, errors.New("official platform returned invalid upload metadata"))
+		return appstore.UploadInfo{}, markNonRetryable(publishError(lpkgo.CodeRemoteUnavailable, errors.New("official platform returned invalid upload metadata")))
 	}
 	if strings.TrimSpace(upload.Package) == "" || strings.TrimSpace(upload.Version) == "" || strings.TrimSpace(upload.URL) == "" || strings.TrimSpace(upload.SHA256) == "" {
-		return appstore.UploadInfo{}, publishResponseError(lpkgo.CodeRemoteUnavailable, errors.New("official platform returned incomplete upload metadata"))
+		return appstore.UploadInfo{}, markNonRetryable(publishError(lpkgo.CodeRemoteUnavailable, errors.New("official platform returned incomplete upload metadata")))
 	}
 	return upload, nil
 }
@@ -411,26 +427,65 @@ func authenticatedRequest(ctx context.Context, method, target, token string, bod
 func doRequest(client *http.Client, request *http.Request, op string) ([]byte, error) {
 	response, err := client.Do(request)
 	if err != nil {
-		if request.Context().Err() != nil {
-			return nil, publishError(lpkgo.CodeCancelled, request.Context().Err())
+		if contextErr := request.Context().Err(); contextErr != nil {
+			return nil, publishContextError(contextErr)
 		}
 		return nil, publishError(lpkgo.CodeRemoteUnavailable, errors.New("official platform request failed"))
 	}
 	defer response.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
-	if err != nil || len(body) > maxResponseBytes {
-		return nil, publishError(lpkgo.CodeRemoteUnavailable, errors.New("official platform response could not be read safely"))
+	if contextErr := request.Context().Err(); contextErr != nil {
+		return nil, &lpkgo.Error{
+			Code: contextErrorCode(contextErr), Op: op, StatusCode: response.StatusCode,
+			Cause: contextErr,
+		}
+	}
+	if err != nil {
+		return nil, &lpkgo.Error{
+			Code: statusErrorCode(response.StatusCode), Op: op, StatusCode: response.StatusCode,
+			Retryable: isRetryableHTTPStatus(response.StatusCode) || response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusMultipleChoices,
+			Cause:     errors.New("official platform response could not be read safely"),
+		}
+	}
+	if len(body) > maxResponseBytes {
+		return nil, &lpkgo.Error{
+			Code: statusErrorCode(response.StatusCode), Op: op, StatusCode: response.StatusCode,
+			Retryable: isRetryableHTTPStatus(response.StatusCode), Cause: errors.New("official platform response could not be read safely"),
+		}
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		code := lpkgo.CodeRemoteUnavailable
-		if response.StatusCode == http.StatusUnauthorized {
-			code = lpkgo.CodeUnauthenticated
-		} else if response.StatusCode == http.StatusForbidden {
-			code = lpkgo.CodePermissionDenied
+		return nil, &lpkgo.Error{
+			Code: statusErrorCode(response.StatusCode), Op: op, StatusCode: response.StatusCode,
+			Retryable: isRetryableHTTPStatus(response.StatusCode), Cause: errors.New("official platform rejected the request"),
 		}
-		return nil, &lpkgo.Error{Code: code, Op: op, StatusCode: response.StatusCode, Retryable: response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500, Cause: errors.New("official platform rejected the request")}
 	}
 	return body, nil
+}
+
+func statusErrorCode(status int) lpkgo.Code {
+	switch status {
+	case http.StatusUnauthorized:
+		return lpkgo.CodeUnauthenticated
+	case http.StatusForbidden:
+		return lpkgo.CodePermissionDenied
+	default:
+		return lpkgo.CodeRemoteUnavailable
+	}
+}
+
+func isRetryableHTTPStatus(status int) bool {
+	return status == http.StatusTooManyRequests || status >= http.StatusInternalServerError && status < 600
+}
+
+func publishContextError(err error) error {
+	return publishError(contextErrorCode(err), err)
+}
+
+func contextErrorCode(err error) lpkgo.Code {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return lpkgo.CodeDeadlineExceeded
+	}
+	return lpkgo.CodeCancelled
 }
 
 type contextReader struct {
@@ -460,6 +515,18 @@ func publishError(code lpkgo.Code, cause error) error {
 	return &lpkgo.Error{Code: code, Op: "store.official.publish", Cause: fmt.Errorf("%w", cause)}
 }
 
-func publishResponseError(code lpkgo.Code, cause error) error {
-	return &lpkgo.Error{Code: code, Op: "store.official.publish", StatusCode: http.StatusOK, Cause: fmt.Errorf("%w", cause)}
+type nonRetryablePublishError struct {
+	err error
+}
+
+func (err *nonRetryablePublishError) Error() string {
+	return err.err.Error()
+}
+
+func (err *nonRetryablePublishError) Unwrap() error {
+	return err.err
+}
+
+func markNonRetryable(err error) error {
+	return &nonRetryablePublishError{err: err}
 }
