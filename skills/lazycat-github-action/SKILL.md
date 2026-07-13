@@ -221,7 +221,7 @@ Before finishing:
 1. Confirm every image target exists exactly once in the Manifest.
 2. Confirm `update.version_source.image` names a configured image when type is `image`.
 3. Confirm official store plus direct/mirror is absent.
-4. Confirm source-build scripts output Linux x86_64.
+4. Confirm source-build scripts output the configured `project.target_arch`.
 5. Confirm workflow toolchains and configured toolchains match.
 6. Confirm permissions include `contents: write` and `pull-requests: write` for the reusable workflow.
 7. Confirm secrets are referenced, never embedded.
@@ -229,7 +229,7 @@ Before finishing:
 9. Confirm every enabled store credential is explicitly assigned in the caller workflow and the selected Organization Secret authorizes the repository.
 10. Confirm standalone Go Template control lines are byte-identical and were never evaluated.
 11. Confirm the private store uses the verified versioned Release URL/SHA256 and official publication uploads the same verified bytes/SHA256 without that URL.
-12. Confirm an existing exact Release Asset can reconcile either missing store version without rebuilding or republishing the store that is already current.
+12. Confirm unchanged `publish` automation recovery-builds a missing Release/asset, while an existing exact Release Asset reconciles either missing store version without rebuilding or republishing the store that is already current.
 13. Run `actionlint` and the project's build/test commands.
 
 ## Common failures

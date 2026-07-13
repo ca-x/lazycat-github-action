@@ -128,7 +128,7 @@ Official errors retain HTTP status and `store.official.upload`/`store.official.r
 
 ## Existing Release/store reconciliation
 
-A scheduled workflow with `update.strategy: publish`, `versioned-release-asset: true`, and store `skip_if_version_exists: true` is also a repair loop. When the current tag already contains exact asset `<package-id>-v<version>.lpk`, the reusable workflow may download it and fill a missing official or private-store version without rebuilding. It must require the GitHub `sha256:` asset digest, recompute SHA256 after download, keep the file beneath the project root, and let each store independently publish or skip. Missing Release/tag, a different filename, or a missing/mismatched digest is not recoverable by guessing; stop that publication path.
+A scheduled or manually dispatched workflow with `update.strategy: publish` is also a repair loop. When image inspection is unchanged but the current version lacks a Release or, with `versioned-release-asset: true`, the exact `<package-id>-v<version>.lpk`, the reusable workflow runs `operation: build` to create and verify the missing artifact before continuing through the normal Release path. When the exact asset already exists, it may download it and fill a missing official or private-store version without rebuilding. Existing assets require the GitHub `sha256:` digest plus a matching locally recomputed SHA256; stores publish or skip independently. Never guess a different filename, version, or digest.
 
 ## Source build mapping
 

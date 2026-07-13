@@ -252,7 +252,7 @@ func TestReusableWorkflowPreparesVersionedReleaseAssets(t *testing.T) {
 	prepareStep := prepareRest[:prepareEnd]
 	for _, contract := range []string{
 		"if: steps.release-state.outputs.should-release == 'true'",
-		"LPK_PATH: ${{ steps.lazycat.outputs.lpk-path }}",
+		"LPK_PATH: ${{ steps.release-build.outputs.lpk-path }}",
 		"PACKAGE_ID: ${{ steps.lazycat.outputs.package-id }}",
 		"VERSION: ${{ steps.lazycat.outputs.version }}",
 		"VERSIONED_RELEASE_ASSET: ${{ inputs.versioned-release-asset }}",
@@ -357,8 +357,34 @@ func TestActionMetadataExposesStableContract(t *testing.T) {
 	if document.Runs.Using != "composite" {
 		t.Fatalf("runs.using=%q", document.Runs.Using)
 	}
-	if !strings.Contains(string(data), "LAZYCAT_ACTION_VERSION: v1.1.17") {
-		t.Fatal("action.yml must bootstrap release v1.1.17")
+	if !strings.Contains(string(data), "LAZYCAT_ACTION_VERSION: v1.1.18") {
+		t.Fatal("action.yml must bootstrap release v1.1.18")
+	}
+}
+
+func TestReusableWorkflowRecoversMissingReleaseForUnchangedPublish(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "lazycat.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(data)
+	for _, required := range []string{
+		"PACKAGE_ID: ${{ steps.lazycat.outputs.package-id }}",
+		"VERSIONED_RELEASE_ASSET: ${{ inputs.versioned-release-asset }}",
+		"const expectedAssetName = `${packageId}-v${version}.lpk`;",
+		"- name: Build missing Release artifact",
+		"id: recovery-build",
+		"operation: build",
+		"version: ${{ steps.lazycat.outputs.version }}",
+		"- name: Select Release build artifact",
+		"id: release-build",
+		"RECOVERY_LPK_PATH: ${{ steps.recovery-build.outputs.lpk-path }}",
+		"LPK_PATH: ${{ steps.release-build.outputs.lpk-path }}",
+		"LPK_SHA256: ${{ steps.release-build.outputs.sha256 }}",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Fatalf("missing unchanged-publish Release recovery contract %q", required)
+		}
 	}
 }
 

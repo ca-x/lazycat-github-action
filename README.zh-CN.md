@@ -494,7 +494,7 @@ PRIVATE_STORE_GROUP_CODES=ABC123,LATE23
 
 ### Release/商店对账
 
-定时 `publish` workflow 也会对账已有的版本化 GitHub Release 与两个商店。如果当前 Tag 已有精确命名的 `<package-id>-v<version>.lpk`，但某个商店还没有该版本，reusable workflow 会把该 Asset 下载到项目根目录下，同时校验 GitHub 返回的 `sha256:` digest 与本地重新计算的 SHA256，再用同一份字节补交。已经存在该版本的商店会独立跳过。Release、精确 Asset 名称或 digest 缺失时，不会猜测其他文件或版本；仍由正常的镜像更新和构建流程创建新 Release。
+定时或手动触发的 `publish` workflow 也会对账 GitHub Release 与两个商店。如果镜像检查没有文件变化，但当前版本缺少 Release 或精确的版本化 Asset，reusable workflow 会执行一次恢复构建，验证 LPK，并补建 Release/Asset。如果当前 Tag 已有精确命名的 `<package-id>-v<version>.lpk`，但某个商店还没有该版本，则下载到项目根目录下，同时校验 GitHub 返回的 `sha256:` digest 与本地重新计算的 SHA256，再用同一份字节补交。已经存在该版本的商店会独立跳过，workflow 绝不会猜测其他文件或版本。
 
 ### GitHub Secret 作用域和优先级
 

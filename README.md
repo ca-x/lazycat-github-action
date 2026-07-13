@@ -494,7 +494,7 @@ With `skip_if_version_exists: true`, the Action queries the exact package throug
 
 ### Release/store reconciliation
 
-Scheduled `publish` workflows also reconcile an existing versioned GitHub Release with both stores. If the current tag already has an exact `<package-id>-v<version>.lpk` asset but a store does not expose that version, the reusable workflow downloads the asset beneath the project root, verifies its GitHub `sha256:` digest and local SHA256, then submits those same bytes. A store already reporting the version is skipped. A missing Release or missing exact asset does not guess another file or version; normal image/build automation remains responsible for creating it.
+Scheduled or manually dispatched `publish` workflows also reconcile GitHub Releases with both stores. If image inspection is unchanged but the current version has no Release or exact versioned asset, the reusable workflow performs a recovery build, verifies the LPK, and creates the missing Release/asset. If the exact `<package-id>-v<version>.lpk` already exists but a store lacks that version, it downloads the asset beneath the project root, verifies the GitHub `sha256:` digest and local SHA256, then submits those same bytes. A store already reporting the version is skipped, and the workflow never guesses another file or version.
 
 ### GitHub Secret scope and precedence
 
