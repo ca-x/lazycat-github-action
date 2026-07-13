@@ -370,6 +370,127 @@ images:
 			},
 		},
 		{
+			name: "mutable image patch bump",
+			yaml: `version: 1
+project: {}
+update:
+  strategy: publish
+  version_source:
+    type: image
+    image: web
+    bump: PATCH
+images:
+  - id: web
+    target: service
+    service: web
+    source: ghcr.io/acme/web
+    channel: custom
+    sort: created
+    tag_regex: '^latest$'
+`,
+			check: func(t *testing.T, got config.Config) {
+				if got.Update.VersionSource.Bump != "patch" {
+					t.Fatalf("bump=%q", got.Update.VersionSource.Bump)
+				}
+			},
+		},
+		{
+			name: "mutable bump rejects unknown strategy",
+			yaml: `version: 1
+project: {}
+update:
+  version_source:
+    type: image
+    image: web
+    bump: minor
+images:
+  - id: web
+    target: service
+    service: web
+    source: ghcr.io/acme/web
+    channel: custom
+    sort: created
+    tag_regex: '^latest$'
+`,
+			wantErr: "unsupported version source bump",
+		},
+		{
+			name: "mutable bump rejects git source",
+			yaml: `version: 1
+project: {}
+update:
+  version_source:
+    type: git
+    bump: patch
+`,
+			wantErr: "requires type=image",
+		},
+		{
+			name: "mutable bump rejects downgrade mode",
+			yaml: `version: 1
+project: {}
+update:
+  allow_downgrade: true
+  version_source:
+    type: image
+    image: web
+    bump: patch
+images:
+  - id: web
+    target: service
+    service: web
+    source: ghcr.io/acme/web
+    channel: custom
+    sort: created
+    tag_regex: '^latest$'
+`,
+			wantErr: "cannot be combined with allow_downgrade",
+		},
+		{
+			name: "mutable bump rejects semver mapping",
+			yaml: `version: 1
+project: {}
+update:
+  version_source:
+    type: image
+    image: web
+    bump: patch
+images:
+  - id: web
+    target: service
+    service: web
+    source: ghcr.io/acme/web
+    channel: custom
+    sort: created
+    tag_regex: '^latest$'
+    version_regex: '^(?P<version>.*)$'
+`,
+			wantErr: "cannot be combined with version mapping",
+		},
+		{
+			name: "mutable mirror requires digest verification",
+			yaml: `version: 1
+project: {}
+update:
+  version_source:
+    type: image
+    image: web
+    bump: patch
+images:
+  - id: web
+    target: service
+    service: web
+    source: ghcr.io/acme/web
+    channel: custom
+    sort: created
+    tag_regex: '^latest$'
+    delivery:
+      mode: mirror
+      image_template: mirror.example/acme/web:{tag}
+`,
+			wantErr: "requires require_digest_match=true",
+		},
+		{
 			name: "stable image may prefer Docker Hub update time",
 			yaml: `version: 1
 project: {}

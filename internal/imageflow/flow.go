@@ -58,17 +58,22 @@ type CopyResult struct {
 }
 
 type ImageResult struct {
-	ID           string      `json:"id"`
-	Target       string      `json:"target"`
-	Service      string      `json:"service,omitempty"`
-	Platform     string      `json:"platform"`
-	Tag          string      `json:"tag"`
-	SourceRef    string      `json:"sourceRef"`
-	SourceDigest string      `json:"sourceDigest"`
-	DeliveryMode string      `json:"deliveryMode"`
-	DeliveredRef string      `json:"deliveredRef"`
-	Copied       bool        `json:"copied"`
-	CopyResult   *CopyResult `json:"copyResult,omitempty"`
+	ID              string      `json:"id"`
+	Target          string      `json:"target"`
+	Service         string      `json:"service,omitempty"`
+	Platform        string      `json:"platform"`
+	Tag             string      `json:"tag"`
+	SourceRef       string      `json:"sourceRef"`
+	SourceDigest    string      `json:"sourceDigest"`
+	CurrentDigest   string      `json:"currentDigest,omitempty"`
+	DigestChanged   bool        `json:"digestChanged"`
+	Bump            string      `json:"bump,omitempty"`
+	PreviousVersion string      `json:"previousVersion,omitempty"`
+	SelectedVersion string      `json:"selectedVersion,omitempty"`
+	DeliveryMode    string      `json:"deliveryMode"`
+	DeliveredRef    string      `json:"deliveredRef"`
+	Copied          bool        `json:"copied"`
+	CopyResult      *CopyResult `json:"copyResult,omitempty"`
 }
 
 type Result struct {
@@ -145,12 +150,25 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 			return Result{}, fmt.Errorf("inspect image %q: %w", image.ID, err)
 		}
 		logger.Info("Docker image versions received", "image_id", image.ID, "candidates", len(candidates))
-		selection, err := versioning.Select(rule, candidates)
+		mutable := request.Config.Update.VersionSource.Type == config.VersionSourceImage && request.Config.Update.VersionSource.Image == image.ID && request.Config.Update.VersionSource.Bump == "patch"
+		var selection versioning.Selection
+		if mutable {
+			selection, err = versioning.SelectMutable(rule, candidates)
+		} else {
+			selection, err = versioning.Select(rule, candidates)
+		}
 		if err != nil {
 			return Result{}, fmt.Errorf("%w for %q: %v", ErrVersionNotFound, image.ID, err)
 		}
 		logger.Info("Docker image version selected", "image_id", image.ID, "tag", selection.Candidate.Tag, "version", selection.Version, "digest", selection.Candidate.Digest, "platform", target.Platform())
-		if request.Config.Update.VersionSource.Type == config.VersionSourceImage && request.Config.Update.VersionSource.Image == image.ID && !request.Config.Update.AllowDowngrade {
+		bumpedVersion := ""
+		if mutable {
+			bumpedVersion, err = versioning.BumpPatch(request.Project.Version)
+			if err != nil {
+				return Result{}, fmt.Errorf("validate mutable image version for %q: %w", image.ID, err)
+			}
+		}
+		if !mutable && request.Config.Update.VersionSource.Type == config.VersionSourceImage && request.Config.Update.VersionSource.Image == image.ID && !request.Config.Update.AllowDowngrade {
 			currentVersion, currentErr := semver.StrictNewVersion(strings.TrimSpace(request.Project.Version))
 			selectedVersion, selectedErr := semver.StrictNewVersion(selection.Version)
 			if currentErr != nil || selectedErr != nil {
@@ -163,7 +181,8 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 		sourceRef := image.Source + ":" + selection.Candidate.Tag
 		current := currentByID[image.ID]
 		deliveryRequest := delivery.Request{
-			Image: image, Tag: selection.Candidate.Tag, SourceRef: sourceRef, SourceDigest: selection.Candidate.Digest, Target: target, DryRun: request.DryRun,
+			Image: image, Tag: selection.Candidate.Tag, SourceRef: sourceRef, SourceDigest: selection.Candidate.Digest,
+			CurrentRef: current.RuntimeRef, Mutable: mutable, Target: target, DryRun: request.DryRun,
 		}
 		if request.OnProgress != nil {
 			deliveryRequest.OnProgress = func(progress appstore.CopyProgress) { request.OnProgress(image.ID, progress) }
@@ -192,30 +211,38 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 
 		needsUpdate := false
 		var delivered delivery.Result
-		switch image.Delivery.Mode {
-		case "direct", "mirror":
+		if mutable {
 			delivered, err = flow.Deliverer.Deliver(ctx, deliveryRequest)
 			if err != nil {
 				return Result{}, fmt.Errorf("%w for %q: %v", ErrDeliveryFailed, image.ID, err)
 			}
-			needsUpdate = current.UpstreamRef != sourceRef || current.RuntimeRef != delivered.RuntimeRef
-		case "lazycat":
-			shouldDeliver := current.UpstreamRef != sourceRef || current.RuntimeRef == "" || !strings.HasPrefix(current.RuntimeRef, "registry.lazycat.cloud/") || image.Sort == "created" || image.Sort == "updated"
-			if shouldDeliver {
+			needsUpdate = delivered.DigestChanged || delivered.DeliveryChanged
+		} else {
+			switch image.Delivery.Mode {
+			case "direct", "mirror":
 				delivered, err = flow.Deliverer.Deliver(ctx, deliveryRequest)
 				if err != nil {
 					return Result{}, fmt.Errorf("%w for %q: %v", ErrDeliveryFailed, image.ID, err)
 				}
-			} else {
-				delivered = delivery.Result{Mode: "lazycat", RuntimeRef: current.RuntimeRef}
-			}
-			if request.DryRun {
-				needsUpdate = shouldDeliver
-			} else {
 				needsUpdate = current.UpstreamRef != sourceRef || current.RuntimeRef != delivered.RuntimeRef
+			case "lazycat":
+				shouldDeliver := current.UpstreamRef != sourceRef || current.RuntimeRef == "" || !strings.HasPrefix(current.RuntimeRef, "registry.lazycat.cloud/") || image.Sort == "created" || image.Sort == "updated"
+				if shouldDeliver {
+					delivered, err = flow.Deliverer.Deliver(ctx, deliveryRequest)
+					if err != nil {
+						return Result{}, fmt.Errorf("%w for %q: %v", ErrDeliveryFailed, image.ID, err)
+					}
+				} else {
+					delivered = delivery.Result{Mode: "lazycat", RuntimeRef: current.RuntimeRef}
+				}
+				if request.DryRun {
+					needsUpdate = shouldDeliver
+				} else {
+					needsUpdate = current.UpstreamRef != sourceRef || current.RuntimeRef != delivered.RuntimeRef
+				}
+			default:
+				return Result{}, fmt.Errorf("unsupported delivery mode %q", image.Delivery.Mode)
 			}
-		default:
-			return Result{}, fmt.Errorf("unsupported delivery mode %q", image.Delivery.Mode)
 		}
 		if delivered.RuntimeRef == "" {
 			delivered.RuntimeRef = current.RuntimeRef
@@ -230,15 +257,29 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 				updates = append(updates, manifestedit.Update{Target: imageTarget(image), SourceRef: sourceRef, RuntimeRef: delivered.RuntimeRef})
 			}
 		}
+		selectedVersion := selection.Version
+		if mutable {
+			selectedVersion = request.Project.Version
+			if delivered.DigestChanged {
+				selectedVersion = bumpedVersion
+			}
+			logger.Info("mutable Docker image digest compared", "image_id", image.ID, "current_digest", delivered.CurrentDigest, "source_digest", selection.Candidate.Digest, "changed", delivered.DigestChanged, "previous_version", request.Project.Version, "selected_version", selectedVersion)
+		}
 		imageResult := ImageResult{
 			ID: image.ID, Target: image.Target, Service: image.Service, Platform: target.Platform(),
 			Tag: selection.Candidate.Tag, SourceRef: sourceRef, SourceDigest: selection.Candidate.Digest,
+			CurrentDigest: delivered.CurrentDigest, DigestChanged: delivered.DigestChanged,
 			DeliveryMode: image.Delivery.Mode, DeliveredRef: delivered.RuntimeRef, Copied: delivered.Copied,
 			CopyResult: copyResult(delivered.CopyResult),
 		}
+		if mutable {
+			imageResult.Bump = request.Config.Update.VersionSource.Bump
+			imageResult.PreviousVersion = request.Project.Version
+			imageResult.SelectedVersion = selectedVersion
+		}
 		result.Images = append(result.Images, imageResult)
 		if request.Config.Update.VersionSource.Type == config.VersionSourceImage && request.Config.Update.VersionSource.Image == image.ID {
-			result.Version = selection.Version
+			result.Version = selectedVersion
 			result.Channel = image.Channel
 		}
 	}

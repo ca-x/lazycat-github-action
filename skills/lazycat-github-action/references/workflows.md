@@ -130,6 +130,8 @@ Official errors retain HTTP status and `store.official.upload`/`store.official.r
 
 A scheduled or manually dispatched workflow with `update.strategy: publish` is also a repair loop. When image inspection is unchanged but the current version lacks a Release or, with `versioned-release-asset: true`, the exact `<package-id>-v<version>.lpk`, the reusable workflow runs `operation: build` to create and verify the missing artifact before continuing through the normal Release path. When the exact asset already exists, it may download it and fill a missing official or private-store version without rebuilding. Existing assets require the GitHub `sha256:` digest plus a matching locally recomputed SHA256; stores publish or skip independently. Never guess a different filename, version, or digest.
 
+With `update.version_source.bump: patch`, a mutable image digest change produces the next patch version before this Release flow runs. A repeated workflow against the same digest retains the current version; Release reconciliation and per-store `skip_if_version_exists` remain independent duplicate-publication safeguards.
+
 ## Source build mapping
 
 | Source | Config toolchain | Workflow input | Required target |

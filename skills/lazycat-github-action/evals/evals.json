@@ -90,6 +90,12 @@
       "prompt": "Docker Hub updated v1.2.15 after v1.2.26. Prefer the most recently updated tag and target a future arm64 LazyCat device without changing defaults for other repositories.",
       "mustInclude": ["sort: updated", "last_updated", "project.target_arch", "arm64", "allow_downgrade: false"],
       "mustNotInclude": ["sort: created", "arm64 by default", "disable downgrade protection"]
+    },
+    {
+      "id": "mutable-latest-patch-bump",
+      "prompt": "The official image publishes only latest. Automatically increment the package patch version when its amd64 digest changes, publish both stores, and avoid duplicate releases when it does not change.",
+      "mustInclude": ["bump: patch", "channel: custom", "sort: created", "tag_regex: '^latest$'", "digest", "skip_if_version_exists: true", "mode: lazycat"],
+      "mustNotInclude": ["allow_downgrade: true", "bump on every run", "mode: direct", "version_regex"]
     }
   ]
 }

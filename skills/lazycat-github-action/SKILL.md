@@ -131,6 +131,8 @@ When a tag needs normalization, reference named `version_regex` groups directly 
 
 For SemVer sorting, rank filtered tag names before manifest inspection and stop after the first usable configured target; continue past a higher tag only when that tag lacks the target platform. `sort: updated` is an explicit Docker Hub-only mode: rank by tag `last_updated`, then mapped SemVer, then tag name, and inspect manifests in that order. Never substitute OCI `config.created` when Docker Hub update metadata is unavailable. Keep full manifest inspection for `created` sorting because the target image creation time is required for ranking.
 
+When the upstream exposes only a mutable tag such as `latest`, use `update.version_source.bump: patch` with `channel: custom`, `sort: created`, and an exact `tag_regex`. Compare the selected target-platform digest with the currently delivered digest. Equal digests must be a no-op; changed digests increment only the current stable SemVer patch after the prior digest is proven. Reject prerelease/build versions, `allow_downgrade: true`, version mapping, and mutable mirrors without `require_digest_match: true`. Direct/mirror mutable references must remain digest-pinned; official publication continues to require LazyCat delivery.
+
 Keep `update.allow_downgrade: false` or omit it for the safe default. Compare the mapped version-source image SemVer with the current package version before delivery. Equal versions may refresh an image reference or digest. Set `allow_downgrade: true` only after the user explicitly confirms an intentional rollback.
 
 ## 🔴 CHECKPOINT — before enabling version downgrades

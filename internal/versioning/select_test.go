@@ -57,6 +57,52 @@ func TestSelectNightlyUsesAMD64CreationTimeAndDigest(t *testing.T) {
 	}
 }
 
+func TestSelectMutableUsesNewestCreatedCandidate(t *testing.T) {
+	selection, err := versioning.SelectMutable(versioning.Rule{
+		Channel:  versioning.ChannelCustom,
+		Sort:     versioning.SortCreated,
+		TagRegex: regexp.MustCompile(`^latest$`),
+	}, []versioning.Candidate{
+		{Tag: "old", Digest: digest("1"), Created: at(3)},
+		{Tag: "latest", Digest: digest("2"), Created: at(2)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.Candidate.Tag != "latest" || selection.Version != "" {
+		t.Fatalf("selection=%#v", selection)
+	}
+}
+
+func TestBumpPatch(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		want    string
+		wantErr string
+	}{
+		{name: "increments patch", value: "1.4.6", want: "1.4.7"},
+		{name: "rejects prerelease", value: "1.4.6-rc.1", wantErr: "must be stable"},
+		{name: "rejects metadata", value: "1.4.6+build", wantErr: "must be stable"},
+		{name: "rejects invalid", value: "latest", wantErr: "parse current version"},
+		{name: "rejects overflow", value: "1.2.18446744073709551615", wantErr: "overflows"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := versioning.BumpPatch(test.value)
+			if test.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+					t.Fatalf("err=%v", err)
+				}
+				return
+			}
+			if err != nil || got != test.want {
+				t.Fatalf("got=%q err=%v", got, err)
+			}
+		})
+	}
+}
+
 func TestSelectCustomByMappedSemVerAndCreated(t *testing.T) {
 	rule := versioning.Rule{
 		Channel:         versioning.ChannelCustom,

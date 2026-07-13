@@ -98,6 +98,9 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	if _, found := seen["updated-tag-and-target-architecture"]; !found {
 		t.Fatal("evals are missing updated-tag and target-architecture coverage")
 	}
+	if _, found := seen["mutable-latest-patch-bump"]; !found {
+		t.Fatal("evals are missing mutable latest patch-bump coverage")
+	}
 	for _, name := range []string{"references/configuration.md", "references/workflows.md", "assets/lazycat-action.yml"} {
 		data, err := os.ReadFile(filepath.Join(root, name))
 		if err != nil {

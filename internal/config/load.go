@@ -95,6 +95,7 @@ func applyDefaults(value *Config) {
 	value.Update.Strategy = Strategy(strings.ToLower(strings.TrimSpace(string(value.Update.Strategy))))
 	value.Update.VersionSource.Type = VersionSourceType(strings.ToLower(strings.TrimSpace(string(value.Update.VersionSource.Type))))
 	value.Update.VersionSource.Image = strings.TrimSpace(value.Update.VersionSource.Image)
+	value.Update.VersionSource.Bump = strings.ToLower(strings.TrimSpace(value.Update.VersionSource.Bump))
 	value.Stores.Official.Locales = normalizeLocales(value.Stores.Official.Locales)
 	value.Stores.Official.Application.Language = strings.ToLower(strings.TrimSpace(value.Stores.Official.Application.Language))
 	if value.Stores.Official.Application.Language == "" {
@@ -257,6 +258,9 @@ func validate(value Config) error {
 		if value.Update.VersionSource.Image != "" {
 			return errors.New("version source image must be empty when type is git")
 		}
+		if value.Update.VersionSource.Bump != "" {
+			return errors.New("version source bump requires type=image")
+		}
 	case VersionSourceImage:
 		if value.Update.VersionSource.Image == "" {
 			return errors.New("version source image id is required")
@@ -266,6 +270,33 @@ func validate(value Config) error {
 		}
 	default:
 		return fmt.Errorf("unsupported version source type %q", value.Update.VersionSource.Type)
+	}
+	if value.Update.VersionSource.Bump != "" {
+		if value.Update.VersionSource.Bump != "patch" {
+			return fmt.Errorf("unsupported version source bump %q", value.Update.VersionSource.Bump)
+		}
+		if value.Update.AllowDowngrade {
+			return errors.New("version source bump cannot be combined with allow_downgrade=true")
+		}
+		var versionImage *Image
+		for index := range value.Images {
+			if value.Images[index].ID == value.Update.VersionSource.Image {
+				versionImage = &value.Images[index]
+				break
+			}
+		}
+		if versionImage == nil {
+			return errors.New("version source bump requires a configured version-source image")
+		}
+		if versionImage.Channel != "custom" || versionImage.Sort != "created" || versionImage.TagRegex == "" {
+			return errors.New("version source bump requires channel=custom, sort=created, and tag_regex")
+		}
+		if versionImage.VersionRegex != "" || versionImage.VersionTemplate != "{version}" {
+			return errors.New("version source bump cannot be combined with version mapping")
+		}
+		if versionImage.Delivery.Mode == "mirror" && !versionImage.Delivery.RequireDigestMatch {
+			return errors.New("version source bump with mirror delivery requires require_digest_match=true")
+		}
 	}
 	return nil
 }

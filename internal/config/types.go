@@ -55,6 +55,7 @@ type Update struct {
 type VersionSource struct {
 	Type  VersionSourceType `yaml:"type"`
 	Image string            `yaml:"image"`
+	Bump  string            `yaml:"bump"`
 }
 
 type Build struct {

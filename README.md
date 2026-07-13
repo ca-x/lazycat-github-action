@@ -270,6 +270,35 @@ Nightly versions are deterministic SemVer values derived from the selected targe
 0.0.0-nightly.20260710153020.a1b2c3d4e5f6
 ```
 
+### Mutable tags and automatic patch bumps
+
+For an upstream that publishes only a mutable tag such as `latest`, opt into digest-based patch bumps:
+
+```yaml
+update:
+  strategy: publish
+  allow_downgrade: false
+  version_source:
+    type: image
+    image: app
+    bump: patch
+
+images:
+  - id: app
+    target: service
+    service: app
+    source: ghcr.io/acme/app
+    channel: custom
+    sort: created
+    tag_regex: '^latest$'
+    delivery:
+      mode: lazycat
+```
+
+The Action compares the selected target-platform digest with the currently delivered image. An equal digest is a successful no-op and retains the current package version. A changed digest increments only the patch component (`1.4.6` → `1.4.7`), delivers the new image, and follows the normal versioned Release/store path. The current package version must be strict stable SemVer without prerelease or build metadata. `bump: patch` cannot be combined with `allow_downgrade`, tag-to-version mapping, or a non-`custom`/non-`created` rule.
+
+Mutable `direct` and `mirror` references are digest-pinned so the previous state is durable. Mutable mirrors require `require_digest_match: true`. Official-store workflows must continue to use `delivery.mode: lazycat`. Dry-run performs the same digest comparison without copying or writing. `image-results` reports `currentDigest`, `sourceDigest`, `digestChanged`, `bump`, `previousVersion`, and `selectedVersion` for auditability.
+
 Custom example:
 
 ```yaml

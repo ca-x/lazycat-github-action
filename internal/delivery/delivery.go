@@ -29,16 +29,21 @@ type Request struct {
 	Tag          string
 	SourceRef    string
 	SourceDigest string
+	CurrentRef   string
+	Mutable      bool
 	Target       platform.Target
 	DryRun       bool
 	OnProgress   func(appstore.CopyProgress)
 }
 
 type Result struct {
-	Mode       string                    `json:"mode"`
-	RuntimeRef string                    `json:"runtimeRef"`
-	Copied     bool                      `json:"copied"`
-	CopyResult *appstore.CopyImageResult `json:"copyResult,omitempty"`
+	Mode            string                    `json:"mode"`
+	RuntimeRef      string                    `json:"runtimeRef"`
+	CurrentDigest   string                    `json:"currentDigest,omitempty"`
+	DigestChanged   bool                      `json:"digestChanged,omitempty"`
+	DeliveryChanged bool                      `json:"deliveryChanged,omitempty"`
+	Copied          bool                      `json:"copied"`
+	CopyResult      *appstore.CopyImageResult `json:"copyResult,omitempty"`
 }
 
 type Resolver struct {
@@ -63,6 +68,20 @@ func (resolver Resolver) Deliver(ctx context.Context, request Request) (Result, 
 	mode := strings.ToLower(strings.TrimSpace(request.Image.Delivery.Mode))
 	switch mode {
 	case "direct":
+		if request.Mutable {
+			currentDigest, err := pinnedDigest(request.CurrentRef)
+			if err != nil {
+				return Result{}, fmt.Errorf("inspect current direct image: %w", err)
+			}
+			sourceDigest, err := normalizedDigest(request.SourceDigest)
+			if err != nil {
+				return Result{}, err
+			}
+			return Result{
+				Mode: mode, RuntimeRef: request.SourceRef + "@" + sourceDigest,
+				CurrentDigest: currentDigest, DigestChanged: !strings.EqualFold(currentDigest, sourceDigest),
+			}, nil
+		}
 		return Result{Mode: mode, RuntimeRef: request.SourceRef}, nil
 	case "mirror":
 		runtimeRef, err := expandTemplate(request.Image.Delivery.ImageTemplate, request)
@@ -70,21 +89,41 @@ func (resolver Resolver) Deliver(ctx context.Context, request Request) (Result, 
 			return Result{}, err
 		}
 		result := Result{Mode: mode, RuntimeRef: runtimeRef}
-		if request.DryRun || !request.Image.Delivery.RequireDigestMatch {
+		if request.Mutable {
+			if !request.Image.Delivery.RequireDigestMatch {
+				return Result{}, errors.New("mutable mirror delivery requires digest verification")
+			}
+			if resolver.Inspector == nil {
+				return Result{}, errors.New("mutable mirror delivery requires an image inspector")
+			}
+			currentDigest, digestErr := pinnedDigest(request.CurrentRef)
+			if digestErr != nil {
+				return Result{}, fmt.Errorf("inspect current mirror image: %w", digestErr)
+			}
+			current, inspectErr := resolver.inspect(ctx, request.CurrentRef, target)
+			if inspectErr != nil {
+				return Result{}, fmt.Errorf("inspect current mirror image %q: %w", request.CurrentRef, inspectErr)
+			}
+			if !strings.EqualFold(strings.TrimSpace(current.Digest), currentDigest) {
+				return Result{}, fmt.Errorf("current mirror digest %q does not match pinned digest %q", current.Digest, currentDigest)
+			}
+			result.CurrentDigest = currentDigest
+			sourceDigest, digestErr := normalizedDigest(request.SourceDigest)
+			if digestErr != nil {
+				return Result{}, digestErr
+			}
+			if !strings.Contains(runtimeRef, "@") {
+				runtimeRef += "@" + sourceDigest
+			}
+			result.RuntimeRef = runtimeRef
+		}
+		if request.DryRun && !request.Mutable || !request.Image.Delivery.RequireDigestMatch {
 			return result, nil
 		}
 		if resolver.Inspector == nil {
 			return Result{}, errors.New("mirror digest verification requires an image inspector")
 		}
-		var mirror registry.Image
-		if inspector, ok := resolver.Inspector.(targetImageInspector); ok {
-			mirror, err = inspector.InspectTarget(ctx, runtimeRef, target)
-		} else {
-			if target.Arch != platform.DefaultTargetArch {
-				return Result{}, errors.New("configured target requires a target-aware image inspector")
-			}
-			mirror, err = resolver.Inspector.Inspect(ctx, runtimeRef)
-		}
+		mirror, err := resolver.inspect(ctx, result.RuntimeRef, target)
 		if err != nil {
 			return Result{}, fmt.Errorf("inspect mirror image %q: %w", runtimeRef, err)
 		}
@@ -94,9 +133,38 @@ func (resolver Resolver) Deliver(ctx context.Context, request Request) (Result, 
 		if !strings.EqualFold(strings.TrimSpace(mirror.Digest), strings.TrimSpace(request.SourceDigest)) {
 			return Result{}, fmt.Errorf("mirror digest %q does not match source digest %q", mirror.Digest, request.SourceDigest)
 		}
+		if request.Mutable {
+			result.DigestChanged = !strings.EqualFold(strings.TrimSpace(result.CurrentDigest), strings.TrimSpace(request.SourceDigest))
+			if !result.DigestChanged {
+				result.RuntimeRef = request.CurrentRef
+			}
+		}
 		return result, nil
 	case "lazycat":
 		result := Result{Mode: mode}
+		if request.Mutable {
+			if resolver.Inspector == nil {
+				return Result{}, errors.New("mutable LazyCat delivery requires an image inspector")
+			}
+			current, inspectErr := resolver.inspect(ctx, request.CurrentRef, target)
+			if inspectErr != nil {
+				return Result{}, fmt.Errorf("inspect current LazyCat image %q: %w", request.CurrentRef, inspectErr)
+			}
+			if current.Platform != target.Platform() {
+				return Result{}, fmt.Errorf("current LazyCat image %q uses platform %q instead of %q", request.CurrentRef, current.Platform, target.Platform())
+			}
+			sourceDigest, digestErr := normalizedDigest(request.SourceDigest)
+			if digestErr != nil {
+				return Result{}, digestErr
+			}
+			result.CurrentDigest = current.Digest
+			result.DigestChanged = !strings.EqualFold(strings.TrimSpace(current.Digest), sourceDigest)
+			result.DeliveryChanged = result.DigestChanged || !strings.HasPrefix(strings.TrimSpace(request.CurrentRef), "registry.lazycat.cloud/")
+			result.RuntimeRef = request.CurrentRef
+			if !result.DeliveryChanged || request.DryRun {
+				return result, nil
+			}
+		}
 		if request.DryRun {
 			return result, nil
 		}
@@ -119,6 +187,40 @@ func (resolver Resolver) Deliver(ctx context.Context, request Request) (Result, 
 	default:
 		return Result{}, fmt.Errorf("unsupported image delivery mode %q", mode)
 	}
+}
+
+func (resolver Resolver) inspect(ctx context.Context, reference string, target platform.Target) (registry.Image, error) {
+	if strings.TrimSpace(reference) == "" {
+		return registry.Image{}, errors.New("current image reference is required")
+	}
+	if inspector, ok := resolver.Inspector.(targetImageInspector); ok {
+		return inspector.InspectTarget(ctx, reference, target)
+	}
+	if target.Arch != platform.DefaultTargetArch {
+		return registry.Image{}, errors.New("configured target requires a target-aware image inspector")
+	}
+	return resolver.Inspector.Inspect(ctx, reference)
+}
+
+func normalizedDigest(value string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if !strings.HasPrefix(value, "sha256:") || len(value) != len("sha256:")+64 {
+		return "", fmt.Errorf("source digest %q must be a sha256 digest", value)
+	}
+	for _, character := range strings.TrimPrefix(value, "sha256:") {
+		if !strings.ContainsRune("0123456789abcdef", character) {
+			return "", fmt.Errorf("source digest %q must be a sha256 digest", value)
+		}
+	}
+	return value, nil
+}
+
+func pinnedDigest(reference string) (string, error) {
+	_, digest, found := strings.Cut(strings.TrimSpace(reference), "@")
+	if !found {
+		return "", fmt.Errorf("current image reference %q is not digest-pinned", reference)
+	}
+	return normalizedDigest(digest)
 }
 
 func expandTemplate(template string, request Request) (string, error) {

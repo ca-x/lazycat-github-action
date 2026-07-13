@@ -82,6 +82,85 @@ func TestDirectDeliveryUsesSourceWithoutExternalCalls(t *testing.T) {
 	}
 }
 
+func TestMutableDirectDeliveryPinsDigestAndComparesCurrentState(t *testing.T) {
+	result, err := (delivery.Resolver{}).Deliver(context.Background(), delivery.Request{
+		Image: config.Image{ID: "web", Delivery: config.Delivery{Mode: "direct"}},
+		Tag:   "latest", SourceRef: "ghcr.io/acme/web:latest", SourceDigest: digest("b"),
+		CurrentRef: "ghcr.io/acme/web:latest@" + digest("a"), Mutable: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RuntimeRef != "ghcr.io/acme/web:latest@"+digest("b") || result.CurrentDigest != digest("a") || !result.DigestChanged {
+		t.Fatalf("result=%#v", result)
+	}
+}
+
+func TestMutableLazyCatDeliverySkipsEqualDigestAndCopiesChangedDigest(t *testing.T) {
+	currentRef := "registry.lazycat.cloud/acme/web:current"
+	equalInspector := &fakeInspector{result: registry.Image{Digest: digest("a"), Platform: "linux/amd64"}}
+	equalCopier := &fakeCopier{err: errors.New("must not copy")}
+	result, err := (delivery.Resolver{Inspector: equalInspector, Copier: equalCopier}).Deliver(context.Background(), delivery.Request{
+		Image: config.Image{ID: "web", Delivery: config.Delivery{Mode: "lazycat"}}, Tag: "latest",
+		SourceRef: "ghcr.io/acme/web:latest", SourceDigest: digest("a"), CurrentRef: currentRef, Mutable: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.DigestChanged || result.RuntimeRef != currentRef || equalCopier.calls != 0 {
+		t.Fatalf("result=%#v copier=%d", result, equalCopier.calls)
+	}
+
+	changedInspector := &fakeInspector{result: registry.Image{Digest: digest("a"), Platform: "linux/amd64"}}
+	changedCopier := &fakeCopier{result: appstore.CopyImageResult{
+		SourceImage: "ghcr.io/acme/web:latest", Platform: "amd64",
+		LazyCatImage: "registry.lazycat.cloud/acme/web:new", Progress: appstore.CopyProgress{Finished: true},
+	}}
+	result, err = (delivery.Resolver{Inspector: changedInspector, Copier: changedCopier}).Deliver(context.Background(), delivery.Request{
+		Image: config.Image{ID: "web", Delivery: config.Delivery{Mode: "lazycat"}}, Tag: "latest",
+		SourceRef: "ghcr.io/acme/web:latest", SourceDigest: digest("b"), CurrentRef: currentRef, Mutable: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.DigestChanged || result.CurrentDigest != digest("a") || !result.Copied || result.RuntimeRef != "registry.lazycat.cloud/acme/web:new" {
+		t.Fatalf("result=%#v", result)
+	}
+}
+
+func TestMutableLazyCatDryRunInspectsWithoutCopying(t *testing.T) {
+	inspector := &fakeInspector{result: registry.Image{Digest: digest("a"), Platform: "linux/amd64"}}
+	copier := &fakeCopier{err: errors.New("must not copy")}
+	result, err := (delivery.Resolver{Inspector: inspector, Copier: copier}).Deliver(context.Background(), delivery.Request{
+		Image: config.Image{ID: "web", Delivery: config.Delivery{Mode: "lazycat"}}, Tag: "latest",
+		SourceRef: "ghcr.io/acme/web:latest", SourceDigest: digest("b"), CurrentRef: "registry.lazycat.cloud/acme/web:current", Mutable: true, DryRun: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.DigestChanged || inspector.calls != 1 || copier.calls != 0 {
+		t.Fatalf("result=%#v inspector=%d copier=%d", result, inspector.calls, copier.calls)
+	}
+}
+
+func TestMutableLazyCatMigratesEqualExternalImageWithoutBumpingDigest(t *testing.T) {
+	inspector := &fakeInspector{result: registry.Image{Digest: digest("a"), Platform: "linux/amd64"}}
+	copier := &fakeCopier{result: appstore.CopyImageResult{
+		SourceImage: "docker.io/acme/web:latest", Platform: "amd64",
+		LazyCatImage: "registry.lazycat.cloud/acme/web:migrated", Progress: appstore.CopyProgress{Finished: true},
+	}}
+	result, err := (delivery.Resolver{Inspector: inspector, Copier: copier}).Deliver(context.Background(), delivery.Request{
+		Image: config.Image{ID: "web", Delivery: config.Delivery{Mode: "lazycat"}}, Tag: "latest",
+		SourceRef: "docker.io/acme/web:latest", SourceDigest: digest("a"), CurrentRef: "docker.1ms.run/acme/web:latest", Mutable: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.DigestChanged || !result.DeliveryChanged || !result.Copied || result.RuntimeRef != "registry.lazycat.cloud/acme/web:migrated" {
+		t.Fatalf("result=%#v", result)
+	}
+}
+
 func TestLazyCatDeliveryRejectsMismatchedCopyResult(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -132,6 +211,24 @@ func TestMirrorDeliveryRejectsDigestMismatch(t *testing.T) {
 	}
 }
 
+func TestMutableMirrorDeliveryUsesPinnedPreviousDigest(t *testing.T) {
+	inspector := &sequenceInspector{results: []registry.Image{
+		{Digest: digest("a"), Platform: "linux/amd64"},
+		{Digest: digest("b"), Platform: "linux/amd64"},
+	}}
+	result, err := (delivery.Resolver{Inspector: inspector}).Deliver(context.Background(), delivery.Request{
+		Image: config.Image{ID: "web", Delivery: config.Delivery{Mode: "mirror", ImageTemplate: "mirror/acme/web:{tag}", RequireDigestMatch: true}},
+		Tag:   "latest", SourceRef: "ghcr.io/acme/web:latest", SourceDigest: digest("b"),
+		CurrentRef: "mirror/acme/web:latest@" + digest("a"), Mutable: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.DigestChanged || result.CurrentDigest != digest("a") || result.RuntimeRef != "mirror/acme/web:latest@"+digest("b") {
+		t.Fatalf("result=%#v", result)
+	}
+}
+
 func TestDryRunDoesNotCopyOrInspect(t *testing.T) {
 	resolver := delivery.Resolver{Copier: &fakeCopier{err: errors.New("must not copy")}, Inspector: &fakeInspector{err: errors.New("must not inspect")}}
 	for _, image := range []config.Image{
@@ -167,6 +264,24 @@ type fakeInspector struct {
 	err       error
 	calls     int
 	target    platform.Target
+}
+
+type sequenceInspector struct {
+	results []registry.Image
+	calls   int
+}
+
+func (inspector *sequenceInspector) InspectTarget(_ context.Context, _ string, _ platform.Target) (registry.Image, error) {
+	if inspector.calls >= len(inspector.results) {
+		return registry.Image{}, errors.New("unexpected inspection")
+	}
+	result := inspector.results[inspector.calls]
+	inspector.calls++
+	return result, nil
+}
+
+func (inspector *sequenceInspector) Inspect(_ context.Context, _ string) (registry.Image, error) {
+	return inspector.InspectTarget(context.Background(), "", platform.Target{})
 }
 
 func (inspector *fakeInspector) InspectTarget(_ context.Context, reference string, target platform.Target) (registry.Image, error) {

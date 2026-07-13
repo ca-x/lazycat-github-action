@@ -3,6 +3,7 @@ package imageflow_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -374,6 +375,104 @@ func TestFlowRefreshesMutableCreatedLazyCatImageAndRemainsIdempotent(t *testing.
 	}
 }
 
+func TestFlowBumpsPatchOnlyWhenMutableDigestChanges(t *testing.T) {
+	candidate := versioning.Candidate{Tag: "latest", Digest: digest("b"), Created: created(12)}
+	tests := []struct {
+		name          string
+		digestChanged bool
+		wantVersion   string
+		wantChanged   bool
+	}{
+		{name: "changed digest bumps once", digestChanged: true, wantVersion: "1.4.7", wantChanged: true},
+		{name: "equal digest is no-op", digestChanged: false, wantVersion: "1.4.6", wantChanged: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := mutableImageConfig()
+			deliverer := &fakeDeliverer{digestChanged: test.digestChanged, currentDigest: digest("a")}
+			applied := 0
+			flow := imageflow.Flow{
+				Registry:  &fakeRegistry{bySource: map[string][]versioning.Candidate{"ghcr.io/acme/web": {candidate}}},
+				Deliverer: deliverer,
+				ReadManifest: func(string, []manifestedit.Target) ([]manifestedit.Current, error) {
+					return []manifestedit.Current{{ID: "web", RuntimeRef: "registry.lazycat.cloud/web:current", UpstreamRef: "ghcr.io/acme/web:latest"}}, nil
+				},
+				ApplyManifest: func(string, []manifestedit.Update) ([]manifestedit.Change, error) {
+					applied++
+					return []manifestedit.Change{{ID: "web", Changed: true}}, nil
+				},
+			}
+			result, err := flow.Check(t.Context(), imageflow.Request{Config: cfg, Project: project.Info{ManifestFile: "manifest.yml", Version: "1.4.6"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Version != test.wantVersion || result.Changed != test.wantChanged || deliverer.last.CurrentRef != "registry.lazycat.cloud/web:current" || !deliverer.last.Mutable {
+				t.Fatalf("result=%#v delivery=%#v", result, deliverer.last)
+			}
+			wantApplied := 0
+			if test.wantChanged {
+				wantApplied = 1
+			}
+			if applied != wantApplied {
+				t.Fatalf("applied=%d", applied)
+			}
+			image := result.Images[0]
+			if image.Bump != "patch" || image.PreviousVersion != "1.4.6" || image.SelectedVersion != test.wantVersion || image.DigestChanged != test.digestChanged {
+				t.Fatalf("image=%#v", image)
+			}
+			encoded, err := json.Marshal(image)
+			if err != nil || !bytes.Contains(encoded, []byte(`"digestChanged":`)) {
+				t.Fatalf("encoded=%s err=%v", encoded, err)
+			}
+		})
+	}
+}
+
+func TestFlowMutableDryRunCalculatesBumpWithoutApplying(t *testing.T) {
+	cfg := mutableImageConfig()
+	deliverer := &fakeDeliverer{digestChanged: true, currentDigest: digest("a")}
+	flow := imageflow.Flow{
+		Registry:  &fakeRegistry{bySource: map[string][]versioning.Candidate{"ghcr.io/acme/web": {{Tag: "latest", Digest: digest("b"), Created: created(12)}}}},
+		Deliverer: deliverer,
+		ReadManifest: func(string, []manifestedit.Target) ([]manifestedit.Current, error) {
+			return []manifestedit.Current{{ID: "web", RuntimeRef: "registry.lazycat.cloud/web:current", UpstreamRef: "ghcr.io/acme/web:latest"}}, nil
+		},
+		ApplyManifest: func(string, []manifestedit.Update) ([]manifestedit.Change, error) {
+			t.Fatal("dry-run applied manifest")
+			return nil, nil
+		},
+	}
+	result, err := flow.Check(t.Context(), imageflow.Request{Config: cfg, Project: project.Info{ManifestFile: "manifest.yml", Version: "1.4.6"}, DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Changed || result.Version != "1.4.7" || !deliverer.last.DryRun {
+		t.Fatalf("result=%#v request=%#v", result, deliverer.last)
+	}
+}
+
+func TestFlowMutableDeliveryMigrationKeepsVersionWhenDigestMatches(t *testing.T) {
+	cfg := mutableImageConfig()
+	deliverer := &fakeDeliverer{currentDigest: digest("a"), deliveryChanged: true}
+	flow := imageflow.Flow{
+		Registry:  &fakeRegistry{bySource: map[string][]versioning.Candidate{"ghcr.io/acme/web": {{Tag: "latest", Digest: digest("a"), Created: created(12)}}}},
+		Deliverer: deliverer,
+		ReadManifest: func(string, []manifestedit.Target) ([]manifestedit.Current, error) {
+			return []manifestedit.Current{{ID: "web", RuntimeRef: "docker.1ms.run/acme/web:latest", UpstreamRef: "ghcr.io/acme/web:latest"}}, nil
+		},
+		ApplyManifest: func(string, []manifestedit.Update) ([]manifestedit.Change, error) {
+			return []manifestedit.Change{{ID: "web", Changed: true}}, nil
+		},
+	}
+	result, err := flow.Check(t.Context(), imageflow.Request{Config: cfg, Project: project.Info{ManifestFile: "manifest.yml", Version: "1.4.6"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Changed || result.Version != "1.4.6" || result.Images[0].DigestChanged {
+		t.Fatalf("result=%#v", result)
+	}
+}
+
 func TestFlowValidatesManifestTargetsBeforeRegistryCalls(t *testing.T) {
 	registryClient := &fakeRegistry{}
 	flow := imageflow.Flow{
@@ -493,9 +592,13 @@ func (registryClient *fakeRegistry) CandidatesForTarget(_ context.Context, sourc
 }
 
 type fakeDeliverer struct {
-	calls      int
-	last       delivery.Request
-	copyResult bool
+	calls           int
+	last            delivery.Request
+	copyResult      bool
+	digestChanged   bool
+	deliveryChanged bool
+	currentDigest   string
+	err             error
 }
 
 type concurrentProgressDeliverer struct{}
@@ -522,17 +625,30 @@ func (concurrentProgressDeliverer) Deliver(_ context.Context, request delivery.R
 func (deliverer *fakeDeliverer) Deliver(_ context.Context, request delivery.Request) (delivery.Result, error) {
 	deliverer.calls++
 	deliverer.last = request
+	if deliverer.err != nil {
+		return delivery.Result{}, deliverer.err
+	}
 	runtime := request.SourceRef
 	if request.Image.Delivery.Mode == "lazycat" {
 		runtime = "registry.lazycat.cloud/" + request.Image.ID + ":" + request.Tag
 	}
-	result := delivery.Result{Mode: request.Image.Delivery.Mode, RuntimeRef: runtime}
+	result := delivery.Result{Mode: request.Image.Delivery.Mode, RuntimeRef: runtime, CurrentDigest: deliverer.currentDigest, DigestChanged: deliverer.digestChanged, DeliveryChanged: deliverer.deliveryChanged}
 	if deliverer.copyResult && !request.DryRun {
 		copyResult := appstore.CopyImageResult{SourceImage: request.SourceRef, Platform: request.Target.Arch, LazyCatImage: runtime, Progress: appstore.CopyProgress{Finished: true}}
 		result.Copied = true
 		result.CopyResult = &copyResult
 	}
 	return result, nil
+}
+
+func mutableImageConfig() config.Config {
+	return config.Config{
+		Update: config.Update{Strategy: config.StrategyPublish, VersionSource: config.VersionSource{Type: config.VersionSourceImage, Image: "web", Bump: "patch"}},
+		Images: []config.Image{{
+			ID: "web", Target: "service", Service: "web", Source: "ghcr.io/acme/web",
+			Channel: "custom", Sort: "created", TagRegex: "^latest$", VersionTemplate: "{version}", Delivery: config.Delivery{Mode: "lazycat"},
+		}},
+	}
 }
 
 func imageConfig() config.Config {

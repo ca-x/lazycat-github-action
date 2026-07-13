@@ -3,6 +3,7 @@ package versioning
 import (
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strings"
@@ -83,6 +84,49 @@ func Select(rule Rule, candidates []Candidate) (Selection, error) {
 		return Selection{}, err
 	}
 	return rankedCandidates[0], nil
+}
+
+func SelectMutable(rule Rule, candidates []Candidate) (Selection, error) {
+	if err := validateRule(rule); err != nil {
+		return Selection{}, err
+	}
+	if rule.Channel != ChannelCustom || rule.Sort != SortCreated || rule.TagRegex == nil || rule.VersionRegex != nil {
+		return Selection{}, errors.New("mutable selection requires a custom created rule without version mapping")
+	}
+	filtered := make([]Candidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if !rule.TagRegex.MatchString(candidate.Tag) || rule.ExcludeRegex != nil && rule.ExcludeRegex.MatchString(candidate.Tag) {
+			continue
+		}
+		if candidate.Created.IsZero() {
+			return Selection{}, fmt.Errorf("image tag %q creation time is required", candidate.Tag)
+		}
+		filtered = append(filtered, candidate)
+	}
+	if len(filtered) == 0 {
+		return Selection{}, errors.New("no image tag matches the configured mutable channel")
+	}
+	sort.SliceStable(filtered, func(i, j int) bool {
+		if filtered[i].Created.Equal(filtered[j].Created) {
+			return filtered[i].Tag > filtered[j].Tag
+		}
+		return filtered[i].Created.After(filtered[j].Created)
+	})
+	return Selection{Candidate: filtered[0]}, nil
+}
+
+func BumpPatch(value string) (string, error) {
+	parsed, err := semver.StrictNewVersion(strings.TrimSpace(value))
+	if err != nil {
+		return "", fmt.Errorf("parse current version %q: %w", value, err)
+	}
+	if parsed.Prerelease() != "" || parsed.Metadata() != "" {
+		return "", fmt.Errorf("current version %q must be stable SemVer without metadata", value)
+	}
+	if parsed.Patch() == math.MaxUint64 {
+		return "", fmt.Errorf("current version %q patch component overflows", value)
+	}
+	return fmt.Sprintf("%d.%d.%d", parsed.Major(), parsed.Minor(), parsed.Patch()+1), nil
 }
 
 // RankSemVer maps and orders tag-only candidates without requiring image
