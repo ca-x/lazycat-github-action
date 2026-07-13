@@ -5,6 +5,7 @@ project:
   build_config: lzc-build.yml
   package_file: package.yml
   output: dist/application.lpk
+  target_arch: amd64
 
 update:
   strategy: pull

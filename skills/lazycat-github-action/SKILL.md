@@ -1,11 +1,11 @@
 ---
 name: lazycat-github-action
-description: Use when setting up, generating, reviewing, or debugging LazyCat GitHub Actions for LPK repositories, including Docker image updates, release/store publishing, historical LPK migration or cleanup, versioned Release assets, Go Template Manifest preservation, static or Exec builds, and ARM64 runners targeting linux/amd64.
+description: Use when setting up, generating, reviewing, or debugging LazyCat GitHub Actions for LPK repositories, including Docker image updates, release/store publishing, historical LPK migration or cleanup, versioned Release assets, Go Template Manifest preservation, static or Exec builds, configurable amd64/arm64 targets, and cross-architecture runners.
 ---
 
 # LazyCat GitHub Action
 
-Use it to automatically inspect the repository, then create or update `ca-x/lazycat-github-action@v1` configuration and workflows from the application's real package, build, and Manifest files. Keep image targets, build tools, publication policy, and target architecture explicit.
+Use it to automatically inspect the repository, then create or update `ca-x/lazycat-github-action@v1` configuration and workflows from the application's real package, build, and Manifest files. Keep image targets, build tools, publication policy, and `project.target_arch` explicit.
 
 ## Choose the supported GitHub interface
 
@@ -82,7 +82,7 @@ Confirm all repository-specific decisions that affect generated files:
 - exact package, build, and Manifest paths;
 - version source and every managed image target;
 - `pull` versus `publish` strategy and enabled stores;
-- required build toolchains and fixed `linux/amd64` application target;
+- required build toolchains and application target (`project.target_arch`, default `amd64`, optional `arm64`);
 - Secret names and transport paths, without reading or reproducing Secret values.
 
 Also compare `project.output` with `lzc-build.yml` `contentdir`. Keep the final LPK outside the packaged content tree so a build cannot include its own output.
@@ -125,11 +125,11 @@ Delivery policy:
 | `direct` | Manifest uses upstream reference | Not required | Forbidden |
 | `mirror` | Manifest uses explicit accelerator template | Not required | Forbidden |
 
-Set `require_digest_match: true` for mirrors when the accelerator must contain exactly the source `linux/amd64` image.
+Set `require_digest_match: true` for mirrors when the accelerator must contain exactly the source image for `project.target_arch`.
 
 When a tag needs normalization, reference named `version_regex` groups directly in `version_template`, for example `(?P<version>\d{8})\.0*(?P<build>[1-9]\d*)` with `{version}.{build}.0`. Keep the required `version` group. Unknown placeholders and non-SemVer results fail closed; do not add repository-specific rewriting when this mapping is sufficient.
 
-For SemVer sorting, rank filtered tag names before manifest inspection and stop after the first usable `linux/amd64` candidate; continue past a higher tag only when that tag lacks the target platform. Keep full manifest inspection for `created` sorting because creation time is required for ranking.
+For SemVer sorting, rank filtered tag names before manifest inspection and stop after the first usable configured target; continue past a higher tag only when that tag lacks the target platform. `sort: updated` is an explicit Docker Hub-only mode: rank by tag `last_updated`, then mapped SemVer, then tag name, and inspect manifests in that order. Never substitute OCI `config.created` when Docker Hub update metadata is unavailable. Keep full manifest inspection for `created` sorting because the target image creation time is required for ranking.
 
 Keep `update.allow_downgrade: false` or omit it for the safe default. Compare the mapped version-source image SemVer with the current package version before delivery. Equal versions may refresh an image reference or digest. Set `allow_downgrade: true` only after the user explicitly confirms an intentional rollback.
 
@@ -141,15 +141,15 @@ Read [references/configuration.md](references/configuration.md) for channel rule
 
 ## Configure builds and workflows
 
-The Action may execute on Linux amd64 or Linux arm64. The LazyCat target is always:
+The Action may execute on Linux amd64 or Linux arm64. The LazyCat target OS is Linux; `project.target_arch` defaults to `amd64` and may be `arm64`:
 
 ```text
 LAZYCAT_TARGET_OS=linux
-LAZYCAT_TARGET_ARCH=amd64
-LAZYCAT_TARGET_PLATFORM=linux/amd64
+LAZYCAT_TARGET_ARCH=<project.target_arch>
+LAZYCAT_TARGET_PLATFORM=linux/<project.target_arch>
 ```
 
-Buildscripts must honor those values. Go uses `GOOS=linux GOARCH=amd64`; Rust uses `x86_64-unknown-linux-gnu`; TypeScript Exec packages a Linux x64 runtime; Docker Buildx uses `--platform linux/amd64`. ARM64 Docker builds that execute x64 `RUN` steps need QEMU.
+Buildscripts must honor those values. For the default target, Go uses `GOOS=linux GOARCH=amd64`, Rust uses `x86_64-unknown-linux-gnu`, TypeScript Exec packages a Linux x64 runtime, and Docker Buildx uses `--platform linux/amd64`. For `target_arch: arm64`, use the matching arm64/aarch64 toolchain and `linux/arm64` container platform. A Runner whose CPU differs from the target may require cross-compilation and QEMU.
 
 The reusable workflow's `toolchains` input must match `build.toolchains` in Action configuration. Do not rely on an implicit moving toolchain version.
 
@@ -245,7 +245,7 @@ Before finishing:
 | Official publish rejects registry | Use `delivery.mode: lazycat` for every managed runtime image | STOP if any managed runtime remains direct/mirror |
 | `store.official.upload` fails | Confirm the exact verified local LPK path, package/version/SHA256, official lint, and multipart file upload | STOP; never replace the file with a Release URL |
 | `store.official.review` fails | Treat the LPK upload as completed; inspect the safe HTTP status and bounded JSON `message` plus application/version review eligibility | A 400 is not retryable; in dual-store automation preserve the private result and warn, while official-only remains fatal |
-| ARM64 Runner produced ARM app | Honor `LAZYCAT_TARGET_ARCH=amd64` | STOP until the build proves Linux x86_64 output |
+| Runner produced the wrong target architecture | Honor `LAZYCAT_TARGET_ARCH` and `LAZYCAT_TARGET_PLATFORM` | STOP until the build proves the configured `project.target_arch` output |
 | Private publish has no URL | Resolve the verified GitHub Release Asset | STOP before `publish-private` |
 | Equal store version is submitted again | Enable `skip_if_version_exists` and inspect `onlineVersion` | STOP on lookup errors other than not-found |
 | Official review returns 400 for an older LPK | Compare candidate and `onlineVersion`; `7.8.138 > 7.7.406` must skip with `online-version-newer` | Do not retry or set `allow_downgrade: true` without explicit rollback approval |

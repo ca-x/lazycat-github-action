@@ -30,6 +30,7 @@ type Request struct {
 	Official        bool
 	FailOnWarnings  bool
 	RunBuildScript  bool
+	Target          platform.Target
 	Runner          toolkitbuild.CommandRunner
 }
 
@@ -111,7 +112,11 @@ func (builder Builder) Build(ctx context.Context, request Request) (result Resul
 	if request.Tag == "" {
 		request.Tag = "v" + request.Version
 	}
-	builder.logger().Info("LPK build started", "package", request.Project.PackageID, "version", request.Version, "target", platform.TargetPlatform)
+	target, err := request.Target.Normalize()
+	if err != nil {
+		return Result{}, fmt.Errorf("build LPK: %w", err)
+	}
+	builder.logger().Info("LPK build started", "package", request.Project.PackageID, "version", request.Version, "target", target.Platform())
 
 	output := filepath.Clean(request.Project.Output)
 	outputDirectory := filepath.Dir(output)
@@ -140,9 +145,9 @@ func (builder Builder) Build(ctx context.Context, request Request) (result Resul
 		"LAZYCAT_VERSION":         request.Version,
 		"LAZYCAT_TAG":             request.Tag,
 		"LAZYCAT_CHANNEL":         request.Channel,
-		"LAZYCAT_TARGET_OS":       platform.TargetOS,
-		"LAZYCAT_TARGET_ARCH":     platform.TargetArch,
-		"LAZYCAT_TARGET_PLATFORM": platform.TargetPlatform,
+		"LAZYCAT_TARGET_OS":       target.OS,
+		"LAZYCAT_TARGET_ARCH":     target.Arch,
+		"LAZYCAT_TARGET_PLATFORM": target.Platform(),
 		"SOURCE_DATE_EPOCH":       strconv.FormatInt(request.SourceDateEpoch, 10),
 	}
 	runner := request.Runner
@@ -246,7 +251,7 @@ func (builder Builder) Build(ctx context.Context, request Request) (result Resul
 		Version:        packageInfo.Version,
 		SHA256:         digest,
 		Size:           size,
-		TargetPlatform: platform.TargetPlatform,
+		TargetPlatform: target.Platform(),
 		Warnings:       warnings,
 	}
 	builder.logger().Info("LPK build completed", "path", result.Path, "size_bytes", result.Size, "sha256", result.SHA256)

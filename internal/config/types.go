@@ -1,6 +1,11 @@
 package config
 
-import "time"
+import (
+	"strings"
+	"time"
+
+	"github.com/ca-x/lazycat-github-action/internal/platform"
+)
 
 type Strategy string
 
@@ -30,6 +35,15 @@ type Project struct {
 	BuildConfig string `yaml:"build_config"`
 	PackageFile string `yaml:"package_file"`
 	Output      string `yaml:"output"`
+	TargetArch  string `yaml:"target_arch"`
+}
+
+func (project Project) Target() platform.Target {
+	arch := strings.ToLower(strings.TrimSpace(project.TargetArch))
+	if arch == "" {
+		arch = platform.DefaultTargetArch
+	}
+	return platform.Target{OS: platform.TargetOS, Arch: arch}
 }
 
 type Update struct {

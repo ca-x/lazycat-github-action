@@ -20,11 +20,16 @@ type ImageInspector interface {
 	Inspect(context.Context, string) (registry.Image, error)
 }
 
+type targetImageInspector interface {
+	InspectTarget(context.Context, string, platform.Target) (registry.Image, error)
+}
+
 type Request struct {
 	Image        config.Image
 	Tag          string
 	SourceRef    string
 	SourceDigest string
+	Target       platform.Target
 	DryRun       bool
 	OnProgress   func(appstore.CopyProgress)
 }
@@ -51,6 +56,10 @@ func (resolver Resolver) Deliver(ctx context.Context, request Request) (Result, 
 	if strings.TrimSpace(request.SourceRef) == "" {
 		return Result{}, errors.New("source image reference is required")
 	}
+	target, err := request.Target.Normalize()
+	if err != nil {
+		return Result{}, err
+	}
 	mode := strings.ToLower(strings.TrimSpace(request.Image.Delivery.Mode))
 	switch mode {
 	case "direct":
@@ -67,12 +76,20 @@ func (resolver Resolver) Deliver(ctx context.Context, request Request) (Result, 
 		if resolver.Inspector == nil {
 			return Result{}, errors.New("mirror digest verification requires an image inspector")
 		}
-		mirror, err := resolver.Inspector.Inspect(ctx, runtimeRef)
+		var mirror registry.Image
+		if inspector, ok := resolver.Inspector.(targetImageInspector); ok {
+			mirror, err = inspector.InspectTarget(ctx, runtimeRef, target)
+		} else {
+			if target.Arch != platform.DefaultTargetArch {
+				return Result{}, errors.New("configured target requires a target-aware image inspector")
+			}
+			mirror, err = resolver.Inspector.Inspect(ctx, runtimeRef)
+		}
 		if err != nil {
 			return Result{}, fmt.Errorf("inspect mirror image %q: %w", runtimeRef, err)
 		}
-		if mirror.Platform != platform.TargetPlatform {
-			return Result{}, fmt.Errorf("mirror image %q uses platform %q instead of %q", runtimeRef, mirror.Platform, platform.TargetPlatform)
+		if mirror.Platform != target.Platform() {
+			return Result{}, fmt.Errorf("mirror image %q uses platform %q instead of %q", runtimeRef, mirror.Platform, target.Platform())
 		}
 		if !strings.EqualFold(strings.TrimSpace(mirror.Digest), strings.TrimSpace(request.SourceDigest)) {
 			return Result{}, fmt.Errorf("mirror digest %q does not match source digest %q", mirror.Digest, request.SourceDigest)
@@ -87,12 +104,12 @@ func (resolver Resolver) Deliver(ctx context.Context, request Request) (Result, 
 			return Result{}, errors.New("LazyCat delivery requires an authenticated image copier")
 		}
 		copied, err := resolver.Copier.CopyImage(ctx, appstore.CopyImageRequest{
-			Image: request.SourceRef, Platform: platform.TargetArch, OnProgress: request.OnProgress,
+			Image: request.SourceRef, Platform: target.Arch, OnProgress: request.OnProgress,
 		})
 		if err != nil {
 			return Result{}, fmt.Errorf("copy image to LazyCat registry: %w", err)
 		}
-		if strings.TrimSpace(copied.SourceImage) != request.SourceRef || copied.Platform != platform.TargetArch || !strings.HasPrefix(strings.TrimSpace(copied.LazyCatImage), "registry.lazycat.cloud/") || !copied.Progress.Finished {
+		if strings.TrimSpace(copied.SourceImage) != request.SourceRef || copied.Platform != target.Arch || !strings.HasPrefix(strings.TrimSpace(copied.LazyCatImage), "registry.lazycat.cloud/") || !copied.Progress.Finished {
 			return Result{}, fmt.Errorf("invalid LazyCat copy result for %q", request.SourceRef)
 		}
 		result.RuntimeRef = copied.LazyCatImage

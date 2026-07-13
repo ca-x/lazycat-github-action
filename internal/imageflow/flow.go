@@ -29,7 +29,7 @@ var (
 )
 
 type Registry interface {
-	Candidates(context.Context, string, ...registry.TagFilter) ([]versioning.Candidate, error)
+	CandidatesForTarget(context.Context, string, platform.Target, ...registry.TagFilter) ([]versioning.Candidate, error)
 }
 
 type Deliverer interface {
@@ -101,7 +101,8 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	logger.Info("Docker image update started", "images", len(selected), "dry_run", request.DryRun, "target", platform.TargetPlatform)
+	target := request.Config.Project.Target()
+	logger.Info("Docker image update started", "images", len(selected), "dry_run", request.DryRun, "target", target.Platform())
 	readManifest := flow.ReadManifest
 	if readManifest == nil {
 		readManifest = manifestedit.Read
@@ -136,7 +137,7 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 		if err != nil {
 			return Result{}, err
 		}
-		candidates, err := flow.Registry.Candidates(ctx, image.Source, filter)
+		candidates, err := flow.Registry.CandidatesForTarget(ctx, image.Source, target, filter)
 		if err != nil {
 			if errors.Is(err, registry.ErrPlatformNotFound) {
 				return Result{}, fmt.Errorf("%w: inspect %q: %v", ErrPlatformNotFound, image.ID, err)
@@ -148,7 +149,7 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 		if err != nil {
 			return Result{}, fmt.Errorf("%w for %q: %v", ErrVersionNotFound, image.ID, err)
 		}
-		logger.Info("Docker image version selected", "image_id", image.ID, "tag", selection.Candidate.Tag, "version", selection.Version, "digest", selection.Candidate.Digest, "platform", platform.TargetPlatform)
+		logger.Info("Docker image version selected", "image_id", image.ID, "tag", selection.Candidate.Tag, "version", selection.Version, "digest", selection.Candidate.Digest, "platform", target.Platform())
 		if request.Config.Update.VersionSource.Type == config.VersionSourceImage && request.Config.Update.VersionSource.Image == image.ID && !request.Config.Update.AllowDowngrade {
 			currentVersion, currentErr := semver.StrictNewVersion(strings.TrimSpace(request.Project.Version))
 			selectedVersion, selectedErr := semver.StrictNewVersion(selection.Version)
@@ -162,7 +163,7 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 		sourceRef := image.Source + ":" + selection.Candidate.Tag
 		current := currentByID[image.ID]
 		deliveryRequest := delivery.Request{
-			Image: image, Tag: selection.Candidate.Tag, SourceRef: sourceRef, SourceDigest: selection.Candidate.Digest, DryRun: request.DryRun,
+			Image: image, Tag: selection.Candidate.Tag, SourceRef: sourceRef, SourceDigest: selection.Candidate.Digest, Target: target, DryRun: request.DryRun,
 		}
 		if request.OnProgress != nil {
 			deliveryRequest.OnProgress = func(progress appstore.CopyProgress) { request.OnProgress(image.ID, progress) }
@@ -199,7 +200,7 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 			}
 			needsUpdate = current.UpstreamRef != sourceRef || current.RuntimeRef != delivered.RuntimeRef
 		case "lazycat":
-			shouldDeliver := current.UpstreamRef != sourceRef || current.RuntimeRef == "" || !strings.HasPrefix(current.RuntimeRef, "registry.lazycat.cloud/") || image.Sort == "created"
+			shouldDeliver := current.UpstreamRef != sourceRef || current.RuntimeRef == "" || !strings.HasPrefix(current.RuntimeRef, "registry.lazycat.cloud/") || image.Sort == "created" || image.Sort == "updated"
 			if shouldDeliver {
 				delivered, err = flow.Deliverer.Deliver(ctx, deliveryRequest)
 				if err != nil {
@@ -230,7 +231,7 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 			}
 		}
 		imageResult := ImageResult{
-			ID: image.ID, Target: image.Target, Service: image.Service, Platform: platform.TargetPlatform,
+			ID: image.ID, Target: image.Target, Service: image.Service, Platform: target.Platform(),
 			Tag: selection.Candidate.Tag, SourceRef: sourceRef, SourceDigest: selection.Candidate.Digest,
 			DeliveryMode: image.Delivery.Mode, DeliveredRef: delivered.RuntimeRef, Copied: delivered.Copied,
 			CopyResult: copyResult(delivered.CopyResult),
@@ -304,6 +305,9 @@ func imageRule(image config.Image) (versioning.Rule, registry.TagFilter, error) 
 	filter := registry.TagFilter{Include: tagRegex, Exclude: excludeRegex}
 	if rule.Sort == versioning.SortSemVer {
 		filter.SemVerRule = &rule
+	}
+	if rule.Sort == versioning.SortUpdated {
+		filter.UpdatedRule = &rule
 	}
 	return rule, filter, nil
 }

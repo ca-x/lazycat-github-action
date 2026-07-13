@@ -391,6 +391,41 @@ func TestRunRejectsNonAMD64BuildResult(t *testing.T) {
 	}
 }
 
+func TestRunAcceptsConfiguredARM64BuildResult(t *testing.T) {
+	root := t.TempDir()
+	inspectCount := 0
+	cfg := gitConfig()
+	cfg.Project.TargetArch = "arm64"
+	var buildRequest actionbuild.Request
+	deps := action.Dependencies{
+		Host:       platform.Host{OS: "linux", Arch: "amd64"},
+		ResultDir:  filepath.Join(root, "results"),
+		LoadConfig: func(string) (config.Config, error) { return cfg, nil },
+		Inspect: func(context.Context, config.Project) (project.Info, error) {
+			inspectCount++
+			version := "1.0.0"
+			if inspectCount > 1 {
+				version = "1.2.3"
+			}
+			return project.Info{Root: root, PackageFile: filepath.Join(root, "package.yml"), PackageID: "cloud.lazycat.example", Version: version}, nil
+		},
+		SetVersion: func(_ string, version string) (yamledit.Change, error) {
+			return yamledit.Change{Changed: true, Old: "1.0.0", New: version}, nil
+		},
+		Build: func(_ context.Context, request actionbuild.Request) (actionbuild.Result, error) {
+			buildRequest = request
+			return actionbuild.Result{PackageID: "cloud.lazycat.example", Version: "1.2.3", TargetPlatform: "linux/arm64"}, nil
+		},
+	}
+	result, err := action.Run(context.Background(), action.Input{Operation: action.OperationBuild, Version: "1.2.3"}, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if buildRequest.Target.Platform() != "linux/arm64" || result.TargetPlatform != "linux/arm64" || result.RunnerArch != "amd64" {
+		t.Fatalf("request=%#v result=%#v", buildRequest, result)
+	}
+}
+
 func TestResolveOperation(t *testing.T) {
 	tests := []struct {
 		name  string

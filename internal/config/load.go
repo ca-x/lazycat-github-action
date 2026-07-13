@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ca-x/lazycat-github-action/internal/platform"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -66,6 +67,9 @@ func applyDefaults(value *Config) {
 	if strings.TrimSpace(value.Project.Output) == "" {
 		value.Project.Output = "dist/application.lpk"
 	}
+	if strings.TrimSpace(value.Project.TargetArch) == "" {
+		value.Project.TargetArch = platform.DefaultTargetArch
+	}
 	if value.Update.Strategy == "" {
 		value.Update.Strategy = StrategyPull
 	}
@@ -87,6 +91,7 @@ func applyDefaults(value *Config) {
 	value.Project.BuildConfig = filepath.Clean(strings.TrimSpace(value.Project.BuildConfig))
 	value.Project.PackageFile = filepath.Clean(strings.TrimSpace(value.Project.PackageFile))
 	value.Project.Output = filepath.Clean(strings.TrimSpace(value.Project.Output))
+	value.Project.TargetArch = strings.ToLower(strings.TrimSpace(value.Project.TargetArch))
 	value.Update.Strategy = Strategy(strings.ToLower(strings.TrimSpace(string(value.Update.Strategy))))
 	value.Update.VersionSource.Type = VersionSourceType(strings.ToLower(strings.TrimSpace(string(value.Update.VersionSource.Type))))
 	value.Update.VersionSource.Image = strings.TrimSpace(value.Update.VersionSource.Image)
@@ -159,6 +164,9 @@ func validate(value Config) error {
 	}
 	if !strings.EqualFold(filepath.Ext(value.Project.Output), ".lpk") {
 		return errors.New("output must use the .lpk extension")
+	}
+	if _, err := platform.NormalizeTarget(value.Project.TargetArch); err != nil {
+		return err
 	}
 	if !value.Stores.Official.CreateIfMissing && hasOfficialApplication(value.Stores.Official.Application) {
 		return errors.New("official application metadata requires create_if_missing=true")
@@ -292,8 +300,8 @@ func hasOfficialApplication(application OfficialApplication) bool {
 func validateImageRule(image Image) error {
 	switch image.Channel {
 	case "stable", "beta":
-		if image.Sort != "semver" {
-			return fmt.Errorf("channel %q requires semver sort", image.Channel)
+		if image.Sort != "semver" && image.Sort != "updated" {
+			return fmt.Errorf("channel %q requires semver or updated sort", image.Channel)
 		}
 	case "nightly":
 		if image.Sort != "created" {
@@ -306,7 +314,7 @@ func validateImageRule(image Image) error {
 		if image.Sort == "" {
 			return errors.New("sort is required for custom channel")
 		}
-		if image.Sort != "semver" && image.Sort != "created" {
+		if image.Sort != "semver" && image.Sort != "created" && image.Sort != "updated" {
 			return fmt.Errorf("unsupported sort %q", image.Sort)
 		}
 		if image.TagRegex == "" {

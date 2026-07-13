@@ -57,7 +57,7 @@ run_download_case() {
   output="$(TMPDIR="${action_tmp}" PATH="${fake_bin}:${PATH}" FIXTURE_DIR="${fixtures}" CURL_LOG="${tmp}/curl.log" RUNNER_OS=Linux RUNNER_ARCH="${runner_arch}" LAZYCAT_ACTION_VERSION=v1.0.0 bash "${root}/scripts/run-action.sh")"
   grep -q "lazycat-action_linux_${archive_arch}.tar.gz" "${tmp}/curl.log"
   grep -q "binary-${archive_arch} target=linux/amd64" <<<"${output}"
-  grep -q "Action host: linux/${archive_arch}; LazyCat target: linux/amd64" <<<"${output}"
+  grep -q "Action host: linux/${archive_arch}; LazyCat target: loaded from Action configuration" <<<"${output}"
   test -z "$(find "${action_tmp}" -mindepth 1 -print -quit)"
 }
 

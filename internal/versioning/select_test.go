@@ -89,6 +89,52 @@ func TestSelectCustomByMappedSemVerAndCreated(t *testing.T) {
 	}
 }
 
+func TestSelectUpdatedPrefersTagUpdateTimeThenSemVerAndTag(t *testing.T) {
+	rule := versioning.Rule{
+		Channel:         versioning.ChannelStable,
+		Sort:            versioning.SortUpdated,
+		TagRegex:        regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-copy)?$`),
+		VersionRegex:    regexp.MustCompile(`^v(?P<version>\d+\.\d+\.\d+)(?:-copy)?$`),
+		VersionTemplate: "{version}",
+	}
+	updated := time.Date(2026, 7, 12, 8, 30, 0, 0, time.UTC)
+	selection, err := versioning.Select(rule, []versioning.Candidate{
+		{Tag: "v1.2.26", Digest: digest("2"), Updated: updated.Add(-28 * 24 * time.Hour)},
+		{Tag: "v1.2.15", Digest: digest("1"), Updated: updated},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.Candidate.Tag != "v1.2.15" || selection.Version != "1.2.15" {
+		t.Fatalf("selection=%#v", selection)
+	}
+
+	ranked, err := versioning.RankUpdated(rule, []versioning.Candidate{
+		{Tag: "v1.2.15", Updated: updated},
+		{Tag: "v1.2.26", Updated: updated},
+		{Tag: "v1.2.26-copy", Updated: updated},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"v1.2.26-copy", "v1.2.26", "v1.2.15"}
+	for index, expected := range want {
+		if ranked[index].Candidate.Tag != expected {
+			t.Fatalf("ranked[%d]=%q want %q", index, ranked[index].Candidate.Tag, expected)
+		}
+	}
+}
+
+func TestSelectUpdatedRequiresTagUpdateTime(t *testing.T) {
+	_, err := versioning.Select(versioning.Rule{
+		Channel: versioning.ChannelStable,
+		Sort:    versioning.SortUpdated,
+	}, []versioning.Candidate{{Tag: "v1.2.3", Digest: digest("1")}})
+	if err == nil || !strings.Contains(err.Error(), "update time is required") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestSelectExpandsNamedVersionTemplateGroups(t *testing.T) {
 	rule := versioning.Rule{
 		Channel:         versioning.ChannelCustom,

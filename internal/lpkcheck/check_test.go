@@ -10,6 +10,7 @@ import (
 
 	actionbuild "github.com/ca-x/lazycat-github-action/internal/build"
 	"github.com/ca-x/lazycat-github-action/internal/lpkcheck"
+	"github.com/ca-x/lazycat-github-action/internal/platform"
 	"github.com/ca-x/lazycat-github-action/internal/project"
 )
 
@@ -29,6 +30,26 @@ func TestFileValidatesBuiltLPK(t *testing.T) {
 	}
 	if result.PackageID != info.PackageID || result.Version != "1.2.3" || result.SHA256 != built.SHA256 || result.Size == 0 || result.TargetPlatform != "linux/amd64" {
 		t.Fatalf("result=%#v built=%#v", result, built)
+	}
+}
+
+func TestFileReportsConfiguredARM64Target(t *testing.T) {
+	info := fixtureProject(t)
+	built, err := (actionbuild.Builder{}).Build(context.Background(), actionbuild.Request{
+		Project: info, Version: "1.2.3", Tag: "v1.2.3", Target: platform.Target{OS: "linux", Arch: "arm64"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := lpkcheck.File(context.Background(), lpkcheck.Request{
+		ProjectRoot: info.Root, Path: built.Path, ExpectedPackageID: info.PackageID, ExpectedVersion: info.Version,
+		Target: platform.Target{OS: "linux", Arch: "arm64"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.TargetPlatform != "linux/arm64" {
+		t.Fatalf("result=%#v", result)
 	}
 }
 

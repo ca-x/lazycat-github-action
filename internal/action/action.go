@@ -243,7 +243,7 @@ func Run(ctx context.Context, input Input, dependencies Dependencies) (Result, e
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	logger.Info("execution selected", "operation", operation, "mode", executionMode(operation, cfg), "package", info.PackageID, "version", info.Version, "project_kind", info.Kind, "target", platform.TargetPlatform)
+	logger.Info("execution selected", "operation", operation, "mode", executionMode(operation, cfg), "package", info.PackageID, "version", info.Version, "project_kind", info.Kind, "target", cfg.Project.Target().Platform())
 	switch operation {
 	case OperationBuild:
 		return runBuild(ctx, input, cfg, info, dependencies)
@@ -350,14 +350,15 @@ func runBuild(ctx context.Context, input Input, cfg config.Config, info project.
 		SourceDateEpoch: input.SourceDateEpoch,
 		Official:        cfg.Stores.Official.Enabled,
 		RunBuildScript:  cfg.Build.ShouldRunBuildScript(),
+		Target:          cfg.Project.Target(),
 	})
 	if err != nil {
 		rollbackVersion(dependencies, info.PackageFile, change)
 		return Result{}, actionError(CodeBuildFailed, "LPK build failed", err)
 	}
-	if built.TargetPlatform != platform.TargetPlatform {
+	if built.TargetPlatform != cfg.Project.Target().Platform() {
 		rollbackVersion(dependencies, info.PackageFile, change)
-		return Result{}, actionError(CodeLPKInvalid, fmt.Sprintf("LPK target platform %q does not match required %q", built.TargetPlatform, platform.TargetPlatform), nil)
+		return Result{}, actionError(CodeLPKInvalid, fmt.Sprintf("LPK target platform %q does not match required %q", built.TargetPlatform, cfg.Project.Target().Platform()), nil)
 	}
 	result.PackageID = built.PackageID
 	result.LPKPath = built.Path
@@ -384,7 +385,7 @@ func runCheck(ctx context.Context, input Input, cfg config.Config, info project.
 		Config: cfg, Project: info, ImageID: input.ImageID, DryRun: input.DryRun,
 	})
 	if err != nil {
-		return Result{}, mapImageError(err)
+		return Result{}, mapImageError(err, cfg.Project.Target())
 	}
 	input.Version = checked.Version
 	input.Tag = "v" + checked.Version
@@ -418,14 +419,15 @@ func runCheck(ctx context.Context, input Input, cfg config.Config, info project.
 		Project: updated, Version: checked.Version, Tag: input.Tag, Channel: checked.Channel,
 		SourceDateEpoch: input.SourceDateEpoch, Official: cfg.Stores.Official.Enabled,
 		RunBuildScript: cfg.Build.ShouldRunBuildScript(),
+		Target:         cfg.Project.Target(),
 	})
 	if err != nil {
 		rollbackVersion(dependencies, info.PackageFile, change)
 		return Result{}, actionError(CodeBuildFailed, "LPK validation build failed after image update", err)
 	}
-	if built.TargetPlatform != platform.TargetPlatform {
+	if built.TargetPlatform != cfg.Project.Target().Platform() {
 		rollbackVersion(dependencies, info.PackageFile, change)
-		return Result{}, actionError(CodeLPKInvalid, fmt.Sprintf("LPK target platform %q does not match required %q", built.TargetPlatform, platform.TargetPlatform), nil)
+		return Result{}, actionError(CodeLPKInvalid, fmt.Sprintf("LPK target platform %q does not match required %q", built.TargetPlatform, cfg.Project.Target().Platform()), nil)
 	}
 	result.PackageID = built.PackageID
 	result.LPKPath = built.Path
@@ -452,18 +454,18 @@ func baseResult(input Input, host platform.Host, info project.Info, cfg config.C
 		PrivateStoreEnabled:  cfg.Stores.Private.Enabled,
 		Channel:              input.Channel,
 		RunnerArch:           host.Arch,
-		TargetPlatform:       platform.TargetPlatform,
+		TargetPlatform:       cfg.Project.Target().Platform(),
 	}
 }
 
-func mapImageError(err error) *Error {
+func mapImageError(err error, target platform.Target) *Error {
 	switch {
 	case errors.Is(err, imageflow.ErrVersionDowngrade):
 		return actionError(CodeVersionDowngradeBlocked, "selected image version is lower than the current application version; set update.allow_downgrade=true only for an intentional rollback", err)
 	case errors.Is(err, imageflow.ErrVersionNotFound):
 		return actionError(CodeVersionNotFound, "no image version matched the configured channel", err)
 	case errors.Is(err, imageflow.ErrPlatformNotFound):
-		return actionError(CodePlatformNotFound, "the configured image has no usable linux/amd64 candidate", err)
+		return actionError(CodePlatformNotFound, fmt.Sprintf("the configured image has no usable %s candidate", target.Platform()), err)
 	case errors.Is(err, imageflow.ErrDeliveryFailed):
 		return actionError(CodeImageCopyFailed, "image delivery failed", err)
 	default:

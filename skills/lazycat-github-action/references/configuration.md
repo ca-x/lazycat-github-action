@@ -9,6 +9,7 @@ project:
   build_config: lzc-build.yml
   package_file: package.yml
   output: dist/application.lpk
+  target_arch: amd64
 update:
   strategy: pull
   allow_downgrade: false
@@ -32,7 +33,7 @@ stores:
     skip_if_version_exists: false
 ```
 
-Unknown fields fail validation. Paths must remain under `project.root`. Output must end in `.lpk`.
+Unknown fields fail validation. Paths must remain under `project.root`. Output must end in `.lpk`. `project.target_arch` defaults to `amd64` and accepts `amd64` or `arm64`; the target OS remains Linux.
 
 `project.output` is the verified build output and validation Artifact. When the caller sets reusable-workflow input `versioned-release-asset: true`, the workflow copies that verified file to `<package-id>-v<version>.lpk` for the GitHub Release. The copy stays beside the verified LPK under `project.root`. Private publication uses the verified Release Asset URL and SHA256; official publication uploads the same locally verified LPK bytes and SHA256 without receiving that URL.
 
@@ -51,16 +52,16 @@ The version source answers “which upstream version changes package.yml.” The
 
 | Channel | Required behavior |
 |---|---|
-| `stable` | Highest non-prerelease SemVer; sort is `semver` |
-| `beta` | Highest alpha/beta/rc/preview SemVer; sort is `semver` |
-| `nightly` | `tag_regex` required; newest amd64 creation time; sort is `created` |
-| `custom` | `tag_regex` and explicit `semver` or `created` sort required |
+| `stable` | Highest non-prerelease SemVer by default; sort may be `semver` or Docker Hub `updated` |
+| `beta` | Highest alpha/beta/rc/preview SemVer by default; sort may be `semver` or Docker Hub `updated` |
+| `nightly` | `tag_regex` required; newest target-image creation time; sort is `created` |
+| `custom` | `tag_regex` and explicit `semver`, `created`, or Docker Hub `updated` sort required |
 
 Use `exclude_regex` to remove Windows/ARM tags. `version_regex` must contain `(?P<version>...)`; `version_template` defaults to `{version}`. Every named capture is available as an exact placeholder. For example, `^(?P<version>\d{8})\.0*(?P<build>[1-9]\d*)$` plus `{version}.{build}.0` maps `20260603.01` to `20260603.1.0`. Unknown placeholders and non-SemVer expanded values fail closed.
 
-Nightly mutable tags become deterministic SemVer values based on creation time and the `linux/amd64` digest.
+Nightly mutable tags become deterministic SemVer values based on creation time and the configured target-platform digest.
 
-Registry discovery uses `github.com/google/go-containerregistry`. SemVer rules rank filtered tag names before manifest inspection and stop at the first usable `linux/amd64` candidate, falling back past platform-incompatible higher tags. `created` rules inspect all eligible manifests because their `linux/amd64` creation timestamps determine the result.
+Registry discovery uses `github.com/google/go-containerregistry`. SemVer rules rank filtered tag names before manifest inspection and stop at the first usable configured target, falling back past platform-incompatible higher tags. `sort: updated` uses Docker Hub `last_updated`, then mapped SemVer and tag name; it is Docker Hub-only and fails closed instead of falling back to OCI creation time. `created` rules inspect all eligible manifests because the configured target image creation timestamps determine the result.
 
 ## Image target examples
 
@@ -100,7 +101,7 @@ delivery:
 
 ## Build environment
 
-Buildscripts receive version, tag, channel, source date, and fixed LazyCat target variables. They do not receive LazyCat credentials, private-store credentials, Registry credentials, GitHub tokens, or GitHub control-file paths.
+Buildscripts receive version, tag, channel, source date, and LazyCat target variables derived from `project.target_arch`. They do not receive LazyCat credentials, private-store credentials, Registry credentials, GitHub tokens, or GitHub control-file paths.
 
 Only local Docker/buildscript work requires Docker. OCI inspection, direct/mirror edits, and LazyCat remote Registry copying do not invoke local Docker.
 

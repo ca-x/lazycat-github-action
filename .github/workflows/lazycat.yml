@@ -261,7 +261,7 @@ jobs:
         uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ inputs.rust-toolchain != '' && inputs.rust-toolchain || steps.rust-toolchain-file.outputs.value }}
-          targets: x86_64-unknown-linux-gnu
+          targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
 
       - name: Log in to source Registry
         if: env.REGISTRY != '' && env.REGISTRY_USERNAME != '' && env.REGISTRY_PASSWORD != ''
@@ -275,7 +275,7 @@ jobs:
         if: contains(steps.toolchains.outputs.value, ',docker,') && inputs.enable-qemu
         uses: docker/setup-qemu-action@v4
         with:
-          platforms: amd64
+          platforms: amd64,arm64
 
       - name: Set up Docker Buildx
         if: contains(steps.toolchains.outputs.value, ',docker,')

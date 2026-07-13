@@ -75,15 +75,15 @@ The Action host and the LazyCat application target are separate:
 | Runner OS | Linux |
 | Runner CPU | amd64 or arm64 |
 | LazyCat target OS | Linux |
-| LazyCat target CPU | amd64, x86_64 |
-| OCI inspection and copy platform | `linux/amd64` |
+| LazyCat target CPU | `project.target_arch`; defaults to amd64, optionally arm64 |
+| OCI inspection and copy platform | `linux/amd64` or `linux/arm64`, matching the project target |
 
 An ARM64 self-hosted Runner uses the ARM64 Action binary. Build scripts still receive:
 
 ```text
 LAZYCAT_TARGET_OS=linux
-LAZYCAT_TARGET_ARCH=amd64
-LAZYCAT_TARGET_PLATFORM=linux/amd64
+LAZYCAT_TARGET_ARCH=<project.target_arch>
+LAZYCAT_TARGET_PLATFORM=linux/<project.target_arch>
 ```
 
 The reusable workflow accepts a Linux Runner label:
@@ -148,6 +148,7 @@ project:
   build_config: lzc-build.yml
   package_file: package.yml
   output: dist/example.lpk
+  target_arch: amd64
 
 update:
   strategy: pull
@@ -226,10 +227,10 @@ With `strategy: pull`, selecting a non-version-source image creates a reviewable
 
 | Channel | Selection rule |
 |---|---|
-| `stable` | Highest valid SemVer without a prerelease part |
-| `beta` | Highest valid prerelease SemVer, including alpha, beta, rc, and preview labels |
-| `nightly` | Newest regex-matched `linux/amd64` OCI image creation time |
-| `custom` | Regex filtering with explicit `semver` or `created` sorting |
+| `stable` | Highest valid non-prerelease SemVer by default; may opt into Docker Hub `updated` sorting |
+| `beta` | Highest valid prerelease SemVer by default; may opt into Docker Hub `updated` sorting |
+| `nightly` | Newest regex-matched target-platform OCI image creation time |
+| `custom` | Regex filtering with explicit `semver`, `created`, or `updated` sorting |
 
 Stable example:
 
@@ -246,6 +247,16 @@ channel: beta
 tag_regex: '^v?\d+\.\d+\.\d+-(alpha|beta|rc|preview)\.'
 ```
 
+Docker Hub update-time example:
+
+```yaml
+channel: stable
+sort: updated
+tag_regex: '^v?\d+\.\d+\.\d+$'
+```
+
+`updated` uses Docker Hub tag metadata `last_updated`. It is different from OCI `config.created`: moving or republishing an existing tag can change `last_updated` without rebuilding the image. Ties use mapped SemVer and then lexical tag order. This mode is explicit, Docker Hub-only, and never falls back to creation time. The normal `allow_downgrade: false` guard still applies if the newest-updated tag maps to a lower package version.
+
 Nightly example:
 
 ```yaml
@@ -253,7 +264,7 @@ channel: nightly
 tag_regex: '^nightly(-.*)?$'
 ```
 
-Nightly versions are deterministic SemVer values derived from the selected image creation time and amd64 digest:
+Nightly versions are deterministic SemVer values derived from the selected target image creation time and digest:
 
 ```text
 0.0.0-nightly.20260710153020.a1b2c3d4e5f6
@@ -278,7 +289,7 @@ version_template: '{version}.{build}.0' # 20260603.01 -> 20260603.1.0
 
 The `version` group remains required. Unknown placeholders and expanded values that are not valid SemVer fail closed.
 
-Registry discovery uses `github.com/google/go-containerregistry`. `tag_regex` and `exclude_regex` run before the Action fetches individual manifests. For SemVer sorting, the Action ranks tag names first and inspects manifests in order only until the first usable `linux/amd64` image is found. Creation-time sorting must inspect every eligible manifest because the timestamp is part of the ordering. OCI indexes and Docker manifest lists are reduced to `linux/amd64`; ARM64 metadata cannot win selection. The default downgrade guard prevents a recently rebuilt older tag from lowering the application version.
+Registry discovery uses `github.com/google/go-containerregistry`. `tag_regex` and `exclude_regex` run before the Action fetches individual manifests. For SemVer sorting, the Action ranks tag names first. For `updated`, it ranks Docker Hub tag metadata first. Both inspect manifests in order only until the first usable configured target is found. Creation-time sorting must inspect every eligible manifest because the target image timestamp is part of the ordering. OCI indexes and Docker manifest lists are reduced to `project.target_arch`. The default downgrade guard prevents an older mapped version from silently lowering the application version.
 
 ## Image delivery modes
 
@@ -289,7 +300,7 @@ delivery:
   mode: lazycat
 ```
 
-The Action sends the selected source reference to the LazyCat developer platform with `Platform: "amd64"`. The platform performs a remote Registry-to-Registry copy and returns the final `registry.lazycat.cloud/...` reference. Local Docker is not used for this copy.
+The Action sends the selected source reference to the LazyCat developer platform with `Platform` equal to `project.target_arch` (`amd64` by default, optionally `arm64`). The platform performs a remote Registry-to-Registry copy and returns the final `registry.lazycat.cloud/...` reference. Local Docker is not used for this copy.
 
 This mode requires `LAZYCAT_TOKEN` or `LZC_CLI_TOKEN`. It is the only delivery mode accepted when `stores.official.enabled` is true.
 
@@ -302,7 +313,7 @@ delivery:
   require_digest_match: true
 ```
 
-The Manifest uses the expanded mirror reference. `{tag}`, `{digest}`, and `{source}` are supported. With `require_digest_match: true`, the Action inspects the mirror's `linux/amd64` image and requires its digest to match the source digest before editing the Manifest.
+The Manifest uses the expanded mirror reference. `{tag}`, `{digest}`, and `{source}` are supported. With `require_digest_match: true`, the Action inspects the mirror image for the configured target platform and requires its digest to match the source digest before editing the Manifest.
 
 ### Direct source image
 
@@ -607,7 +618,7 @@ mkdir -p dist/content
 cp target/x86_64-unknown-linux-gnu/release/example dist/content/app
 ```
 
-Use `toolchains: rust`. Pass `rust-toolchain`, or commit a `rust-toolchain.toml` with a `toolchain.channel` value. The reusable workflow installs the `x86_64-unknown-linux-gnu` target.
+Use `toolchains: rust`. Pass `rust-toolchain`, or commit a `rust-toolchain.toml` with a `toolchain.channel` value. The reusable workflow installs both `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`; the buildscript selects the triple matching `LAZYCAT_TARGET_ARCH` and provides any required cross-linker.
 
 ### Docker buildscript
 
@@ -629,7 +640,7 @@ Complete copyable files are under [`examples/`](examples/):
 - [`typescript-static`](examples/typescript-static/.github/workflows/lazycat.yml) and [`typescript-exec`](examples/typescript-exec/.github/workflows/lazycat.yml)
 - [official and private stores together](examples/stores/.github/workflows/lazycat.yml)
 
-The TypeScript Exec example expects `@yao-pkg/pkg` in the committed lockfile and emits `node22-linux-x64`. TypeScript static assets are architecture-neutral; Go, Rust, TypeScript Exec, and Docker content are explicitly Linux x86_64 even when the Action runs on ARM64.
+The TypeScript Exec example expects `@yao-pkg/pkg` in the committed lockfile and demonstrates the default `amd64` target with `node22-linux-x64`. TypeScript static assets are architecture-neutral. Go, Rust, TypeScript Exec, and Docker builds must honor `LAZYCAT_TARGET_ARCH`/`LAZYCAT_TARGET_PLATFORM`; projects opting into arm64 need matching toolchains and packaged runtimes.
 
 ## Static and Exec Manifests can have no services
 
@@ -675,7 +686,7 @@ These projects do not need an `images` section. Their version comes from the tag
 | `channel` | Channel of the version-source image |
 | `result-file` | Complete secret-free JSON result path |
 | `runner-arch` | `amd64` or `arm64` |
-| `target-platform` | Always `linux/amd64` in v1 |
+| `target-platform` | `linux/amd64` by default, or `linux/arm64` when `project.target_arch: arm64` |
 
 Example `image-results` item:
 

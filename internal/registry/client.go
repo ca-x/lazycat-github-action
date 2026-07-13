@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"sort"
 	"strings"
@@ -19,9 +20,7 @@ import (
 
 const maxTags = 10000
 
-var ErrPlatformNotFound = errors.New("linux/amd64 image platform not found")
-
-var targetPlatform = v1.Platform{OS: platform.TargetOS, Architecture: platform.TargetArch}
+var ErrPlatformNotFound = errors.New("target image platform not found")
 
 type Image struct {
 	Reference string    `json:"reference"`
@@ -31,28 +30,45 @@ type Image struct {
 }
 
 type Client struct {
-	options []remote.Option
+	options     []remote.Option
+	tagMetadata tagMetadata
 }
 
 type TagFilter struct {
-	Include    *regexp.Regexp
-	Exclude    *regexp.Regexp
-	SemVerRule *versioning.Rule
+	Include     *regexp.Regexp
+	Exclude     *regexp.Regexp
+	SemVerRule  *versioning.Rule
+	UpdatedRule *versioning.Rule
 }
 
 func New(options ...remote.Option) *Client {
-	return &Client{options: append([]remote.Option(nil), options...)}
+	return &Client{
+		options: append([]remote.Option(nil), options...),
+		tagMetadata: dockerHubTagMetadata{
+			client:  &http.Client{Timeout: dockerHubRequestTimeout},
+			baseURL: dockerHubBaseURL,
+		},
+	}
 }
 
 func (client *Client) Candidates(ctx context.Context, source string, filters ...TagFilter) ([]versioning.Candidate, error) {
+	target, _ := platform.NormalizeTarget("")
+	return client.CandidatesForTarget(ctx, source, target, filters...)
+}
+
+func (client *Client) CandidatesForTarget(ctx context.Context, source string, target platform.Target, filters ...TagFilter) ([]versioning.Candidate, error) {
 	if err := checkContext(ctx); err != nil {
+		return nil, err
+	}
+	target, err := target.Normalize()
+	if err != nil {
 		return nil, err
 	}
 	repository, err := name.NewRepository(strings.TrimSpace(source), name.WeakValidation)
 	if err != nil {
 		return nil, fmt.Errorf("parse image repository %q: %w", source, err)
 	}
-	tags, err := remote.List(repository, client.remoteOptions(ctx)...)
+	tags, err := remote.List(repository, client.remoteOptions(ctx, target)...)
 	if err != nil {
 		return nil, fmt.Errorf("list image tags for %q: %w", source, err)
 	}
@@ -91,7 +107,7 @@ func (client *Client) Candidates(ctx context.Context, source string, filters ...
 			if err := checkContext(ctx); err != nil {
 				return nil, err
 			}
-			image, err := client.Inspect(ctx, repository.Tag(selection.Candidate.Tag).Name())
+			image, err := client.InspectTarget(ctx, repository.Tag(selection.Candidate.Tag).Name(), target)
 			if err != nil {
 				if errors.Is(err, ErrPlatformNotFound) {
 					missingPlatform++
@@ -106,13 +122,49 @@ func (client *Client) Candidates(ctx context.Context, source string, filters ...
 		}
 		return nil, nil
 	}
+	if filter.UpdatedRule != nil {
+		metadata := clientTagMetadata(client)
+		updates, err := metadata.Updates(ctx, repository, eligibleTags)
+		if err != nil {
+			return nil, fmt.Errorf("read image tag update times for %q: %w", source, err)
+		}
+		tagCandidates := make([]versioning.Candidate, 0, len(eligibleTags))
+		for _, tag := range eligibleTags {
+			tagCandidates = append(tagCandidates, versioning.Candidate{Tag: tag, Updated: updates[tag]})
+		}
+		ranked, err := versioning.RankUpdated(*filter.UpdatedRule, tagCandidates)
+		if err != nil {
+			return tagCandidates, nil
+		}
+		missingPlatform := 0
+		for _, selection := range ranked {
+			if err := checkContext(ctx); err != nil {
+				return nil, err
+			}
+			image, err := client.InspectTarget(ctx, repository.Tag(selection.Candidate.Tag).Name(), target)
+			if err != nil {
+				if errors.Is(err, ErrPlatformNotFound) {
+					missingPlatform++
+					continue
+				}
+				return nil, fmt.Errorf("inspect image tag %q: %w", selection.Candidate.Tag, err)
+			}
+			return []versioning.Candidate{{
+				Tag: selection.Candidate.Tag, Digest: image.Digest, Created: image.Created, Updated: selection.Candidate.Updated,
+			}}, nil
+		}
+		if missingPlatform > 0 {
+			return nil, fmt.Errorf("%w for repository %q", ErrPlatformNotFound, source)
+		}
+		return nil, nil
+	}
 	candidates := make([]versioning.Candidate, 0, len(eligibleTags))
 	missingPlatform := 0
 	for _, tag := range eligibleTags {
 		if err := checkContext(ctx); err != nil {
 			return nil, err
 		}
-		image, err := client.Inspect(ctx, repository.Tag(tag).Name())
+		image, err := client.InspectTarget(ctx, repository.Tag(tag).Name(), target)
 		if err != nil {
 			if errors.Is(err, ErrPlatformNotFound) {
 				missingPlatform++
@@ -128,15 +180,34 @@ func (client *Client) Candidates(ctx context.Context, source string, filters ...
 	return candidates, nil
 }
 
+func clientTagMetadata(client *Client) tagMetadata {
+	if client != nil && client.tagMetadata != nil {
+		return client.tagMetadata
+	}
+	return dockerHubTagMetadata{
+		client:  &http.Client{Timeout: dockerHubRequestTimeout},
+		baseURL: dockerHubBaseURL,
+	}
+}
+
 func (client *Client) Inspect(ctx context.Context, reference string) (Image, error) {
+	target, _ := platform.NormalizeTarget("")
+	return client.InspectTarget(ctx, reference, target)
+}
+
+func (client *Client) InspectTarget(ctx context.Context, reference string, target platform.Target) (Image, error) {
 	if err := checkContext(ctx); err != nil {
+		return Image{}, err
+	}
+	target, err := target.Normalize()
+	if err != nil {
 		return Image{}, err
 	}
 	parsed, err := name.ParseReference(strings.TrimSpace(reference), name.WeakValidation)
 	if err != nil {
 		return Image{}, fmt.Errorf("parse image reference %q: %w", reference, err)
 	}
-	descriptor, err := remote.Get(parsed, client.remoteOptions(ctx)...)
+	descriptor, err := remote.Get(parsed, client.remoteOptions(ctx, target)...)
 	if err != nil {
 		return Image{}, fmt.Errorf("get image manifest %q: %w", reference, err)
 	}
@@ -151,11 +222,11 @@ func (client *Client) Inspect(ctx context.Context, reference string) (Image, err
 		}
 		matched := false
 		for _, child := range manifest.Manifests {
-			candidate := v1.Platform{OS: platform.TargetOS, Architecture: platform.TargetArch}
+			candidate := v1.Platform{OS: target.OS, Architecture: target.Arch}
 			if child.Platform != nil {
 				candidate = *child.Platform
 			}
-			if candidate.Satisfies(targetPlatform) {
+			if candidate.Satisfies(v1.Platform{OS: target.OS, Architecture: target.Arch}) {
 				matched = true
 				break
 			}
@@ -166,13 +237,13 @@ func (client *Client) Inspect(ctx context.Context, reference string) (Image, err
 	}
 	image, err := descriptor.Image()
 	if err != nil {
-		return Image{}, fmt.Errorf("resolve %s image for %q: %w", platform.TargetPlatform, reference, err)
+		return Image{}, fmt.Errorf("resolve %s image for %q: %w", target.Platform(), reference, err)
 	}
 	config, err := image.ConfigFile()
 	if err != nil {
 		return Image{}, fmt.Errorf("read image config for %q: %w", reference, err)
 	}
-	if config.OS != platform.TargetOS || config.Architecture != platform.TargetArch {
+	if config.OS != target.OS || config.Architecture != target.Arch {
 		return Image{}, fmt.Errorf("%w: image %q resolved to %s/%s", ErrPlatformNotFound, reference, config.OS, config.Architecture)
 	}
 	digest, err := image.Digest()
@@ -183,16 +254,16 @@ func (client *Client) Inspect(ctx context.Context, reference string) (Image, err
 		Reference: parsed.Name(),
 		Digest:    digest.String(),
 		Created:   config.Created.Time.UTC(),
-		Platform:  platform.TargetPlatform,
+		Platform:  target.Platform(),
 	}, nil
 }
 
-func (client *Client) remoteOptions(ctx context.Context) []remote.Option {
+func (client *Client) remoteOptions(ctx context.Context, target platform.Target) []remote.Option {
 	options := []remote.Option{remote.WithAuthFromKeychain(authn.DefaultKeychain)}
 	if client != nil {
 		options = append(options, client.options...)
 	}
-	return append(options, remote.WithContext(ctx), remote.WithPlatform(targetPlatform))
+	return append(options, remote.WithContext(ctx), remote.WithPlatform(v1.Platform{OS: target.OS, Architecture: target.Arch}))
 }
 
 func checkContext(ctx context.Context) error {

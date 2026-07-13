@@ -20,6 +20,7 @@ type Request struct {
 	Path              string
 	ExpectedPackageID string
 	ExpectedVersion   string
+	Target            platform.Target
 }
 
 type Result struct {
@@ -36,6 +37,10 @@ func File(ctx context.Context, request Request) (Result, error) {
 		return Result{}, errors.New("check LPK: context is required")
 	}
 	if err := ctx.Err(); err != nil {
+		return Result{}, fmt.Errorf("check LPK: %w", err)
+	}
+	target, err := request.Target.Normalize()
+	if err != nil {
 		return Result{}, fmt.Errorf("check LPK: %w", err)
 	}
 	root, path, err := resolvePath(request.ProjectRoot, request.Path)
@@ -70,7 +75,7 @@ func File(ctx context.Context, request Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{Path: path, PackageID: packageID, Version: version, SHA256: digest, Size: size, TargetPlatform: platform.TargetPlatform}, nil
+	return Result{Path: path, PackageID: packageID, Version: version, SHA256: digest, Size: size, TargetPlatform: target.Platform()}, nil
 }
 
 func HashFile(ctx context.Context, filename string) (string, int64, error) {

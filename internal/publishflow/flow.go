@@ -14,7 +14,6 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/ca-x/lazycat-github-action/internal/config"
 	"github.com/ca-x/lazycat-github-action/internal/lpkcheck"
-	"github.com/ca-x/lazycat-github-action/internal/platform"
 	"github.com/ca-x/lazycat-github-action/internal/platformauth"
 	"github.com/ca-x/lazycat-github-action/internal/project"
 	"github.com/ca-x/lazycat-github-action/internal/store/official"
@@ -132,16 +131,18 @@ func (flow Flow) Publish(ctx context.Context, request Request) (Result, error) {
 	if verify == nil {
 		return Result{}, errors.New("publish stores: LPK verifier is unavailable")
 	}
+	target := request.Config.Project.Target()
 	artifact, err := verify(ctx, lpkcheck.Request{
 		ProjectRoot: request.Project.Root, Path: request.LPKPath,
 		ExpectedPackageID: request.Project.PackageID, ExpectedVersion: version,
+		Target: target,
 	})
 	if err != nil {
 		return Result{}, fmt.Errorf("verify publish artifact: %w", err)
 	}
 	logger.Info("LPK publication artifact verified", "store", request.Target, "package", artifact.PackageID, "version", artifact.Version, "size_bytes", artifact.Size, "sha256", artifact.SHA256)
-	if artifact.TargetPlatform != platform.TargetPlatform {
-		return Result{}, fmt.Errorf("verify publish artifact: target %q does not match %q", artifact.TargetPlatform, platform.TargetPlatform)
+	if artifact.TargetPlatform != target.Platform() {
+		return Result{}, fmt.Errorf("verify publish artifact: target %q does not match %q", artifact.TargetPlatform, target.Platform())
 	}
 	expectedSHA256 := strings.ToLower(strings.TrimSpace(request.ExpectedSHA256))
 	if expectedSHA256 != "" {

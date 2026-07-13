@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	actionbuild "github.com/ca-x/lazycat-github-action/internal/build"
+	"github.com/ca-x/lazycat-github-action/internal/platform"
 	"github.com/ca-x/lazycat-github-action/internal/project"
 	toolkitbuild "github.com/lib-x/lzc-toolkit-go/build"
 	"github.com/lib-x/lzc-toolkit-go/lpk"
@@ -122,6 +123,21 @@ func TestBuilderBuildsVerifiesAndHashesLPKForLinuxAMD64(t *testing.T) {
 	}
 	if effective.Manifest.Version != "1.2.3" {
 		t.Fatalf("version=%q", effective.Manifest.Version)
+	}
+}
+
+func TestBuilderUsesConfiguredARM64Target(t *testing.T) {
+	info := fixtureProject(t)
+	runner := &recordingRunner{}
+	result, err := (actionbuild.Builder{}).Build(context.Background(), actionbuild.Request{
+		Project: info, Version: "1.2.3", Tag: "v1.2.3", RunBuildScript: true,
+		Target: platform.Target{OS: "linux", Arch: "arm64"}, Runner: runner,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.TargetPlatform != "linux/arm64" || runner.command.Env["LAZYCAT_TARGET_ARCH"] != "arm64" || runner.command.Env["LAZYCAT_TARGET_PLATFORM"] != "linux/arm64" {
+		t.Fatalf("result=%#v env=%#v", result, runner.command.Env)
 	}
 }
 

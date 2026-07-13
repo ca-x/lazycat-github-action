@@ -28,6 +28,7 @@ type Sort string
 const (
 	SortSemVer  Sort = "semver"
 	SortCreated Sort = "created"
+	SortUpdated Sort = "updated"
 )
 
 type Rule struct {
@@ -43,6 +44,7 @@ type Candidate struct {
 	Tag     string
 	Digest  string
 	Created time.Time
+	Updated time.Time
 }
 
 type Selection struct {
@@ -109,9 +111,38 @@ func RankSemVer(rule Rule, candidates []Candidate) ([]Selection, error) {
 	return rankMappedCandidates(rule, filtered)
 }
 
+// RankUpdated maps and orders tag-only candidates using registry tag update
+// metadata. Callers can inspect manifests in rank order until a usable target
+// platform is found.
+func RankUpdated(rule Rule, candidates []Candidate) ([]Selection, error) {
+	if err := validateRule(rule); err != nil {
+		return nil, err
+	}
+	if rule.Sort != SortUpdated || rule.Channel == ChannelNightly {
+		return nil, errors.New("updated ranking requires a stable, beta, or custom updated rule")
+	}
+	filtered := make([]Candidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if rule.TagRegex != nil && !rule.TagRegex.MatchString(candidate.Tag) {
+			continue
+		}
+		if rule.ExcludeRegex != nil && rule.ExcludeRegex.MatchString(candidate.Tag) {
+			continue
+		}
+		filtered = append(filtered, candidate)
+	}
+	if len(filtered) == 0 {
+		return nil, errors.New("no image tag matches the configured channel")
+	}
+	return rankMappedCandidates(rule, filtered)
+}
+
 func rankMappedCandidates(rule Rule, filtered []Candidate) ([]Selection, error) {
 	rankedCandidates := make([]ranked, 0, len(filtered))
 	for _, candidate := range filtered {
+		if rule.Sort == SortUpdated && candidate.Updated.IsZero() {
+			return nil, fmt.Errorf("image tag %q update time is required", candidate.Tag)
+		}
 		mapped, err := mapVersion(rule, candidate.Tag)
 		if err != nil {
 			if rule.Channel == ChannelStable || rule.Channel == ChannelBeta {
@@ -145,6 +176,9 @@ func rankMappedCandidates(rule Rule, filtered []Candidate) ([]Selection, error) 
 			}
 			return rankedCandidates[i].candidate.Created.After(rankedCandidates[j].candidate.Created)
 		}
+		if rule.Sort == SortUpdated && !rankedCandidates[i].candidate.Updated.Equal(rankedCandidates[j].candidate.Updated) {
+			return rankedCandidates[i].candidate.Updated.After(rankedCandidates[j].candidate.Updated)
+		}
 		comparison := rankedCandidates[i].semver.Compare(rankedCandidates[j].semver)
 		if comparison == 0 {
 			return rankedCandidates[i].candidate.Tag > rankedCandidates[j].candidate.Tag
@@ -161,15 +195,15 @@ func rankMappedCandidates(rule Rule, filtered []Candidate) ([]Selection, error) 
 func validateRule(rule Rule) error {
 	switch rule.Channel {
 	case ChannelStable, ChannelBeta:
-		if rule.Sort != SortSemVer {
-			return fmt.Errorf("channel %q requires semver sorting", rule.Channel)
+		if rule.Sort != SortSemVer && rule.Sort != SortUpdated {
+			return fmt.Errorf("channel %q requires semver or updated sorting", rule.Channel)
 		}
 	case ChannelNightly:
 		if rule.Sort != SortCreated || rule.TagRegex == nil {
 			return errors.New("nightly channel requires created sorting and tag regex")
 		}
 	case ChannelCustom:
-		if rule.TagRegex == nil || (rule.Sort != SortSemVer && rule.Sort != SortCreated) {
+		if rule.TagRegex == nil || (rule.Sort != SortSemVer && rule.Sort != SortCreated && rule.Sort != SortUpdated) {
 			return errors.New("custom channel requires tag regex and explicit sorting")
 		}
 	default:

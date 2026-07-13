@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ca-x/lazycat-github-action/internal/platform"
 	internalregistry "github.com/ca-x/lazycat-github-action/internal/registry"
 	"github.com/ca-x/lazycat-github-action/internal/versioning"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -46,6 +47,34 @@ func TestClientSelectsLinuxAMD64FromMultiPlatformIndex(t *testing.T) {
 	}
 	if result.Digest != wantDigest.String() || !result.Created.Equal(amdCreated) || result.Platform != "linux/amd64" {
 		t.Fatalf("result=%#v want digest=%s created=%s", result, wantDigest, amdCreated)
+	}
+}
+
+func TestClientSelectsConfiguredARM64Target(t *testing.T) {
+	server := httptest.NewServer(registryserver.New())
+	defer server.Close()
+	repository := testRepository(t, server.URL, "acme/arm-target")
+
+	amdImage := imageAt(t, "amd64", atDay(1))
+	armImage := imageAt(t, "arm64", atDay(2))
+	index := mutate.AppendManifests(empty.Index,
+		mutate.IndexAddendum{Add: amdImage, Descriptor: v1.Descriptor{Platform: &v1.Platform{OS: "linux", Architecture: "amd64"}}},
+		mutate.IndexAddendum{Add: armImage, Descriptor: v1.Descriptor{Platform: &v1.Platform{OS: "linux", Architecture: "arm64"}}},
+	)
+	writeIndex(t, repository.Tag("v1.2.3"), index, server)
+
+	client := internalregistry.New(remote.WithTransport(server.Client().Transport))
+	target := platform.Target{OS: "linux", Arch: "arm64"}
+	result, err := client.InspectTarget(context.Background(), repository.Tag("v1.2.3").Name(), target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDigest, err := armImage.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Digest != wantDigest.String() || result.Platform != "linux/arm64" || !result.Created.Equal(atDay(2)) {
+		t.Fatalf("result=%#v", result)
 	}
 }
 

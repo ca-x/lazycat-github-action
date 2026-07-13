@@ -30,6 +30,9 @@ update:
 				if got.Project.Root != "." || got.Project.BuildConfig != "lzc-build.yml" || got.Project.PackageFile != "package.yml" {
 					t.Fatalf("defaults=%#v", got.Project)
 				}
+				if got.Project.TargetArch != "amd64" || got.Project.Target().Platform() != "linux/amd64" {
+					t.Fatalf("target default=%#v", got.Project.Target())
+				}
 				if got.Project.Output != "dist/app.lpk" {
 					t.Fatalf("output=%q", got.Project.Output)
 				}
@@ -316,15 +319,30 @@ images:
 `,
 		},
 		{
-			name: "unknown field",
+			name: "unsupported target architecture",
 			yaml: `version: 1
 project:
-  target_arch: arm64
+  target_arch: arm
 update:
   version_source:
     type: git
 `,
-			wantErr: "field target_arch not found",
+			wantErr: "unsupported target architecture",
+		},
+		{
+			name: "arm64 target architecture",
+			yaml: `version: 1
+project:
+  target_arch: ARM64
+update:
+  version_source:
+    type: git
+`,
+			check: func(t *testing.T, got config.Config) {
+				if got.Project.TargetArch != "arm64" || got.Project.Target().Platform() != "linux/arm64" {
+					t.Fatalf("project=%#v target=%#v", got.Project, got.Project.Target())
+				}
+			},
 		},
 		{
 			name: "image version source",
@@ -350,6 +368,47 @@ images:
 					t.Fatalf("image defaults=%#v", image)
 				}
 			},
+		},
+		{
+			name: "stable image may prefer Docker Hub update time",
+			yaml: `version: 1
+project: {}
+update:
+  version_source:
+    type: image
+    image: web
+images:
+  - id: web
+    target: service
+    service: web
+    source: docker.io/acme/web
+    channel: stable
+    sort: updated
+`,
+			check: func(t *testing.T, got config.Config) {
+				if got.Images[0].Sort != "updated" {
+					t.Fatalf("sort=%q", got.Images[0].Sort)
+				}
+			},
+		},
+		{
+			name: "nightly image cannot use update time",
+			yaml: `version: 1
+project: {}
+update:
+  version_source:
+    type: image
+    image: web
+images:
+  - id: web
+    target: service
+    service: web
+    source: docker.io/acme/web
+    channel: nightly
+    sort: updated
+    tag_regex: '^nightly$'
+`,
+			wantErr: "nightly channel requires created sort",
 		},
 		{
 			name: "path escapes root",

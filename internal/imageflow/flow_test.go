@@ -17,6 +17,7 @@ import (
 	"github.com/ca-x/lazycat-github-action/internal/delivery"
 	"github.com/ca-x/lazycat-github-action/internal/imageflow"
 	"github.com/ca-x/lazycat-github-action/internal/manifestedit"
+	"github.com/ca-x/lazycat-github-action/internal/platform"
 	"github.com/ca-x/lazycat-github-action/internal/project"
 	"github.com/ca-x/lazycat-github-action/internal/registry"
 	"github.com/ca-x/lazycat-github-action/internal/versioning"
@@ -83,6 +84,33 @@ func TestFlowExplicitNonDriverImageKeepsPackageVersion(t *testing.T) {
 	}
 	if result.Version != "1.0.0" || result.Channel != "" || len(result.Images) != 1 || result.Images[0].ID != "db" {
 		t.Fatalf("result=%#v", result)
+	}
+}
+
+func TestFlowUsesConfiguredARM64Target(t *testing.T) {
+	registryClient := &fakeRegistry{bySource: map[string][]versioning.Candidate{
+		"ghcr.io/acme/web": {{Tag: "v2.0.0", Digest: digest("w"), Created: created(2)}},
+	}}
+	deliverer := &fakeDeliverer{}
+	cfg := imageConfig()
+	cfg.Project.TargetArch = "arm64"
+	cfg.Images = cfg.Images[1:]
+	flow := imageflow.Flow{
+		Registry: registryClient, Deliverer: deliverer,
+		ReadManifest: func(string, []manifestedit.Target) ([]manifestedit.Current, error) {
+			return []manifestedit.Current{{ID: "web", RuntimeRef: "ghcr.io/acme/web:v1.0.0", UpstreamRef: "ghcr.io/acme/web:v1.0.0"}}, nil
+		},
+		ApplyManifest: func(string, []manifestedit.Update) ([]manifestedit.Change, error) {
+			return []manifestedit.Change{{ID: "web", Changed: true}}, nil
+		},
+	}
+	result, err := flow.Check(context.Background(), imageflow.Request{Config: cfg, Project: project.Info{ManifestFile: "manifest.yml", Version: "1.0.0"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantTarget := platform.Target{OS: "linux", Arch: "arm64"}
+	if registryClient.target != wantTarget || deliverer.last.Target != wantTarget || result.Images[0].Platform != "linux/arm64" {
+		t.Fatalf("registry=%#v delivery=%#v result=%#v", registryClient.target, deliverer.last.Target, result)
 	}
 }
 
@@ -165,6 +193,59 @@ func TestFlowAllowsEqualVersionImageRefresh(t *testing.T) {
 	}
 	if result.Version != "19.0.0" || !result.Changed || deliverer.calls != 1 {
 		t.Fatalf("deliveries=%d result=%#v", deliverer.calls, result)
+	}
+}
+
+func TestFlowUsesUpdatedRegistryRankingAndRefreshesLazyCatImage(t *testing.T) {
+	updated := time.Date(2026, 7, 12, 8, 30, 0, 0, time.UTC)
+	registryClient := &fakeRegistry{bySource: map[string][]versioning.Candidate{
+		"docker.io/zerodeng/sublink-pro": {{Tag: "v1.2.15", Digest: digest("f"), Updated: updated}},
+	}}
+	deliverer := &fakeDeliverer{}
+	cfg := imageConfig()
+	cfg.Images = cfg.Images[1:]
+	cfg.Images[0].Source = "docker.io/zerodeng/sublink-pro"
+	cfg.Images[0].Sort = "updated"
+	cfg.Images[0].Delivery.Mode = "lazycat"
+	flow := imageflow.Flow{
+		Registry:  registryClient,
+		Deliverer: deliverer,
+		ReadManifest: func(string, []manifestedit.Target) ([]manifestedit.Current, error) {
+			return []manifestedit.Current{{ID: "web", RuntimeRef: "registry.lazycat.cloud/web:v1.2.15", UpstreamRef: "docker.io/zerodeng/sublink-pro:v1.2.15"}}, nil
+		},
+		ApplyManifest: func(string, []manifestedit.Update) ([]manifestedit.Change, error) {
+			return nil, nil
+		},
+	}
+	result, err := flow.Check(context.Background(), imageflow.Request{Config: cfg, Project: project.Info{ManifestFile: "manifest.yml", Version: "1.2.15"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if registryClient.lastFilter.UpdatedRule == nil || registryClient.lastFilter.SemVerRule != nil {
+		t.Fatalf("filter=%#v", registryClient.lastFilter)
+	}
+	if deliverer.calls != 1 || result.Version != "1.2.15" {
+		t.Fatalf("deliveries=%d result=%#v", deliverer.calls, result)
+	}
+}
+
+func TestFlowUpdatedSelectionStillHonorsDowngradeGuard(t *testing.T) {
+	deliverer := &fakeDeliverer{}
+	cfg := imageConfig()
+	cfg.Images = cfg.Images[1:]
+	cfg.Images[0].Sort = "updated"
+	flow := imageflow.Flow{
+		Registry: &fakeRegistry{bySource: map[string][]versioning.Candidate{
+			"ghcr.io/acme/web": {{Tag: "v1.2.15", Digest: digest("e"), Updated: created(12)}},
+		}},
+		Deliverer: deliverer,
+		ReadManifest: func(string, []manifestedit.Target) ([]manifestedit.Current, error) {
+			return []manifestedit.Current{{ID: "web", RuntimeRef: "ghcr.io/acme/web:v1.2.26", UpstreamRef: "ghcr.io/acme/web:v1.2.26"}}, nil
+		},
+	}
+	_, err := flow.Check(context.Background(), imageflow.Request{Config: cfg, Project: project.Info{ManifestFile: "manifest.yml", Version: "1.2.26"}})
+	if !errors.Is(err, imageflow.ErrVersionDowngrade) || deliverer.calls != 0 {
+		t.Fatalf("err=%v deliveries=%d", err, deliverer.calls)
 	}
 }
 
@@ -378,22 +459,26 @@ func TestFlowFixtureUpdatesExplicitWebServiceOnly(t *testing.T) {
 }
 
 type fakeRegistry struct {
-	bySource map[string][]versioning.Candidate
-	calls    int
+	bySource   map[string][]versioning.Candidate
+	calls      int
+	lastFilter registry.TagFilter
+	target     platform.Target
 }
 
 type errorRegistry struct{ err error }
 
-func (registryClient errorRegistry) Candidates(context.Context, string, ...registry.TagFilter) ([]versioning.Candidate, error) {
+func (registryClient errorRegistry) CandidatesForTarget(context.Context, string, platform.Target, ...registry.TagFilter) ([]versioning.Candidate, error) {
 	return nil, registryClient.err
 }
 
-func (registryClient *fakeRegistry) Candidates(_ context.Context, source string, filters ...registry.TagFilter) ([]versioning.Candidate, error) {
+func (registryClient *fakeRegistry) CandidatesForTarget(_ context.Context, source string, target platform.Target, filters ...registry.TagFilter) ([]versioning.Candidate, error) {
 	registryClient.calls++
+	registryClient.target = target
 	result := append([]versioning.Candidate(nil), registryClient.bySource[source]...)
 	if len(filters) == 0 {
 		return result, nil
 	}
+	registryClient.lastFilter = filters[0]
 	filtered := result[:0]
 	for _, candidate := range result {
 		if filters[0].Include != nil && !filters[0].Include.MatchString(candidate.Tag) {
@@ -428,7 +513,7 @@ func (concurrentProgressDeliverer) Deliver(_ context.Context, request delivery.R
 	request.OnProgress(appstore.CopyProgress{Finished: true})
 	runtimeRef := "registry.lazycat.cloud/" + request.Image.ID + ":" + request.Tag
 	copyResult := appstore.CopyImageResult{
-		SourceImage: request.SourceRef, Platform: "amd64", LazyCatImage: runtimeRef,
+		SourceImage: request.SourceRef, Platform: request.Target.Arch, LazyCatImage: runtimeRef,
 		Progress: appstore.CopyProgress{Finished: true},
 	}
 	return delivery.Result{Mode: "lazycat", RuntimeRef: runtimeRef, Copied: true, CopyResult: &copyResult}, nil
@@ -443,7 +528,7 @@ func (deliverer *fakeDeliverer) Deliver(_ context.Context, request delivery.Requ
 	}
 	result := delivery.Result{Mode: request.Image.Delivery.Mode, RuntimeRef: runtime}
 	if deliverer.copyResult && !request.DryRun {
-		copyResult := appstore.CopyImageResult{SourceImage: request.SourceRef, Platform: "amd64", LazyCatImage: runtime, Progress: appstore.CopyProgress{Finished: true}}
+		copyResult := appstore.CopyImageResult{SourceImage: request.SourceRef, Platform: request.Target.Arch, LazyCatImage: runtime, Progress: appstore.CopyProgress{Finished: true}}
 		result.Copied = true
 		result.CopyResult = &copyResult
 	}

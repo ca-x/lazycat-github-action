@@ -104,7 +104,7 @@ outputs:
     description: Host architecture used to run the Action binary.
     value: ${{ steps.run.outputs['runner-arch'] }}
   target-platform:
-    description: LazyCat target platform; fixed to linux/amd64 in v1.
+    description: LazyCat target platform; linux/amd64 by default or linux/arm64 when project.target_arch is arm64.
     value: ${{ steps.run.outputs['target-platform'] }}
 
 runs:
@@ -114,7 +114,7 @@ runs:
       id: run
       shell: bash
       env:
-        LAZYCAT_ACTION_VERSION: v1.1.16
+        LAZYCAT_ACTION_VERSION: v1.1.17
         INPUT_OPERATION: ${{ inputs.operation }}
         INPUT_CONFIG: ${{ inputs.config }}
         INPUT_IMAGE_ID: ${{ inputs['image-id'] }}

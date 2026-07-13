@@ -141,6 +141,30 @@ func TestFlowPublishesPrivateStoreWithEnvironmentAndMetadataDefaults(t *testing.
 	}
 }
 
+func TestFlowVerifiesConfiguredARM64Artifact(t *testing.T) {
+	var verifyRequest lpkcheck.Request
+	flow := publishflow.Flow{Verify: func(_ context.Context, request lpkcheck.Request) (lpkcheck.Result, error) {
+		verifyRequest = request
+		artifact := verifiedArtifact()
+		artifact.TargetPlatform = "linux/arm64"
+		return artifact, nil
+	}}
+	cfg := publishConfig()
+	cfg.Project.TargetArch = "arm64"
+	cfg.Stores.Private.Enabled = true
+	result, err := flow.Publish(context.Background(), publishflow.Request{
+		Target: publishflow.TargetPrivate, Config: cfg, Project: projectInfo(), LPKPath: "/repo/dist/app.lpk",
+		Version: "1.2.3", DownloadURL: "https://github.com/acme/example/releases/download/v1.2.3/app.lpk",
+		ExpectedSHA256: artifactSHA, DryRun: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verifyRequest.Target.Platform() != "linux/arm64" || result.Artifact.TargetPlatform != "linux/arm64" {
+		t.Fatalf("verify=%#v result=%#v", verifyRequest, result)
+	}
+}
+
 func TestFlowSkipsOfficialPublishWhenOnlineVersionMatches(t *testing.T) {
 	lookupCalls := 0
 	flow := publishflow.Flow{

@@ -35,3 +35,32 @@ func TestNormalizeHostKeepsHostSeparateFromTarget(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeTargetDefaultsToAMD64AndAcceptsARM64(t *testing.T) {
+	tests := []struct {
+		name     string
+		arch     string
+		want     platform.Target
+		wantText string
+		wantErr  bool
+	}{
+		{name: "default", want: platform.Target{OS: "linux", Arch: "amd64"}, wantText: "linux/amd64"},
+		{name: "amd64", arch: " AMD64 ", want: platform.Target{OS: "linux", Arch: "amd64"}, wantText: "linux/amd64"},
+		{name: "arm64", arch: "ARM64", want: platform.Target{OS: "linux", Arch: "arm64"}, wantText: "linux/arm64"},
+		{name: "unsupported", arch: "arm", wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			target, err := platform.NormalizeTarget(test.arch)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("err=%v wantErr=%t", err, test.wantErr)
+			}
+			if target != test.want {
+				t.Fatalf("target=%#v want %#v", target, test.want)
+			}
+			if !test.wantErr && target.Platform() != test.wantText {
+				t.Fatalf("platform=%q want %q", target.Platform(), test.wantText)
+			}
+		})
+	}
+}

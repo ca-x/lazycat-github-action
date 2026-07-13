@@ -35,7 +35,7 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 			t.Fatalf("SKILL.md frontmatter missing trigger %q", required)
 		}
 	}
-	for _, required := range []string{"name: lazycat-github-action", "automatically inspect", "Primary outcome: working GitHub workflows", "Do not stop after printing sample YAML", "Do not infer", "linux/amd64", "APPSTORE_TOKEN", "token-file", "skip_if_version_exists", "PRIVATE_STORE_GROUP_CODES", "onlineVersion", "Repository overrides Organization", "delivery source of truth", "{version}.{build}.0", "allow_downgrade: false", "VERSION_DOWNGRADE_BLOCKED", "rank filtered tag names", "first usable", "lazycat-contrib/cat-led", "lazycat-contrib/lazycat-neko-webshell", "failed to spawn protoc", "edition = \"2023\""} {
+	for _, required := range []string{"name: lazycat-github-action", "automatically inspect", "Primary outcome: working GitHub workflows", "Do not stop after printing sample YAML", "Do not infer", "linux/amd64", "project.target_arch", "sort: updated", "Docker Hub", "last_updated", "APPSTORE_TOKEN", "token-file", "skip_if_version_exists", "PRIVATE_STORE_GROUP_CODES", "onlineVersion", "Repository overrides Organization", "delivery source of truth", "{version}.{build}.0", "allow_downgrade: false", "VERSION_DOWNGRADE_BLOCKED", "rank filtered tag names", "first usable", "lazycat-contrib/cat-led", "lazycat-contrib/lazycat-neko-webshell", "failed to spawn protoc", "edition = \"2023\""} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("SKILL.md missing %q", required)
 		}
@@ -94,6 +94,9 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	}
 	if _, found := seen["official-retry-and-failure-isolation"]; !found {
 		t.Fatal("evals are missing official retry and failure-isolation coverage")
+	}
+	if _, found := seen["updated-tag-and-target-architecture"]; !found {
+		t.Fatal("evals are missing updated-tag and target-architecture coverage")
 	}
 	for _, name := range []string{"references/configuration.md", "references/workflows.md", "assets/lazycat-action.yml"} {
 		data, err := os.ReadFile(filepath.Join(root, name))
@@ -183,6 +186,8 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 			"ca-x/lazycat-github-action/.github/workflows/lazycat.yml@v1",
 			"Composite Action",
 			"Reusable Workflow",
+			"sort: updated",
+			"target_arch",
 		} {
 			if !strings.Contains(text, required) {
 				t.Fatalf("%s missing supported interface %q", name, required)
@@ -202,7 +207,7 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, required := range []string{"(?P<build>", "{version}.{build}.0", "Unknown placeholders", "non-SemVer"} {
+	for _, required := range []string{"(?P<build>", "{version}.{build}.0", "Unknown placeholders", "non-SemVer", "sort: updated", "last_updated", "target_arch", "arm64"} {
 		if !strings.Contains(string(configuration), required) {
 			t.Fatalf("configuration reference missing named version template contract %q", required)
 		}
@@ -237,8 +242,8 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	if err := json.Unmarshal(prompts, &promptCases); err != nil {
 		t.Fatal(err)
 	}
-	if len(promptCases) != 14 {
-		t.Fatalf("test-prompts.json cases=%d, want 14", len(promptCases))
+	if len(promptCases) != 15 {
+		t.Fatalf("test-prompts.json cases=%d, want 15", len(promptCases))
 	}
 	promptIDs := make(map[string]string, len(promptCases))
 	for _, prompt := range promptCases {
@@ -261,6 +266,7 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 		"rust-protobuf-toolchain":              {"Edition 2023", "GitHub Release", "SHA256", "protoc --version", "共享 buildscript", "不得把 Proto 改成 proto3", "不得修改 Rust 源码", "build.rs"},
 		"store-online-version-downgrade-guard": {"allow_downgrade: false", "SemVer", "7.8.138", "7.7.406", "online-version-newer", "version-already-online", "non-SemVer", "独立"},
 		"official-retry-and-failure-isolation": {"enabled: false", "max_attempts", "initial_delay", "max_delay", "429", "5xx", "审核网络错误或 5xx 不重放", "400", "双商店", "warning", "官方唯一目标", "message"},
+		"updated-tag-and-target-architecture":  {"sort: updated", "last_updated", "v1.2.15", "v1.2.26", "target_arch", "amd64", "arm64", "allow_downgrade: false"},
 	} {
 		expected, found := promptIDs[id]
 		if !found {

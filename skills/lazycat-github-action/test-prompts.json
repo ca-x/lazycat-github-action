@@ -68,5 +68,10 @@
     "id": "official-retry-and-failure-isolation",
     "prompt": "官方商店偶发 500，也有重复审核返回 400；项目同时发布官方和喵喵商店。请配置安全重试并说明失败如何影响整个 GitHub Action，以及能否显示官方错误消息。",
     "expected": "配置 retry，默认 enabled: false；显式说明 max_attempts、initial_delay、max_delay。上传/检查阶段可重试无状态网络错误、429 和 5xx；审核创建只重试 429，审核网络错误或 5xx 不重放，400 也不重试。双商店时保留私有商店结果并把官方失败降级为 warning；官方唯一目标仍失败。只显示经过限制和脱敏的 JSON message，不打印原始响应正文或凭据。container_name 等兼容性 warning 不阻断。"
+  },
+  {
+    "id": "updated-tag-and-target-architecture",
+    "prompt": "Docker Hub 的 v1.2.15 比 v1.2.26 更晚更新，希望更新时间优先；同时目标懒猫设备未来可能是 ARM64，但其他项目仍保持原默认值。",
+    "expected": "为该镜像显式设置 sort: updated，按 Docker Hub last_updated 选择 v1.2.15 而不是 SemVer 更高但更早更新的 v1.2.26；不要复用 sort: created。project.target_arch 为可选项目级参数，默认 amd64，可显式设置 arm64，并贯穿 OCI 检查、复制、构建和 LPK 输出。更新时间排序不关闭 allow_downgrade: false；若会降低当前 package 版本，仍需单独明确授权。"
   }
 ]

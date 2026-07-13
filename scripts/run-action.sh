@@ -20,7 +20,7 @@ case "${runner_arch}" in
     ;;
 esac
 
-echo "Action host: linux/${arch}; LazyCat target: linux/amd64"
+echo "Action host: linux/${arch}; LazyCat target: loaded from Action configuration"
 
 if [[ -n "${LAZYCAT_ACTION_BINARY:-}" ]]; then
   if [[ ! -f "${LAZYCAT_ACTION_BINARY}" || ! -x "${LAZYCAT_ACTION_BINARY}" || -L "${LAZYCAT_ACTION_BINARY}" ]]; then

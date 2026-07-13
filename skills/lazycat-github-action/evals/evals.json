@@ -84,6 +84,12 @@
       "prompt": "Configure safe official-store retries and explain how a dual-store workflow handles an official HTTP 400 after the private store succeeds.",
       "mustInclude": ["retry", "enabled: false", "429", "5xx", "review is not replayed", "400", "warning", "message", "container_name"],
       "mustNotInclude": ["retry every 4xx", "print the response body", "fail the private publication"]
+    },
+    {
+      "id": "updated-tag-and-target-architecture",
+      "prompt": "Docker Hub updated v1.2.15 after v1.2.26. Prefer the most recently updated tag and target a future arm64 LazyCat device without changing defaults for other repositories.",
+      "mustInclude": ["sort: updated", "last_updated", "project.target_arch", "arm64", "allow_downgrade: false"],
+      "mustNotInclude": ["sort: created", "arm64 by default", "disable downgrade protection"]
     }
   ]
 }

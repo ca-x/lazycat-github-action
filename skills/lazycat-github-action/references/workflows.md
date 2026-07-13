@@ -134,15 +134,15 @@ A scheduled workflow with `update.strategy: publish`, `versioned-release-asset: 
 
 | Source | Config toolchain | Workflow input | Required target |
 |---|---|---|---|
-| Go Exec | `go` | `toolchains: go` | `GOOS=linux GOARCH=amd64` |
-| Rust Exec | `rust` | `toolchains: rust` | `x86_64-unknown-linux-gnu` |
+| Go Exec | `go` | `toolchains: go` | `GOOS=linux GOARCH=$LAZYCAT_TARGET_ARCH` |
+| Rust Exec | `rust` | `toolchains: rust` | target triple matching `LAZYCAT_TARGET_ARCH` |
 | TypeScript static | `node` | `toolchains: node` | architecture-neutral files |
-| TypeScript Exec | `node` | `toolchains: node` | Linux x64 packaged runtime |
-| Docker buildscript | `docker` | `toolchains: docker` | Buildx `linux/amd64` |
+| TypeScript Exec | `node` | `toolchains: node` | packaged runtime matching `LAZYCAT_TARGET_ARCH` |
+| Docker buildscript | `docker` | `toolchains: docker` | Buildx `$LAZYCAT_TARGET_PLATFORM` |
 
 For a real Go source reference, inspect `lazycat-contrib/cat-led`. For a Rust + Node musl reference, inspect `lazycat-contrib/lazycat-neko-webshell`. The latter pins `protoc` from the official GitHub Release with SHA256 verification because Ubuntu's packaged compiler may not support Protobuf Edition 2023. Native dependencies required by Tag publication must be available from the shared buildscript path, not only from a pull-request setup step.
 
-An ARM64 Runner changes only the Action host binary. Preserve the required x64 targets above. Use `enable-qemu: true` for cross-architecture Dockerfile execution.
+Runner architecture changes only the Action host binary. The build output must match `project.target_arch`, which defaults to amd64 and may be arm64. Use `enable-qemu: true` when Dockerfile execution crosses architectures.
 
 ## Direct composite operations
 
