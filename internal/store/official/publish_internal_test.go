@@ -41,6 +41,13 @@ func TestRetryablePublishErrorRejectsStatus600EvenWhenFlagged(t *testing.T) {
 	}
 }
 
+func TestRetryablePublishErrorRejectsNon4294xxEvenWhenFlagged(t *testing.T) {
+	err := &lpkgo.Error{Code: lpkgo.CodeRemoteUnavailable, StatusCode: http.StatusTeapot, Retryable: true, Cause: errors.New("known client error")}
+	if retryablePublishError(err) {
+		t.Fatal("status 418 was retryable")
+	}
+}
+
 func TestParseRetryAfterHTTPDate(t *testing.T) {
 	now := time.Date(2026, time.July, 13, 8, 0, 0, 0, time.UTC)
 	value := now.Add(45 * time.Second).Format(http.TimeFormat)

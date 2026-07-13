@@ -302,6 +302,9 @@ func retryablePublishError(err error) bool {
 		lpkgo.CodeDeadlineExceeded:
 		return false
 	}
+	if toolkitError.StatusCode >= http.StatusBadRequest && toolkitError.StatusCode < http.StatusInternalServerError && toolkitError.StatusCode != http.StatusTooManyRequests {
+		return false
+	}
 	if toolkitError.StatusCode >= 600 {
 		return false
 	}
