@@ -109,7 +109,7 @@ func (publisher Publisher) Publish(ctx context.Context, request Request) (Result
 	if filename == "" {
 		filename = filepath.Base(request.LPKPath)
 	}
-	if err := officialPrecheck(ctx, request.LPKPath); err != nil {
+	if err := PrecheckFile(ctx, request.LPKPath); err != nil {
 		return Result{}, err
 	}
 	token, err := request.Provider.Token(ctx)

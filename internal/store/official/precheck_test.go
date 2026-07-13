@@ -1,6 +1,7 @@
 package official_test
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"bytes"
 	"context"
@@ -40,6 +41,14 @@ func TestPublisherOfficialPrecheckRejectsOfficialWarningBeforeProviderOrNetwork(
 	}
 	if errText := err.Error(); errText == "" || containsAny(errText, path, "docker.io", "nginx") {
 		t.Fatalf("error exposed manifest details: %q", errText)
+	}
+}
+
+func TestPrecheckFileRejectsNilContext(t *testing.T) {
+	err := official.PrecheckFile(nil, filepath.Join(t.TempDir(), "application.lpk"))
+	var toolkitError *lpkgo.Error
+	if !errors.As(err, &toolkitError) || toolkitError.Code != lpkgo.CodeInvalidArgument || toolkitError.Op != "store.official.precheck" {
+		t.Fatalf("err=%v", err)
 	}
 }
 
@@ -139,7 +148,7 @@ func TestPublisherOfficialPrecheckRejectsArchiveLimitBeforeProviderOrNetwork(t *
 		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
 	})
 	var toolkitError *lpkgo.Error
-	if !errors.As(err, &toolkitError) || toolkitError.Code != lpkgo.CodeInvalidArgument || toolkitError.Op != "store.official.precheck" {
+	if !errors.As(err, &toolkitError) || toolkitError.Code != lpkgo.CodeInvalidManifest || toolkitError.Op != "store.official.precheck" {
 		t.Fatalf("err=%v", err)
 	}
 	if provider.calls != 0 || requests != 0 {
@@ -200,9 +209,72 @@ func TestPublisherOfficialPrecheckSupportsResourceOnlyPackageWithoutPayloadExpan
 	}
 }
 
+func TestPublisherOfficialPrecheckRejectsLinkedDevshellMarkerBeforeProviderOrNetwork(t *testing.T) {
+	packageData := []byte("package: cloud.lazycat.apps.publish-demo\nversion: 1.0.0\nname: Publish Demo\nlocales:\n  en:\n    name: Publish Demo\n")
+	manifestData := []byte("application:\n  subdomain: publish-demo\n  image: registry.lazycat.cloud/demo/app:1.0.0\n")
+	iconData := []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}
+	tests := []struct {
+		name  string
+		build func(*testing.T) (string, string)
+	}{
+		{
+			name: "ZIP symlink",
+			build: func(t *testing.T) (string, string) {
+				return publishZIPLPK(t, map[string]zipTestEntry{
+					"package.yml":    {contents: packageData},
+					"manifest.yml":   {contents: manifestData},
+					"icon.png":       {contents: iconData},
+					"content/marker": {contents: []byte("marker")},
+					"devshell":       {contents: []byte("content/marker"), mode: os.ModeSymlink | 0o777},
+				})
+			},
+		},
+		{
+			name: "TAR hardlink",
+			build: func(t *testing.T) (string, string) {
+				return publishTarLPK(t, []tarTestEntry{
+					{name: "package.yml", contents: packageData},
+					{name: "manifest.yml", contents: manifestData},
+					{name: "icon.png", contents: iconData},
+					{name: "content/marker", contents: []byte("marker")},
+					{name: "devshell", typeflag: tar.TypeLink, linkname: "content/marker"},
+				})
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path, digest := test.build(t)
+			provider := &countingTokenProvider{token: "ci-token"}
+			requests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
+			defer server.Close()
+
+			_, err := (official.Publisher{BaseURL: server.URL, HTTPClient: server.Client()}).Publish(context.Background(), official.Request{
+				Provider: provider, LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+				Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+			})
+			var toolkitError *lpkgo.Error
+			if !errors.As(err, &toolkitError) || toolkitError.Code != lpkgo.CodeInvalidManifest {
+				t.Fatalf("err=%v", err)
+			}
+			if provider.calls != 0 || requests != 0 {
+				t.Fatalf("provider calls=%d network requests=%d", provider.calls, requests)
+			}
+		})
+	}
+}
+
 type zipTestEntry struct {
 	contents []byte
 	mode     os.FileMode
+}
+
+type tarTestEntry struct {
+	name     string
+	contents []byte
+	typeflag byte
+	linkname string
 }
 
 func publishZIPLPK(t *testing.T, entries map[string]zipTestEntry) (string, string) {
@@ -224,6 +296,44 @@ func publishZIPLPK(t *testing.T, entries map[string]zipTestEntry) (string, strin
 		}
 		if _, err := output.Write(entry.contents); err != nil {
 			t.Fatal(err)
+		}
+	}
+	if err := errors.Join(writer.Close(), file.Close()); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(data)
+	return path, fmt.Sprintf("%x", digest[:])
+}
+
+func publishTarLPK(t *testing.T, entries []tarTestEntry) (string, string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "application.lpk")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := tar.NewWriter(file)
+	for _, entry := range entries {
+		typeflag := entry.typeflag
+		if typeflag == 0 {
+			typeflag = tar.TypeReg
+		}
+		size := int64(len(entry.contents))
+		if typeflag != tar.TypeReg {
+			size = 0
+		}
+		header := &tar.Header{Name: entry.name, Mode: 0o644, Size: size, Typeflag: typeflag, Linkname: entry.linkname}
+		if err := writer.WriteHeader(header); err != nil {
+			t.Fatal(err)
+		}
+		if size > 0 {
+			if _, err := writer.Write(entry.contents); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	if err := errors.Join(writer.Close(), file.Close()); err != nil {

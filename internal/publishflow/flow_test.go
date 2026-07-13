@@ -32,6 +32,7 @@ func TestPublishOfficialPropagatesVerifiedArtifactAndRetryPolicy(t *testing.T) {
 		Verify: func(context.Context, lpkcheck.Request) (lpkcheck.Result, error) {
 			return verifiedArtifact(), nil
 		},
+		PrecheckOfficial: passOfficialPrecheck,
 		ResolveAuth: func(context.Context, platformauth.Request) (platformauth.Result, error) {
 			return platformauth.Result{Provider: auth.StaticToken("secret"), Source: platformauth.SourceLazyCatToken}, nil
 		},
@@ -62,6 +63,49 @@ func TestPublishOfficialPropagatesVerifiedArtifactAndRetryPolicy(t *testing.T) {
 		if !strings.Contains(logs.String(), expected) {
 			t.Fatalf("logs missing %q: %s", expected, logs.String())
 		}
+	}
+}
+
+func TestPublishOfficialPrecheckRunsBeforeLookupAuthenticationAndPublish(t *testing.T) {
+	var calls []string
+	precheckErr := &lpkgo.Error{Code: lpkgo.CodeInvalidManifest, Op: "store.official.precheck"}
+	flow := publishflow.Flow{
+		Verify: func(context.Context, lpkcheck.Request) (lpkcheck.Result, error) {
+			calls = append(calls, "verify")
+			return verifiedArtifact(), nil
+		},
+		PrecheckOfficial: func(_ context.Context, path string) error {
+			calls = append(calls, "precheck")
+			if path != verifiedArtifact().Path {
+				t.Fatalf("precheck path=%q", path)
+			}
+			return precheckErr
+		},
+		LookupVersion: func(context.Context, storelookup.Request) (storelookup.Result, error) {
+			t.Fatal("official precheck failure must prevent version lookup")
+			return storelookup.Result{}, nil
+		},
+		ResolveAuth: func(context.Context, platformauth.Request) (platformauth.Result, error) {
+			t.Fatal("official precheck failure must prevent authentication")
+			return platformauth.Result{}, nil
+		},
+		PublishOfficial: func(context.Context, official.Request) (official.Result, error) {
+			t.Fatal("official precheck failure must prevent publishing")
+			return official.Result{}, nil
+		},
+	}
+	cfg := publishConfig()
+	cfg.Stores.Official.Enabled = true
+	cfg.Stores.Official.SkipIfVersionExists = true
+	_, err := flow.Publish(context.Background(), publishflow.Request{
+		Target: publishflow.TargetOfficial, Config: cfg, Project: projectInfo(), LPKPath: "/repo/dist/app.lpk",
+		Version: "1.2.3", Changelog: "Release notes",
+	})
+	if !errors.Is(err, precheckErr) {
+		t.Fatalf("err=%v", err)
+	}
+	if strings.Join(calls, ",") != "verify,precheck" {
+		t.Fatalf("calls=%v", calls)
 	}
 }
 
@@ -100,7 +144,8 @@ func TestFlowPublishesPrivateStoreWithEnvironmentAndMetadataDefaults(t *testing.
 func TestFlowSkipsOfficialPublishWhenOnlineVersionMatches(t *testing.T) {
 	lookupCalls := 0
 	flow := publishflow.Flow{
-		Verify: func(context.Context, lpkcheck.Request) (lpkcheck.Result, error) { return verifiedArtifact(), nil },
+		Verify:           func(context.Context, lpkcheck.Request) (lpkcheck.Result, error) { return verifiedArtifact(), nil },
+		PrecheckOfficial: passOfficialPrecheck,
 		LookupVersion: func(_ context.Context, request storelookup.Request) (storelookup.Result, error) {
 			lookupCalls++
 			if request.Store != storelookup.StoreOfficial || request.PackageID != "cloud.lazycat.example" {
@@ -142,6 +187,7 @@ func TestFlowSkipsOfficialPublishWhenOnlineVersionIsNewer(t *testing.T) {
 			artifact.Version = "7.7.406"
 			return artifact, nil
 		},
+		PrecheckOfficial: passOfficialPrecheck,
 		LookupVersion: func(_ context.Context, request storelookup.Request) (storelookup.Result, error) {
 			if request.Store != storelookup.StoreOfficial || request.PackageID != "cloud.lazycat.example" {
 				t.Fatalf("lookup request=%#v", request)
@@ -276,6 +322,7 @@ func TestFlowStoreLookupOutcomes(t *testing.T) {
 					artifact.Version = candidateVersion
 					return artifact, nil
 				},
+				PrecheckOfficial: passOfficialPrecheck,
 				LookupVersion: func(context.Context, storelookup.Request) (storelookup.Result, error) {
 					return storelookup.Result{OnlineVersion: test.lookupVersion}, test.lookupErr
 				},
@@ -382,6 +429,8 @@ func (function privatePublisherFunc) Publish(ctx context.Context, request privat
 func verifiedArtifact() lpkcheck.Result {
 	return lpkcheck.Result{Path: "/repo/dist/app.lpk", PackageID: "cloud.lazycat.example", Version: "1.2.3", SHA256: artifactSHA, Size: 123, TargetPlatform: "linux/amd64"}
 }
+
+func passOfficialPrecheck(context.Context, string) error { return nil }
 
 func projectInfo() project.Info {
 	return project.Info{Root: "/repo", PackageID: "cloud.lazycat.example", Version: "1.2.3", Name: "Example", Description: "Example summary", Output: "/repo/dist/app.lpk"}

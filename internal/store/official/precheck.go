@@ -46,7 +46,16 @@ type officialPrecheckImagesLock struct {
 	} `yaml:"images"`
 }
 
-func officialPrecheck(ctx context.Context, lpkPath string) error {
+// PrecheckFile validates the official-store lint profile for a verified LPK
+// without acquiring credentials, making network requests, or expanding payloads.
+func PrecheckFile(ctx context.Context, lpkPath string) error {
+	if ctx == nil {
+		return &lpkgo.Error{
+			Code:  lpkgo.CodeInvalidArgument,
+			Op:    "store.official.precheck",
+			Cause: errors.New("official manifest precheck requires a context"),
+		}
+	}
 	reader, err := lpk.OpenFile(ctx, lpkPath, lpk.WithLimits(officialPrecheckArchiveLimits))
 	if err != nil {
 		return officialPrecheckError(ctx, err)
@@ -95,7 +104,7 @@ func materializeOfficialLintRoot(ctx context.Context, reader *lpk.Reader, entrie
 	if err := materializeIcon(ctx, reader, entryByName, root); err != nil {
 		return err
 	}
-	if entry, ok := entryByName["devshell"]; ok && entry.Type == toolkitarchive.EntryRegular {
+	if entry, ok := entryByName["devshell"]; ok && entry.Type != toolkitarchive.EntryDirectory {
 		if err := writeLintFile(root, "devshell", nil); err != nil {
 			return err
 		}
@@ -254,11 +263,30 @@ func officialPrecheckError(ctx context.Context, err error) error {
 	code := lpkgo.CodeCommandFailed
 	var toolkitError *lpkgo.Error
 	if errors.As(err, &toolkitError) && toolkitError.Code != "" {
-		code = toolkitError.Code
+		code = officialPrecheckErrorCode(toolkitError)
 	}
 	return &lpkgo.Error{
 		Code:  code,
 		Op:    "store.official.precheck",
 		Cause: errors.New("official manifest precheck failed"),
 	}
+}
+
+func officialPrecheckErrorCode(err *lpkgo.Error) lpkgo.Code {
+	if err == nil {
+		return lpkgo.CodeCommandFailed
+	}
+	switch err.Code {
+	case lpkgo.CodeInvalidArgument,
+		lpkgo.CodeInvalidManifest,
+		lpkgo.CodeUnsupportedFormat,
+		lpkgo.CodeConflict,
+		lpkgo.CodeIntegrityMismatch:
+		return lpkgo.CodeInvalidManifest
+	case lpkgo.CodeNotFound:
+		if err.Op != "archive.open_file" {
+			return lpkgo.CodeInvalidManifest
+		}
+	}
+	return err.Code
 }

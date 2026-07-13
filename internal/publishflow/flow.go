@@ -65,24 +65,26 @@ type PrivatePublisher interface {
 }
 
 type Flow struct {
-	Verify          func(context.Context, lpkcheck.Request) (lpkcheck.Result, error)
-	ResolveAuth     func(context.Context, platformauth.Request) (platformauth.Result, error)
-	PublishOfficial func(context.Context, official.Request) (official.Result, error)
-	LookupVersion   storelookup.Lookup
-	LookupEnv       func(string) (string, bool)
-	NewPrivate      func(private.Options) (PrivatePublisher, error)
-	Logger          *slog.Logger
+	Verify           func(context.Context, lpkcheck.Request) (lpkcheck.Result, error)
+	PrecheckOfficial func(context.Context, string) error
+	ResolveAuth      func(context.Context, platformauth.Request) (platformauth.Result, error)
+	PublishOfficial  func(context.Context, official.Request) (official.Result, error)
+	LookupVersion    storelookup.Lookup
+	LookupEnv        func(string) (string, bool)
+	NewPrivate       func(private.Options) (PrivatePublisher, error)
+	Logger           *slog.Logger
 }
 
 func Default() Flow {
 	resolver := platformauth.Resolver{}
 	officialPublisher := official.Publisher{}
 	return Flow{
-		Verify:          lpkcheck.File,
-		ResolveAuth:     resolver.Resolve,
-		PublishOfficial: officialPublisher.Publish,
-		LookupVersion:   storelookup.Default,
-		LookupEnv:       os.LookupEnv,
+		Verify:           lpkcheck.File,
+		PrecheckOfficial: official.PrecheckFile,
+		ResolveAuth:      resolver.Resolve,
+		PublishOfficial:  officialPublisher.Publish,
+		LookupVersion:    storelookup.Default,
+		LookupEnv:        os.LookupEnv,
 		NewPrivate: func(options private.Options) (PrivatePublisher, error) {
 			return private.New(options)
 		},
@@ -148,6 +150,14 @@ func (flow Flow) Publish(ctx context.Context, request Request) (Result, error) {
 		}
 		if artifact.SHA256 != expectedSHA256 {
 			return Result{}, &lpkgo.Error{Code: lpkgo.CodeIntegrityMismatch, Op: "publishflow.verify", Cause: errors.New("local LPK SHA256 does not match the confirmed Release Asset SHA256")}
+		}
+	}
+	if request.Target == TargetOfficial {
+		if flow.PrecheckOfficial == nil {
+			return Result{}, errors.New("official precheck dependency is unavailable")
+		}
+		if err := flow.PrecheckOfficial(ctx, artifact.Path); err != nil {
+			return Result{}, fmt.Errorf("precheck official publish artifact: %w", err)
 		}
 	}
 	result := Result{Artifact: artifact}
