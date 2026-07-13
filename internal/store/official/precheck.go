@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,6 +56,9 @@ func PrecheckFile(ctx context.Context, lpkPath string) error {
 			Op:    "store.official.precheck",
 			Cause: errors.New("official manifest precheck requires a context"),
 		}
+	}
+	if err := preflightOfficialArchive(ctx, lpkPath); err != nil {
+		return officialPrecheckError(ctx, err)
 	}
 	reader, err := lpk.OpenFile(ctx, lpkPath, lpk.WithLimits(officialPrecheckArchiveLimits))
 	if err != nil {
@@ -219,10 +223,25 @@ func materializeResourceExports(entries []toolkitarchive.Entry, root string) err
 }
 
 func readOfficialPrecheckEntry(ctx context.Context, reader *lpk.Reader, entry toolkitarchive.Entry, limit int64) ([]byte, error) {
-	if entry.Size > limit {
+	if limit < 0 || entry.Size > limit || limit == math.MaxInt64 {
 		return nil, officialPrecheckMetadataError(lpkgo.CodeInvalidArgument)
 	}
-	return readOfficialPrecheckEntryPrefix(ctx, reader, entry, limit)
+	input, err := reader.OpenEntry(ctx, entry.Name)
+	if err != nil {
+		return nil, err
+	}
+	data, readErr := io.ReadAll(io.LimitReader(input, limit+1))
+	closeErr := input.Close()
+	if readErr != nil || closeErr != nil {
+		return nil, officialPrecheckIntegrityError(errors.Join(readErr, closeErr))
+	}
+	if int64(len(data)) > limit {
+		return nil, officialPrecheckMetadataError(lpkgo.CodeInvalidManifest)
+	}
+	if int64(len(data)) != entry.Size {
+		return nil, officialPrecheckIntegrityError(errors.New("official manifest metadata size does not match archive directory"))
+	}
+	return data, nil
 }
 
 func readOfficialPrecheckEntryPrefix(ctx context.Context, reader *lpk.Reader, entry toolkitarchive.Entry, limit int64) ([]byte, error) {
@@ -233,7 +252,7 @@ func readOfficialPrecheckEntryPrefix(ctx context.Context, reader *lpk.Reader, en
 	data, readErr := io.ReadAll(io.LimitReader(input, limit))
 	closeErr := input.Close()
 	if readErr != nil || closeErr != nil {
-		return nil, errors.Join(readErr, closeErr)
+		return nil, officialPrecheckIntegrityError(errors.Join(readErr, closeErr))
 	}
 	return data, nil
 }
@@ -251,6 +270,13 @@ func writeLintFile(root, name string, data []byte) error {
 
 func officialPrecheckMetadataError(code lpkgo.Code) error {
 	return &lpkgo.Error{Code: code, Op: "store.official.precheck", Cause: errors.New("official manifest metadata is invalid")}
+}
+
+func officialPrecheckIntegrityError(cause error) error {
+	if cause == nil {
+		cause = errors.New("official manifest metadata integrity check failed")
+	}
+	return &lpkgo.Error{Code: lpkgo.CodeIntegrityMismatch, Op: "store.official.precheck", Cause: cause}
 }
 
 func officialPrecheckError(ctx context.Context, err error) error {

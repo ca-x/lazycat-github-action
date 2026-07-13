@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net/http"
@@ -156,6 +157,84 @@ func TestPublisherOfficialPrecheckRejectsArchiveLimitBeforeProviderOrNetwork(t *
 	}
 	if strings.Contains(err.Error(), longName) {
 		t.Fatalf("error exposed archive path: %q", err)
+	}
+}
+
+func TestPublisherOfficialPrecheckRejectsMalformedZIPDirectoryBeforeProviderOrNetwork(t *testing.T) {
+	path, _ := publishZIPLPK(t, map[string]zipTestEntry{
+		"package.yml":  {contents: []byte("package: cloud.lazycat.apps.publish-demo\nversion: 1.0.0\n")},
+		"manifest.yml": {contents: []byte("application:\n  subdomain: publish-demo\n")},
+		"icon.png":     {contents: []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}},
+	})
+	digest := patchZIPEOCDDisk(t, path, 1)
+	provider := &countingTokenProvider{token: "ci-token"}
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
+	defer server.Close()
+
+	_, err := (official.Publisher{BaseURL: server.URL, HTTPClient: server.Client()}).Publish(context.Background(), official.Request{
+		Provider: provider, LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+	})
+	var toolkitError *lpkgo.Error
+	if !errors.As(err, &toolkitError) || toolkitError.Code != lpkgo.CodeInvalidManifest || toolkitError.Op != "store.official.precheck" {
+		t.Fatalf("err=%v", err)
+	}
+	if provider.calls != 0 || requests != 0 {
+		t.Fatalf("provider calls=%d network requests=%d", provider.calls, requests)
+	}
+}
+
+func TestPublisherOfficialPrecheckRejectsMetadataBeyondDeclaredLimitBeforeProviderOrNetwork(t *testing.T) {
+	const documentLimit = 8 << 20
+	manifest := append([]byte("application:\n  subdomain: publish-demo\n#"), bytes.Repeat([]byte("a"), documentLimit)...)
+	path, _ := publishZIPLPK(t, map[string]zipTestEntry{
+		"package.yml":  {contents: []byte("package: cloud.lazycat.apps.publish-demo\nversion: 1.0.0\nname: Publish Demo\nlocales:\n  en:\n    name: Publish Demo\n")},
+		"manifest.yml": {contents: manifest},
+		"icon.png":     {contents: []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}},
+	})
+	digest := patchZIPCentralUncompressedSize(t, path, "manifest.yml", documentLimit)
+	provider := &countingTokenProvider{token: "ci-token"}
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
+	defer server.Close()
+
+	_, err := (official.Publisher{BaseURL: server.URL, HTTPClient: server.Client()}).Publish(context.Background(), official.Request{
+		Provider: provider, LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+	})
+	var toolkitError *lpkgo.Error
+	if !errors.As(err, &toolkitError) || toolkitError.Code != lpkgo.CodeInvalidManifest || toolkitError.Op != "store.official.precheck" {
+		t.Fatalf("err=%v", err)
+	}
+	if provider.calls != 0 || requests != 0 {
+		t.Fatalf("provider calls=%d network requests=%d", provider.calls, requests)
+	}
+}
+
+func TestPublisherOfficialPrecheckRejectsIconLargerThanDeclaredSizeBeforeProviderOrNetwork(t *testing.T) {
+	icon := append([]byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}, bytes.Repeat([]byte{0}, 56)...)
+	path, _ := publishZIPLPK(t, map[string]zipTestEntry{
+		"package.yml":  {contents: []byte("package: cloud.lazycat.apps.publish-demo\nversion: 1.0.0\nname: Publish Demo\nlocales:\n  en:\n    name: Publish Demo\n")},
+		"manifest.yml": {contents: []byte("application:\n  subdomain: publish-demo\n  image: registry.lazycat.cloud/demo/app:1.0.0\n")},
+		"icon.png":     {contents: icon},
+	})
+	digest := patchZIPCentralUncompressedSize(t, path, "icon.png", 8)
+	provider := &countingTokenProvider{token: "ci-token"}
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
+	defer server.Close()
+
+	_, err := (official.Publisher{BaseURL: server.URL, HTTPClient: server.Client()}).Publish(context.Background(), official.Request{
+		Provider: provider, LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+	})
+	var toolkitError *lpkgo.Error
+	if !errors.As(err, &toolkitError) || toolkitError.Code != lpkgo.CodeInvalidManifest || toolkitError.Op != "store.official.precheck" {
+		t.Fatalf("err=%v", err)
+	}
+	if provider.calls != 0 || requests != 0 {
+		t.Fatalf("provider calls=%d network requests=%d", provider.calls, requests)
 	}
 }
 
@@ -345,6 +424,60 @@ func publishTarLPK(t *testing.T, entries []tarTestEntry) (string, string) {
 	}
 	digest := sha256.Sum256(data)
 	return path, fmt.Sprintf("%x", digest[:])
+}
+
+func patchZIPEOCDDisk(t *testing.T, path string, disk uint16) string {
+	t.Helper()
+	data := readTestLPK(t, path)
+	signature := []byte{'P', 'K', 0x05, 0x06}
+	offset := bytes.LastIndex(data, signature)
+	if offset < 0 || offset+22 > len(data) {
+		t.Fatal("ZIP EOCD not found")
+	}
+	binary.LittleEndian.PutUint16(data[offset+4:offset+6], disk)
+	return writeTestLPK(t, path, data)
+}
+
+func patchZIPCentralUncompressedSize(t *testing.T, path, entryName string, size uint32) string {
+	t.Helper()
+	data := readTestLPK(t, path)
+	for offset := 0; offset+46 <= len(data); offset++ {
+		if binary.LittleEndian.Uint32(data[offset:offset+4]) != 0x02014b50 {
+			continue
+		}
+		nameBytes := int(binary.LittleEndian.Uint16(data[offset+28 : offset+30]))
+		extraBytes := int(binary.LittleEndian.Uint16(data[offset+30 : offset+32]))
+		commentBytes := int(binary.LittleEndian.Uint16(data[offset+32 : offset+34]))
+		end := offset + 46 + nameBytes + extraBytes + commentBytes
+		if end > len(data) {
+			t.Fatal("invalid ZIP central directory")
+		}
+		if string(data[offset+46:offset+46+nameBytes]) == entryName {
+			binary.LittleEndian.PutUint32(data[offset+24:offset+28], size)
+			return writeTestLPK(t, path, data)
+		}
+		offset = end - 1
+	}
+	t.Fatalf("ZIP central directory entry %q not found", entryName)
+	return ""
+}
+
+func readTestLPK(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func writeTestLPK(t *testing.T, path string, data []byte) string {
+	t.Helper()
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(data)
+	return fmt.Sprintf("%x", digest[:])
 }
 
 func successfulPublishServer(t *testing.T, digest string) (*httptest.Server, *int) {
