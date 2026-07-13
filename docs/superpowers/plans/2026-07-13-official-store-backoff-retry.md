@@ -284,7 +284,7 @@ Expected: private-only and dual-store shared builds complete with warnings, priv
 
 - [ ] **Step 1: Write failing reusable-workflow contract tests**
 
-Require the official publishing step to run after a private-store failure unless the job was cancelled, and to use conditional `continue-on-error` only when the private store is configured. Require the merge step to run after tolerated failures and to record an official failure object without exposing response bodies or credentials. Add response-message tests for top-level `message`/`msg`, string or nested `error`, whitespace normalization, length bounds, non-JSON suppression, and credential-marker suppression.
+Require the official publishing step to run after a private-store failure unless the job was cancelled, and to use unconditional `continue-on-error: true` so GitHub records its runtime `outcome` without failing the job immediately. Require the merge step to run after tolerated failures and to record an official failure object without exposing response bodies or credentials. Add a separate post-merge enforcement step that fails only when the official target failed and no private store is configured. Add response-message tests for top-level `message`/`msg`, string or nested `error`, whitespace normalization, length bounds, non-JSON suppression, and credential-marker suppression.
 
 - [ ] **Step 2: Run the metadata test and confirm failure**
 
@@ -294,7 +294,7 @@ Expected: FAIL because the official step currently inherits the job's success gu
 
 - [ ] **Step 3: Make store publication outcomes independent**
 
-Add an explicit `!cancelled()` status guard to the official publish condition so a private-store failure does not suppress the official attempt. Set `continue-on-error` on the official step only when the private store is enabled. Keep official-only configurations strict: an official failure remains a failed job when there is no private target.
+Add an explicit `!cancelled()` status guard to the official publish condition so a private-store failure does not suppress the official attempt. Set static `continue-on-error: true` on that step; a live `v1.1.15` consumer run proved that a dynamic expression based on a prior step output left the step conclusion as failure. Keep official-only configurations strict with a separate post-merge step conditioned on `steps.publish-official.outcome == 'failure'` and `private-store-enabled != 'true'`.
 
 Run the merge step with `always() && !cancelled()`. When the official step outcome is `failure`, add this safe result shape before merging successful store outputs:
 
@@ -338,7 +338,7 @@ Expected: dual-store official failures remain visible but do not fail the job, p
 - Modify: `action.yml`
 
 **Interfaces:**
-- Produces: precise English/Chinese configuration guidance, starter configuration, Skill behavior, metadata/eval coverage, and Action bootstrap version `v1.1.15`.
+- Produces: precise English/Chinese configuration guidance, starter configuration, Skill behavior, metadata/eval coverage, and Action bootstrap version `v1.1.16`.
 
 - [ ] **Step 1: Add failing Skill/documentation contract tests**
 
@@ -373,7 +373,7 @@ State that attempts include the initial request; enabled range is 2-10; duration
 
 - [ ] **Step 4: Bump the Action bootstrap patch version**
 
-Change `LAZYCAT_ACTION_VERSION` in `action.yml` from `v1.1.14` to `v1.1.15`. Do not change Action inputs, reusable-workflow inputs, or output schemas.
+Change `LAZYCAT_ACTION_VERSION` in `action.yml` to `v1.1.16`. `v1.1.15` shipped the initial isolation logic, and the follow-up patch fixes its live GitHub `continue-on-error` behavior. Do not change Action inputs, reusable-workflow inputs, or output schemas.
 
 - [ ] **Step 5: Run complete verification**
 
@@ -402,4 +402,4 @@ git commit -m "docs: explain official store retry policy"
 
 - [ ] **Step 7: Final branch review and publication**
 
-Review the complete range from `a444224` to `HEAD`, fix all Critical/Important findings, rerun the complete verification suite, merge the feature branch into `main`, push `main`, create and push tag `v1.1.15`, wait for the release workflow, update floating tag `v1` to the verified release commit, and verify the published release plus a consumer workflow with retry explicitly enabled.
+Review the complete range from `a444224` to `HEAD`, fix all Critical/Important findings, rerun the complete verification suite, merge the feature branch into `main`, push `main`, create and push tag `v1.1.16`, wait for the release workflow, update floating tag `v1` to the verified release commit, and verify the published release plus a real dual-store consumer workflow.

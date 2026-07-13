@@ -133,11 +133,14 @@ func TestReusableWorkflowContractAndActionRefs(t *testing.T) {
 	officialStep := workflow[officialIndex:mergeIndex]
 	for _, contract := range []string{
 		"if: ${{ !cancelled() && steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.official-store-enabled == 'true'",
-		"continue-on-error: ${{ steps.lazycat.outputs.private-store-enabled == 'true' }}",
+		"continue-on-error: true",
 	} {
 		if !strings.Contains(officialStep, contract) {
 			t.Fatalf("official publish step is missing isolation contract %q", contract)
 		}
+	}
+	if strings.Contains(officialStep, "continue-on-error: ${{") {
+		t.Fatal("official publish step must not depend on a runtime expression for continue-on-error")
 	}
 	mergeRest := workflow[mergeIndex:]
 	mergeEnd := strings.Index(mergeRest, "\n      - name: ")
@@ -160,6 +163,25 @@ func TestReusableWorkflowContractAndActionRefs(t *testing.T) {
 	mergeFailureIndex := strings.Index(mergeStep, "if (process.env.OFFICIAL_OUTCOME === 'failure')")
 	if mergeRawIndex < 0 || mergeFailureIndex < mergeRawIndex {
 		t.Fatal("official failure marker must override any partial Action output")
+	}
+	enforcementIndex := strings.Index(workflow, "- name: Enforce official-only publication failure")
+	if enforcementIndex < mergeIndex {
+		t.Fatal("official-only failure enforcement must run after store results are merged")
+	}
+	enforcementRest := workflow[enforcementIndex:]
+	enforcementEnd := strings.Index(enforcementRest, "\n      - name: ")
+	if enforcementEnd < 0 {
+		enforcementEnd = len(enforcementRest)
+	}
+	enforcementStep := enforcementRest[:enforcementEnd]
+	for _, contract := range []string{
+		"steps.publish-official.outcome == 'failure'",
+		"steps.lazycat.outputs.private-store-enabled != 'true'",
+		"exit 1",
+	} {
+		if !strings.Contains(enforcementStep, contract) {
+			t.Fatalf("official-only enforcement step is missing %q", contract)
+		}
 	}
 	for _, condition := range []string{
 		"steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.official-store-enabled == 'true'",
@@ -335,8 +357,8 @@ func TestActionMetadataExposesStableContract(t *testing.T) {
 	if document.Runs.Using != "composite" {
 		t.Fatalf("runs.using=%q", document.Runs.Using)
 	}
-	if !strings.Contains(string(data), "LAZYCAT_ACTION_VERSION: v1.1.15") {
-		t.Fatal("action.yml must bootstrap release v1.1.15")
+	if !strings.Contains(string(data), "LAZYCAT_ACTION_VERSION: v1.1.16") {
+		t.Fatal("action.yml must bootstrap release v1.1.16")
 	}
 }
 

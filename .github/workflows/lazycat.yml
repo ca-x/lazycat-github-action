@@ -655,7 +655,7 @@ jobs:
       - name: Publish to LazyCat official platform
         id: publish-official
         if: ${{ !cancelled() && steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.official-store-enabled == 'true' && steps.store-artifact.outputs.download-url != '' && !inputs.dry-run }}
-        continue-on-error: ${{ steps.lazycat.outputs.private-store-enabled == 'true' }}
+        continue-on-error: true
         uses: ca-x/lazycat-github-action@v1
         env:
           LAZYCAT_TOKEN: ${{ secrets.LAZYCAT_TOKEN }}
@@ -700,6 +700,12 @@ jobs:
                 .write();
             }
             core.setOutput('store-results', JSON.stringify(result));
+
+      - name: Enforce official-only publication failure
+        if: ${{ !cancelled() && steps.publish-official.outcome == 'failure' && steps.lazycat.outputs.private-store-enabled != 'true' }}
+        run: |
+          echo "Official store publication failed and no private store target is configured." >&2
+          exit 1
 
       - name: Sync tag/release version to default branch
         if: steps.store-artifact.outputs.download-url != '' && steps.lazycat.outputs.changed == 'true' && (github.ref_type == 'tag' || github.event_name == 'release')
