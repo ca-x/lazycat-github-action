@@ -14,7 +14,14 @@ Current scope:
 
 ## Choose the interface
 
-Use the reusable workflow for normal CI/CD. It installs requested toolchains and handles pull requests, Artifacts, tags, Releases, and Release Assets:
+Both public entry points are supported and follow the floating `v1` release tag:
+
+| Entry point | Reference | Use it when |
+|---|---|---|
+| Composite Action | `ca-x/lazycat-github-action@v1` | Your job already owns checkout, permissions, toolchain setup, and GitHub mutations. |
+| Reusable Workflow | `ca-x/lazycat-github-action/.github/workflows/lazycat.yml@v1` | You want the complete LazyCat CI/CD path, including toolchains, pull requests, Artifacts, tags, Releases, assets, and store publication. |
+
+Use the reusable workflow for normal CI/CD:
 
 ```yaml
 jobs:
@@ -25,7 +32,7 @@ jobs:
     secrets: inherit
 ```
 
-Use the composite Action directly when another workflow already handles GitHub mutations:
+Use the composite Action directly inside an existing job:
 
 ```yaml
 - uses: ca-x/lazycat-github-action@v1
@@ -166,6 +173,11 @@ stores:
     enabled: true
     create_if_missing: false
     changelog_locales: [zh, en]
+    retry:
+      enabled: false
+      max_attempts: 3
+      initial_delay: 2s
+      max_delay: 30s
   private:
     enabled: false
 ```
@@ -417,6 +429,11 @@ stores:
     skip_if_version_exists: true
     create_if_missing: true
     changelog_locales: [zh, en]
+    retry:
+      enabled: false
+      max_attempts: 3
+      initial_delay: 2s
+      max_delay: 30s
     application:
       language: zh
       name: Example App
@@ -424,11 +441,15 @@ stores:
       source_author: acme
 ```
 
-`create_if_missing: false` publishes only to an application that already exists. When creation is enabled, `application.name` defaults to `package.yml.name`; `language` defaults to `zh`. Official mode enforces the lzc-cli-compatible preferences, including official locales, an icon no larger than 200 KB, SemVer metadata, and LazyCat Registry runtime images. Any configured `direct` or `mirror` image makes configuration fail before publishing.
+`create_if_missing: false` publishes only to an application that already exists. When creation is enabled, `application.name` defaults to `package.yml.name`; `language` defaults to `zh`. Official mode enforces the lzc-cli-compatible preferences, including official locales, an icon no larger than 200 KB, SemVer metadata, and LazyCat Registry runtime images. General compatibility warnings such as an unknown `container_name` remain visible but do not block the build. Only warnings classified as official-store warnings block official publication, and they never block a private-only workflow. Any configured `direct` or `mirror` image makes configuration fail before publishing.
 
 `skip_if_version_exists: true` performs an anonymous exact-package lookup after the LPK is verified. An equal version succeeds with `published: false`, `skipped: true`, and `skipReason: version-already-online`. When both values are valid SemVer, an online version newer than the candidate is also skipped with `skipReason: online-version-newer` while `update.allow_downgrade: false`; explicit `allow_downgrade: true` permits the rollback submission. Non-SemVer values use exact equality only and are never ordered lexically. Skips happen without resolving a developer token or submitting the LPK. Not-found continues publishing; any other lookup failure stops the operation. The option defaults to `false`, and `dry-run` remains network-free.
 
-Official publishing always uploads the verified local LPK file as multipart data; it never sends the GitHub Release URL to the official platform. A recovered Release Asset is first downloaded beneath the project root and revalidated. Failures identify the safe stage as `store.official.upload` or `store.official.review` without printing the upstream response body.
+Official publishing always uploads the verified local LPK file as multipart data; it never sends the GitHub Release URL to the official platform. A recovered Release Asset is first downloaded beneath the project root and revalidated.
+
+Official retry is opt-in and defaults to `enabled: false`. `max_attempts` includes the initial attempt and accepts 2-10 when enabled. `initial_delay` and `max_delay` use Go duration syntax. A safe retry before review repeats the application existence check and reopens the LPK, while credentials are resolved once. Upload/check failures may retry status-less connection/TLS/reset errors, HTTP 429, and HTTP 5xx. Review creation retries only HTTP 429; a review network failure or 5xx is returned without replay because the server may already have accepted the non-idempotent request. Cancellation, deadline expiry, authentication/permission failures, NotFound, integrity failures, HTTP 400, and other 4xx responses are not retried.
+
+Failures identify the safe stage as `store.official.upload` or `store.official.review`. The Action never prints a raw upstream response body. For valid JSON failures it may display a normalized, bounded `message`, `msg`, string `error`, or nested `error.message`/`error.msg`; suspected credential content is suppressed. In a dual-store reusable workflow, an official failure becomes a warning and `store-results.official.failureReason: official-publish-failed` after the private result is preserved. An official-only workflow remains strict and fails. If the official store is disabled, official lint blocking, precheck, credentials, and publication do not run.
 
 The reusable workflow accepts `LAZYCAT_TOKEN`, `LZC_CLI_TOKEN`, or `LAZYCAT_USERNAME` plus `LAZYCAT_PASSWORD` as secrets. Token authentication is recommended.
 

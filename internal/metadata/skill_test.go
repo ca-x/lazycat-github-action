@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 )
 
 func TestRepositorySkillContractAndEvals(t *testing.T) {
@@ -36,6 +38,17 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	for _, required := range []string{"name: lazycat-github-action", "automatically inspect", "Primary outcome: working GitHub workflows", "Do not stop after printing sample YAML", "Do not infer", "linux/amd64", "APPSTORE_TOKEN", "token-file", "skip_if_version_exists", "PRIVATE_STORE_GROUP_CODES", "onlineVersion", "Repository overrides Organization", "delivery source of truth", "{version}.{build}.0", "allow_downgrade: false", "VERSION_DOWNGRADE_BLOCKED", "rank filtered tag names", "first usable", "lazycat-contrib/cat-led", "lazycat-contrib/lazycat-neko-webshell", "failed to spawn protoc", "edition = \"2023\""} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("SKILL.md missing %q", required)
+		}
+	}
+	for _, required := range []string{
+		"Both repository entry points are supported",
+		"ca-x/lazycat-github-action@v1",
+		"ca-x/lazycat-github-action/.github/workflows/lazycat.yml@v1",
+		"caller owns checkout, permissions, toolchains, Release handling",
+		"complete automation path",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("SKILL.md missing interface contract %q", required)
 		}
 	}
 	var evals struct {
@@ -78,6 +91,9 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	}
 	if _, found := seen["rust-protobuf-toolchain"]; !found {
 		t.Fatal("evals are missing Rust Protobuf toolchain coverage")
+	}
+	if _, found := seen["official-retry-and-failure-isolation"]; !found {
+		t.Fatal("evals are missing official retry and failure-isolation coverage")
 	}
 	for _, name := range []string{"references/configuration.md", "references/workflows.md", "assets/lazycat-action.yml"} {
 		data, err := os.ReadFile(filepath.Join(root, name))
@@ -156,6 +172,23 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 			}
 		}
 	}
+	for _, name := range []string{"README.md", "README.zh-CN.md"} {
+		data, err := os.ReadFile(filepath.Join("..", "..", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(data)
+		for _, required := range []string{
+			"ca-x/lazycat-github-action@v1",
+			"ca-x/lazycat-github-action/.github/workflows/lazycat.yml@v1",
+			"Composite Action",
+			"Reusable Workflow",
+		} {
+			if !strings.Contains(text, required) {
+				t.Fatalf("%s missing supported interface %q", name, required)
+			}
+		}
+	}
 	for _, name := range []string{"references/configuration.md", "references/workflows.md"} {
 		data, err := os.ReadFile(filepath.Join(root, name))
 		if err != nil {
@@ -204,8 +237,8 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	if err := json.Unmarshal(prompts, &promptCases); err != nil {
 		t.Fatal(err)
 	}
-	if len(promptCases) != 13 {
-		t.Fatalf("test-prompts.json cases=%d, want 13", len(promptCases))
+	if len(promptCases) != 14 {
+		t.Fatalf("test-prompts.json cases=%d, want 14", len(promptCases))
 	}
 	promptIDs := make(map[string]string, len(promptCases))
 	for _, prompt := range promptCases {
@@ -227,6 +260,7 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 		"image-version-downgrade-guard":        {"allow_downgrade: false", "SemVer", "VERSION_DOWNGRADE_BLOCKED", "同版本", "明确确认"},
 		"rust-protobuf-toolchain":              {"Edition 2023", "GitHub Release", "SHA256", "protoc --version", "共享 buildscript", "不得把 Proto 改成 proto3", "不得修改 Rust 源码", "build.rs"},
 		"store-online-version-downgrade-guard": {"allow_downgrade: false", "SemVer", "7.8.138", "7.7.406", "online-version-newer", "version-already-online", "non-SemVer", "独立"},
+		"official-retry-and-failure-isolation": {"enabled: false", "max_attempts", "initial_delay", "max_delay", "429", "5xx", "审核网络错误或 5xx 不重放", "400", "双商店", "warning", "官方唯一目标", "message"},
 	} {
 		expected, found := promptIDs[id]
 		if !found {
@@ -279,6 +313,35 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 				t.Fatalf("%s is missing Release/store reconciliation contract %q", name, required)
 			}
 		}
+	}
+	for _, name := range []string{"README.md", "README.zh-CN.md", filepath.Join("skills", "lazycat-github-action", "SKILL.md"), filepath.Join("skills", "lazycat-github-action", "references", "configuration.md"), filepath.Join("skills", "lazycat-github-action", "references", "workflows.md")} {
+		data, err := os.ReadFile(filepath.Join("..", "..", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		contract := string(data)
+		for _, required := range []string{"retry", "enabled: false", "max_attempts", "initial_delay", "max_delay", "429", "5xx", "400", "container_name", "message"} {
+			if !strings.Contains(contract, required) {
+				t.Fatalf("%s is missing official retry/isolation contract %q", name, required)
+			}
+		}
+	}
+	starterConfig, err := os.ReadFile(filepath.Join(root, "assets", "lazycat-action.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var starterDocument struct {
+		Stores struct {
+			Official struct {
+				Retry map[string]any `yaml:"retry"`
+			} `yaml:"official"`
+		} `yaml:"stores"`
+	}
+	if err := yaml.Unmarshal(starterConfig, &starterDocument); err != nil {
+		t.Fatal(err)
+	}
+	if len(starterDocument.Stores.Official.Retry) != 1 || starterDocument.Stores.Official.Retry["enabled"] != false {
+		t.Fatalf("starter official retry=%#v, want only enabled: false", starterDocument.Stores.Official.Retry)
 	}
 }
 

@@ -26,6 +26,8 @@ stores:
   official:
     enabled: false
     skip_if_version_exists: false
+    retry:
+      enabled: false
   private:
     enabled: false
     skip_if_version_exists: false

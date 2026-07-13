@@ -25,6 +25,8 @@ stores:
   official:
     enabled: false
     skip_if_version_exists: false
+    retry:
+      enabled: false
   private:
     enabled: false
     skip_if_version_exists: false
@@ -124,6 +126,11 @@ stores:
     skip_if_version_exists: true
     create_if_missing: true
     changelog_locales: [zh, en]
+    retry:
+      enabled: false
+      max_attempts: 3
+      initial_delay: 2s
+      max_delay: 30s
     application:
       language: zh
       name: Example App
@@ -134,6 +141,10 @@ stores:
 Defaults: locales `zh,en`; language `zh`; application name from `package.yml.name`. Application metadata is valid only with `create_if_missing: true`.
 
 `skip_if_version_exists` defaults to false. When true, the Action anonymously queries the exact package after LPK verification. Equality skips with `skipReason: version-already-online`. When both values are valid SemVer, a newer online version skips with `skipReason: online-version-newer` while `allow_downgrade: false`; explicit `allow_downgrade: true` permits publishing. A non-SemVer value uses exact equality only. All skips happen before resolving official credentials. Not-found continues; other lookup errors fail closed. `dry-run` does not query.
+
+`retry.enabled` defaults to false. When enabled, `max_attempts` is 2-10 and includes the first attempt; `initial_delay` and `max_delay` use Go duration syntax. Upload/check failures may retry status-less connection/TLS/reset failures, HTTP 429, and HTTP 5xx. Review creation retries only HTTP 429; a review network failure or 5xx is returned without replay because the request may already have succeeded. Do not retry cancellation, deadline expiry, authentication/permission errors, NotFound, integrity failures, HTTP 400, or another 4xx. A retry before review rechecks application existence and reopens the LPK, while credentials resolve once. Valid `Retry-After` values can extend the jittered delay up to `max_delay`.
+
+Official lint does not turn every compatibility warning into a failure. Unknown `container_name` remains a visible warning; only official warnings block the official precheck, and an equal/newer online version skips before that precheck. Official HTTP failures keep the safe stage and status. The raw body is hidden, while a recognized JSON `message`, `msg`, string `error`, or nested `error.message`/`error.msg` may be displayed after one-line normalization, a 512-byte limit, and credential suppression.
 
 Authentication precedence:
 

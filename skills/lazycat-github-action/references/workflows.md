@@ -108,6 +108,24 @@ Publishing callers must assign required Secrets explicitly. `secrets: inherit` a
 
 Organization and repository Secrets use the same names in the reusable workflow. The organization Secret must authorize the repository. For duplicate names, GitHub uses the most specific scope: Environment overrides Repository, and Repository overrides Organization. Treat organization Secrets as shared defaults and repository Secrets as deliberate overrides.
 
+Official retry is configured in `.github/lazycat-action.yml`, not as a workflow input:
+
+```yaml
+stores:
+  official:
+    retry:
+      enabled: false
+      max_attempts: 3
+      initial_delay: 2s
+      max_delay: 30s
+```
+
+Enabling it lets upload/check failures retry status-less connection/TLS/reset failures, HTTP 429, and HTTP 5xx. Review creation retries only HTTP 429; ambiguous review network/5xx outcomes are returned without replay. HTTP 400 and other 4xx responses are not retried. Cancellation and deadline expiry stop requests and waits. A retry before review reopens the LPK and repeats the application existence check; credentials resolve once.
+
+Store steps are independent. A private-store failure does not suppress the official attempt. When both stores are enabled, an official failure is reported as a warning and `failureReason: official-publish-failed` while the private result remains available; an official-only workflow still fails. With official disabled, no official lint blocking or publication path runs. Compatibility lint such as unknown `container_name` stays visible without blocking private publication.
+
+Official errors retain HTTP status and `store.official.upload`/`store.official.review`. The Action never prints a raw response body. It may display a bounded single-line JSON `message`, `msg`, string `error`, or nested `error.message`/`error.msg` after credential-marker suppression.
+
 ## Existing Release/store reconciliation
 
 A scheduled workflow with `update.strategy: publish`, `versioned-release-asset: true`, and store `skip_if_version_exists: true` is also a repair loop. When the current tag already contains exact asset `<package-id>-v<version>.lpk`, the reusable workflow may download it and fill a missing official or private-store version without rebuilding. It must require the GitHub `sha256:` asset digest, recompute SHA256 after download, keep the file beneath the project root, and let each store independently publish or skip. Missing Release/tag, a different filename, or a missing/mismatched digest is not recoverable by guessing; stop that publication path.

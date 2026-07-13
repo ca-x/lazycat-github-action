@@ -78,6 +78,12 @@
       "prompt": "A Rust and Node source build fails on Tags because protoc is missing, while Ubuntu's protoc rejects Protobuf Edition 2023. Fix automation without changing source semantics.",
       "mustInclude": ["GitHub Release", "SHA256", "protoc --version", "shared buildscript", "Edition 2023"],
       "mustNotInclude": ["change to proto3", "modify Rust source", "PR-only setup"]
+    },
+    {
+      "id": "official-retry-and-failure-isolation",
+      "prompt": "Configure safe official-store retries and explain how a dual-store workflow handles an official HTTP 400 after the private store succeeds.",
+      "mustInclude": ["retry", "enabled: false", "429", "5xx", "review is not replayed", "400", "warning", "message", "container_name"],
+      "mustNotInclude": ["retry every 4xx", "print the response body", "fail the private publication"]
     }
   ]
 }

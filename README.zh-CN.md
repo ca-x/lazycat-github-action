@@ -14,7 +14,14 @@ Action 使用 [`github.com/lib-x/lzc-toolkit-go`](https://github.com/lib-x/lzc-t
 
 ## 选择使用方式
 
-一般 CI/CD 推荐调用 reusable workflow。它会安装指定工具链，并处理 Pull Request、Artifact、tag、Release 和 Release Asset：
+两个公开入口都受支持，并共同跟随浮动的 `v1` 发布标签：
+
+| 入口 | 引用方式 | 适用场景 |
+|---|---|---|
+| Composite Action | `ca-x/lazycat-github-action@v1` | 现有 job 已经负责 checkout、权限、工具链安装和 GitHub 写操作。 |
+| Reusable Workflow | `ca-x/lazycat-github-action/.github/workflows/lazycat.yml@v1` | 需要完整 LazyCat CI/CD，包括工具链、Pull Request、Artifact、tag、Release、Asset 和商店发布。 |
+
+一般 CI/CD 推荐调用 reusable workflow：
 
 ```yaml
 jobs:
@@ -25,7 +32,7 @@ jobs:
     secrets: inherit
 ```
 
-如果现有 workflow 已经负责 GitHub 写操作，可以直接调用 composite Action：
+也可以在现有 job 中直接调用 composite Action：
 
 ```yaml
 - uses: ca-x/lazycat-github-action@v1
@@ -166,6 +173,11 @@ stores:
     enabled: true
     create_if_missing: false
     changelog_locales: [zh, en]
+    retry:
+      enabled: false
+      max_attempts: 3
+      initial_delay: 2s
+      max_delay: 30s
   private:
     enabled: false
 ```
@@ -417,6 +429,11 @@ stores:
     skip_if_version_exists: true
     create_if_missing: true
     changelog_locales: [zh, en]
+    retry:
+      enabled: false
+      max_attempts: 3
+      initial_delay: 2s
+      max_delay: 30s
     application:
       language: zh
       name: Example App
@@ -424,11 +441,15 @@ stores:
       source_author: acme
 ```
 
-`create_if_missing: false` 只允许发布到已经存在的应用。允许创建时，`application.name` 默认读取 `package.yml.name`，`language` 默认为 `zh`。官方模式会执行与 lzc-cli 偏好一致的检查，包括 locales、图标不超过 200 KB、SemVer 元数据和 LazyCat Registry 运行镜像。只要配置了 `direct` 或 `mirror`，就会在发布前失败。
+`create_if_missing: false` 只允许发布到已经存在的应用。允许创建时，`application.name` 默认读取 `package.yml.name`，`language` 默认为 `zh`。官方模式会执行与 lzc-cli 偏好一致的检查，包括 locales、图标不超过 200 KB、SemVer 元数据和 LazyCat Registry 运行镜像。`container_name` 等一般兼容性 warning 仍会展示，但不会阻断构建；只有被分类为官方商店 warning 的问题才会阻断官方发布，而且不会影响仅启用私有商店的 workflow。只要配置了 `direct` 或 `mirror`，就会在发布前失败。
 
 `skip_if_version_exists: true` 会在 LPK 校验完成后，通过精确包名匿名查询官方商店。版本相同时返回 `published: false`、`skipped: true` 和 `skipReason: version-already-online`。两者均为合法 SemVer、线上版本更高且 `update.allow_downgrade: false` 时，也会安全跳过并返回 `skipReason: online-version-newer`；只有显式设置 `allow_downgrade: true` 才继续执行回退提交。non-SemVer 值只判断精确相等，绝不按字符串猜测顺序。跳过时不会解析开发者 Token，也不会提交 LPK。应用不存在时继续发布；其他查询错误直接失败。该选项默认 `false`，`dry-run` 仍然完全不发起远端请求。
 
-官方发布始终把已验证的本地 LPK 文件作为 multipart 数据上传，绝不会把 GitHub Release URL 发送给官方平台。复用 Release Asset 时，会先把精确版本文件下载到项目目录下并重新校验。失败会安全地区分 `store.official.upload` 与 `store.official.review`，但不会打印上游响应正文。
+官方发布始终把已验证的本地 LPK 文件作为 multipart 数据上传，绝不会把 GitHub Release URL 发送给官方平台。复用 Release Asset 时，会先把精确版本文件下载到项目目录下并重新校验。
+
+官方重试为显式开启，默认 `enabled: false`。启用后，`max_attempts` 为 2-10 且包含首次尝试，`initial_delay` 与 `max_delay` 使用 Go duration 语法。审核前的安全重试会重新检查应用是否存在并重新打开 LPK，但凭据只解析一次。上传/检查阶段可重试无 HTTP 状态的连接/TLS/重置错误、HTTP 429 和 HTTP 5xx；审核创建只重试 HTTP 429。审核阶段的网络错误或 5xx 不会重放，因为服务端可能已经受理这个非幂等请求。取消、deadline 超时、鉴权、权限、NotFound、完整性错误、HTTP 400 和其他 4xx 都不重试。
+
+失败会安全地区分 `store.official.upload` 与 `store.official.review`。Action 绝不打印原始响应正文；对合法 JSON 错误，只会显示经过单行化和长度限制的 `message`、`msg`、字符串 `error` 或嵌套的 `error.message`/`error.msg`，疑似凭据内容会被隐藏。双商店 reusable workflow 中，私有结果会被保留，官方失败降级为 warning，并写入 `store-results.official.failureReason: official-publish-failed`；如果官方商店是唯一目标，失败仍会使 workflow 失败。未启用官方商店时，不运行官方 lint 阻断、预检、凭据解析或发布。
 
 reusable workflow 接受 `LAZYCAT_TOKEN`、`LZC_CLI_TOKEN`，或者 `LAZYCAT_USERNAME` 加 `LAZYCAT_PASSWORD`。推荐使用 token。
 

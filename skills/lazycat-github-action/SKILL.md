@@ -7,6 +7,17 @@ description: Use when setting up, generating, reviewing, or debugging LazyCat Gi
 
 Use it to automatically inspect the repository, then create or update `ca-x/lazycat-github-action@v1` configuration and workflows from the application's real package, build, and Manifest files. Keep image targets, build tools, publication policy, and target architecture explicit.
 
+## Choose the supported GitHub interface
+
+Both repository entry points are supported and use the floating `v1` release tag:
+
+| Entry point | Reference | Responsibility |
+|---|---|---|
+| Composite Action | `ca-x/lazycat-github-action@v1` | Runs one `check`, `build`, or `publish` operation inside a caller-owned job. The caller owns checkout, permissions, toolchains, Release handling, and any other GitHub mutation. |
+| Reusable Workflow | `ca-x/lazycat-github-action/.github/workflows/lazycat.yml@v1` | Owns the complete automation path: toolchains, pull requests, Artifacts, tags, Releases, versioned assets, store reconciliation, and private/official publication. |
+
+Default to the reusable workflow for generated project automation. Use the composite Action only when the existing workflow already provides the surrounding lifecycle. Do not describe one entry point as replacing or disabling the other.
+
 ## Primary outcome: working GitHub workflows
 
 Unless the user asks for review-only guidance, finish with repository changes rather than prose alone:
@@ -162,9 +173,26 @@ Official publishing requires:
 - `update.strategy: publish`;
 - `stores.official.enabled: true`;
 - optional `stores.official.skip_if_version_exists: true` to query the anonymous official catalog and skip an equal version (`version-already-online`) or, with `allow_downgrade: false`, a newer online SemVer (`online-version-newer`);
+- optional retry policy, defaulting to `retry.enabled: false`; when enabled, `max_attempts` includes the first attempt and `initial_delay`/`max_delay` use Go duration syntax;
 - only `lazycat` image delivery;
 - official lint compliance, including locales and icon size at most 200 KB;
 - `LAZYCAT_TOKEN`, `LZC_CLI_TOKEN`, username/password, or an explicit `token-file`.
+
+Use this complete retry shape when the project explicitly opts in:
+
+```yaml
+retry:
+  enabled: false
+  max_attempts: 3
+  initial_delay: 2s
+  max_delay: 30s
+```
+
+Upload/check failures may retry status-less connection/TLS/reset failures, HTTP 429, and HTTP 5xx. Review creation retries only HTTP 429; do not replay an ambiguous review network/5xx outcome because the non-idempotent request may already have been accepted. Never retry cancellation, deadline expiry, authentication, permissions, NotFound, integrity failures, HTTP 400, or another 4xx. A retry before review rechecks application existence and reopens the LPK; credentials resolve once. A valid `Retry-After` may extend the jittered wait up to `max_delay`.
+
+Keep lint severity store-scoped. A compatibility warning such as unknown `container_name` stays visible without blocking the shared build or private publication. Only official warnings block the official precheck. If official publishing fails in a dual-store reusable workflow, preserve the private result, emit a warning, and set `failureReason: official-publish-failed`; an official-only workflow remains fatal. With the official store disabled, do not run official lint blocking, precheck, credential resolution, or publication.
+
+For an HTTP rejection, keep status and stage (`store.official.upload` or `store.official.review`). Never expose the raw response body. A recognized JSON `message`, `msg`, string `error`, or nested `error.message` may be displayed only after one-line normalization, a 512-byte bound, and credential-marker suppression.
 
 Private publishing requires:
 
@@ -216,7 +244,7 @@ Before finishing:
 | Versioned asset identity differs | Recompute name, URL, and SHA from verified LPK | STOP before either store submission |
 | Official publish rejects registry | Use `delivery.mode: lazycat` for every managed runtime image | STOP if any managed runtime remains direct/mirror |
 | `store.official.upload` fails | Confirm the exact verified local LPK path, package/version/SHA256, official lint, and multipart file upload | STOP; never replace the file with a Release URL |
-| `store.official.review` fails | Treat the LPK upload as completed and inspect application/version review eligibility | STOP before blindly uploading or reviewing the same version again |
+| `store.official.review` fails | Treat the LPK upload as completed; inspect the safe HTTP status and bounded JSON `message` plus application/version review eligibility | A 400 is not retryable; in dual-store automation preserve the private result and warn, while official-only remains fatal |
 | ARM64 Runner produced ARM app | Honor `LAZYCAT_TARGET_ARCH=amd64` | STOP until the build proves Linux x86_64 output |
 | Private publish has no URL | Resolve the verified GitHub Release Asset | STOP before `publish-private` |
 | Equal store version is submitted again | Enable `skip_if_version_exists` and inspect `onlineVersion` | STOP on lookup errors other than not-found |
@@ -239,4 +267,5 @@ Before finishing:
 - Do not rebuild, rename, or substitute a different Release asset during store reconciliation.
 - Do not overwrite pre-existing or untracked `.github/` work.
 - Do not expose Secret values in configuration, logs, outputs, summaries, or examples.
+- Do not print an official response body; only an explicitly sanitized JSON `message` may cross the error boundary.
 - Do not enable `allow_downgrade` merely to make a failing scheduled run green.

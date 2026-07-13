@@ -63,5 +63,10 @@
     "id": "store-online-version-downgrade-guard",
     "prompt": "EasyNVR 的 LPK 是 7.7.406，但官方商店在线版本已经是 7.8.138，官方审核返回 400。自动 workflow 应如何处理？",
     "expected": "保持 update.allow_downgrade: false；在读取写凭据前按 SemVer 比较候选 7.7.406 与线上 7.8.138，官方商店独立返回 skipped: true、onlineVersion: 7.8.138 和 skipReason: online-version-newer，喵喵商店按自身在线版本独立发布或跳过；不得盲目重试或自动允许降级。版本相等使用 version-already-online；non-SemVer 只做精确相等判断。"
+  },
+  {
+    "id": "official-retry-and-failure-isolation",
+    "prompt": "官方商店偶发 500，也有重复审核返回 400；项目同时发布官方和喵喵商店。请配置安全重试并说明失败如何影响整个 GitHub Action，以及能否显示官方错误消息。",
+    "expected": "配置 retry，默认 enabled: false；显式说明 max_attempts、initial_delay、max_delay。上传/检查阶段可重试无状态网络错误、429 和 5xx；审核创建只重试 429，审核网络错误或 5xx 不重放，400 也不重试。双商店时保留私有商店结果并把官方失败降级为 warning；官方唯一目标仍失败。只显示经过限制和脱敏的 JSON message，不打印原始响应正文或凭据。container_name 等兼容性 warning 不阻断。"
   }
 ]
