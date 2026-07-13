@@ -222,6 +222,33 @@ func TestErrorIncludesSafeToolkitDiagnosticsWithoutCauseText(t *testing.T) {
 	}
 }
 
+func TestErrorIncludesExplicitPublicUpstreamMessage(t *testing.T) {
+	err := &action.Error{
+		Code:    action.CodeStorePublishFailed,
+		Message: "store publishing failed",
+		Cause: &lpkgo.Error{
+			Code: lpkgo.CodeRemoteUnavailable, Op: "store.official.review", StatusCode: 400,
+			Cause: publicDetailError{message: "version already pending review"},
+		},
+	}
+	message := err.Error()
+	if !strings.Contains(message, `message="version already pending review"`) {
+		t.Fatalf("message=%q", message)
+	}
+}
+
+type publicDetailError struct {
+	message string
+}
+
+func (err publicDetailError) Error() string {
+	return "upstream response rejected"
+}
+
+func (err publicDetailError) PublicErrorDetail() string {
+	return err.message
+}
+
 func lpkcheckResult(path string) lpkcheck.Result {
 	return lpkcheck.Result{Path: path, PackageID: "cloud.lazycat.example", Version: "1.2.3", SHA256: strings.Repeat("a", 64), TargetPlatform: "linux/amd64"}
 }

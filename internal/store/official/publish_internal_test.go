@@ -83,6 +83,35 @@ func TestRetryAfterRecorderKeepsGreatestValidDelayAndIgnoresStatus600(t *testing
 	}
 }
 
+func TestSafeOfficialResponseMessage(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "message", body: `{"message":"version already pending review"}`, want: "version already pending review"},
+		{name: "msg", body: `{"msg":"duplicate review"}`, want: "duplicate review"},
+		{name: "error string", body: `{"error":"application rejected"}`, want: "application rejected"},
+		{name: "nested error", body: `{"error":{"message":"invalid package metadata"}}`, want: "invalid package metadata"},
+		{name: "single line", body: "{\"message\":\"  version\\n  already\\t pending  \"}", want: "version already pending"},
+		{name: "plain text hidden", body: "version already pending review", want: ""},
+		{name: "unknown JSON hidden", body: `{"detail":"not approved"}`, want: ""},
+		{name: "credential marker hidden", body: `{"message":"token lcst_must_not_leak is invalid"}`, want: ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := safeOfficialResponseMessage([]byte(test.body)); got != test.want {
+				t.Fatalf("message=%q, want %q", got, test.want)
+			}
+		})
+	}
+
+	message := safeOfficialResponseMessage([]byte(`{"message":"` + strings.Repeat("a", 1024) + `"}`))
+	if message == "" || len(message) > maxOfficialResponseMessageBytes {
+		t.Fatalf("bounded message length=%d", len(message))
+	}
+}
+
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (roundTrip roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {

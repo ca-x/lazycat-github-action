@@ -123,8 +123,43 @@ func TestReusableWorkflowContractAndActionRefs(t *testing.T) {
 	if privateIndex < 0 || officialIndex < 0 || privateIndex > officialIndex {
 		t.Fatal("idempotent private-store publishing must run before official publishing")
 	}
+	mergeIndex := strings.Index(workflow, "- name: Merge store publishing results")
+	if mergeIndex < officialIndex {
+		t.Fatal("store result merge must run after official publishing")
+	}
 	if !strings.Contains(workflow[privateIndex:officialIndex], "PRIVATE_STORE_GROUP_CODES: ${{ secrets.PRIVATE_STORE_GROUP_CODES }}") {
 		t.Fatal("private publish step does not receive PRIVATE_STORE_GROUP_CODES from a reusable-workflow secret")
+	}
+	officialStep := workflow[officialIndex:mergeIndex]
+	for _, contract := range []string{
+		"if: ${{ !cancelled() && steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.official-store-enabled == 'true'",
+		"continue-on-error: ${{ steps.lazycat.outputs.private-store-enabled == 'true' }}",
+	} {
+		if !strings.Contains(officialStep, contract) {
+			t.Fatalf("official publish step is missing isolation contract %q", contract)
+		}
+	}
+	mergeRest := workflow[mergeIndex:]
+	mergeEnd := strings.Index(mergeRest, "\n      - name: ")
+	if mergeEnd < 0 {
+		mergeEnd = len(mergeRest)
+	}
+	mergeStep := mergeRest[:mergeEnd]
+	for _, contract := range []string{
+		"if: ${{ always() && !cancelled() }}",
+		"OFFICIAL_OUTCOME: ${{ steps.publish-official.outcome }}",
+		`failureReason: 'official-publish-failed'`,
+		"core.warning('Official store publication failed; other configured store results are preserved.')",
+		"core.summary",
+	} {
+		if !strings.Contains(mergeStep, contract) {
+			t.Fatalf("store result merge is missing partial-failure contract %q", contract)
+		}
+	}
+	mergeRawIndex := strings.Index(mergeStep, "Object.assign(result, parsed);")
+	mergeFailureIndex := strings.Index(mergeStep, "if (process.env.OFFICIAL_OUTCOME === 'failure')")
+	if mergeRawIndex < 0 || mergeFailureIndex < mergeRawIndex {
+		t.Fatal("official failure marker must override any partial Action output")
 	}
 	for _, condition := range []string{
 		"steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.official-store-enabled == 'true'",

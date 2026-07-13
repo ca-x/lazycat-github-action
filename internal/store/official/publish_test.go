@@ -873,7 +873,8 @@ func TestPublisherReportsOfficialReviewFailureStage(t *testing.T) {
 		case "/api/v3/developer/app/lpk/upload":
 			_, _ = fmt.Fprintf(response, `{"package":"cloud.lazycat.apps.publish-demo","version":"1.0.0","iconPath":"/icon.png","url":"/demo.lpk","sha256":"%s","unsupportedPlatforms":[],"minOsVersion":"1.3.0","lpkSize":123,"imageSize":0}`, digest)
 		case "/api/v3/developer/app/cloud.lazycat.apps.publish-demo/review/create":
-			http.Error(response, "rejected", http.StatusBadRequest)
+			response.WriteHeader(http.StatusBadRequest)
+			_, _ = response.Write([]byte(`{"message":"version already pending review"}`))
 		default:
 			http.NotFound(response, request)
 		}
@@ -887,6 +888,10 @@ func TestPublisherReportsOfficialReviewFailureStage(t *testing.T) {
 	var toolkitError *lpkgo.Error
 	if !errors.As(err, &toolkitError) || toolkitError.Op != "store.official.review" || toolkitError.StatusCode != http.StatusBadRequest {
 		t.Fatalf("err=%v", err)
+	}
+	var publicDetail interface{ PublicErrorDetail() string }
+	if !errors.As(toolkitError.Cause, &publicDetail) || publicDetail.PublicErrorDetail() != "version already pending review" {
+		t.Fatalf("public detail=%#v", publicDetail)
 	}
 }
 

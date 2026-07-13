@@ -28,7 +28,10 @@ import (
 
 var sha256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
-const maxResponseBytes = 4 << 20
+const (
+	maxResponseBytes                = 4 << 20
+	maxOfficialResponseMessageBytes = 512
+)
 
 type Request struct {
 	Provider        auth.TokenProvider
@@ -460,12 +463,81 @@ func doRequest(client *http.Client, request *http.Request, op string) ([]byte, e
 		}
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		var cause error = errors.New("official platform rejected the request")
+		if message := safeOfficialResponseMessage(body); message != "" {
+			cause = officialResponseError{message: message}
+		}
 		return nil, &lpkgo.Error{
 			Code: statusErrorCode(response.StatusCode), Op: op, StatusCode: response.StatusCode,
-			Retryable: isRetryableHTTPStatus(response.StatusCode), Cause: errors.New("official platform rejected the request"),
+			Retryable: isRetryableHTTPStatus(response.StatusCode), Cause: cause,
 		}
 	}
 	return body, nil
+}
+
+type officialResponseError struct {
+	message string
+}
+
+func (officialResponseError) Error() string {
+	return "official platform rejected the request"
+}
+
+func (err officialResponseError) PublicErrorDetail() string {
+	return err.message
+}
+
+func safeOfficialResponseMessage(body []byte) string {
+	var envelope struct {
+		Message string          `json:"message"`
+		Msg     string          `json:"msg"`
+		Error   json.RawMessage `json:"error"`
+	}
+	if len(body) == 0 || json.Unmarshal(body, &envelope) != nil {
+		return ""
+	}
+	message := firstNonEmpty(envelope.Message, envelope.Msg)
+	if message == "" && len(envelope.Error) > 0 {
+		var text string
+		if json.Unmarshal(envelope.Error, &text) == nil {
+			message = text
+		} else {
+			var nested struct {
+				Message string `json:"message"`
+				Msg     string `json:"msg"`
+			}
+			if json.Unmarshal(envelope.Error, &nested) == nil {
+				message = firstNonEmpty(nested.Message, nested.Msg)
+			}
+		}
+	}
+	message = strings.Join(strings.Fields(strings.ToValidUTF8(message, "")), " ")
+	if message == "" || containsCredentialMarker(message) {
+		return ""
+	}
+	if len(message) > maxOfficialResponseMessageBytes {
+		message = strings.TrimSpace(strings.ToValidUTF8(message[:maxOfficialResponseMessageBytes], ""))
+	}
+	return message
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func containsCredentialMarker(message string) bool {
+	lower := strings.ToLower(message)
+	for _, marker := range []string{"lcst_", "bearer ", "authorization", "x-user-token", "cookie", "password", "secret"} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func statusErrorCode(status int) lpkgo.Code {

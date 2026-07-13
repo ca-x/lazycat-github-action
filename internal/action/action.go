@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	actionbuild "github.com/ca-x/lazycat-github-action/internal/build"
@@ -121,6 +122,13 @@ func (err *Error) Error() string {
 	}
 	if toolkitError.Op != "" {
 		details = append(details, "op="+toolkitError.Op)
+	}
+	var publicDetail interface{ PublicErrorDetail() string }
+	if errors.As(toolkitError.Cause, &publicDetail) {
+		message := strings.Join(strings.Fields(publicDetail.PublicErrorDetail()), " ")
+		if message != "" {
+			details = append(details, "message="+strconv.Quote(message))
+		}
 	}
 	if len(details) == 0 {
 		return message

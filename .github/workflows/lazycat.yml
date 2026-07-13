@@ -654,7 +654,8 @@ jobs:
 
       - name: Publish to LazyCat official platform
         id: publish-official
-        if: steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.official-store-enabled == 'true' && steps.store-artifact.outputs.download-url != '' && !inputs.dry-run
+        if: ${{ !cancelled() && steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.official-store-enabled == 'true' && steps.store-artifact.outputs.download-url != '' && !inputs.dry-run }}
+        continue-on-error: ${{ steps.lazycat.outputs.private-store-enabled == 'true' }}
         uses: ca-x/lazycat-github-action@v1
         env:
           LAZYCAT_TOKEN: ${{ secrets.LAZYCAT_TOKEN }}
@@ -672,8 +673,10 @@ jobs:
 
       - name: Merge store publishing results
         id: store-results
+        if: ${{ always() && !cancelled() }}
         uses: actions/github-script@v8
         env:
+          OFFICIAL_OUTCOME: ${{ steps.publish-official.outcome }}
           OFFICIAL_RESULT: ${{ steps.publish-official.outputs.store-results }}
           PRIVATE_RESULT: ${{ steps.publish-private.outputs.store-results }}
         with:
@@ -683,6 +686,18 @@ jobs:
               if (!raw) continue;
               const parsed = JSON.parse(raw);
               Object.assign(result, parsed);
+            }
+            if (process.env.OFFICIAL_OUTCOME === 'failure') {
+              result.official = {
+                published: false,
+                failed: true,
+                failureReason: 'official-publish-failed',
+              };
+              core.warning('Official store publication failed; other configured store results are preserved.');
+              await core.summary
+                .addHeading('LazyCat official store')
+                .addRaw('Official store publication failed. Other configured store results were preserved. Review the official publishing step for the safe error code, HTTP status, and operation.\n')
+                .write();
             }
             core.setOutput('store-results', JSON.stringify(result));
 
