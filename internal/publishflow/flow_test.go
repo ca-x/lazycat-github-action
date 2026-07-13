@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ca-x/lazycat-github-action/internal/config"
 	"github.com/ca-x/lazycat-github-action/internal/lpkcheck"
@@ -22,11 +23,12 @@ import (
 
 const artifactSHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
-func TestFlowPublishesVerifiedArtifactToOfficialStore(t *testing.T) {
+func TestPublishOfficialPropagatesVerifiedArtifactAndRetryPolicy(t *testing.T) {
 	var logs bytes.Buffer
 	var published official.Request
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
 	flow := publishflow.Flow{
-		Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+		Logger: logger,
 		Verify: func(context.Context, lpkcheck.Request) (lpkcheck.Result, error) {
 			return verifiedArtifact(), nil
 		},
@@ -40,6 +42,9 @@ func TestFlowPublishesVerifiedArtifactToOfficialStore(t *testing.T) {
 	}
 	cfg := publishConfig()
 	cfg.Stores.Official.Enabled = true
+	cfg.Stores.Official.Retry = config.OfficialRetry{
+		Enabled: true, MaxAttempts: 4, InitialDelay: 3 * time.Second, MaxDelay: 45 * time.Second,
+	}
 	result, err := flow.Publish(context.Background(), publishflow.Request{
 		Target: publishflow.TargetOfficial, Config: cfg, Project: projectInfo(), LPKPath: "/repo/dist/app.lpk",
 		Version: "1.2.3", Changelog: "Release notes", TokenFile: "/tmp/token.json",
@@ -49,6 +54,9 @@ func TestFlowPublishesVerifiedArtifactToOfficialStore(t *testing.T) {
 	}
 	if result.Official == nil || !result.Official.Published || result.Private != nil || published.PackageID != "cloud.lazycat.example" || published.SHA256 != artifactSHA || published.Changelog != "Release notes" || strings.Join(published.Locales, ",") != "zh,en" {
 		t.Fatalf("result=%#v request=%#v", result, published)
+	}
+	if published.Retry != cfg.Stores.Official.Retry || published.Logger != logger {
+		t.Fatalf("retry=%#v logger=%p want retry=%#v logger=%p", published.Retry, published.Logger, cfg.Stores.Official.Retry, logger)
 	}
 	for _, expected := range []string{"store publication started", "LPK publication artifact verified", "store publication completed", "store=official"} {
 		if !strings.Contains(logs.String(), expected) {

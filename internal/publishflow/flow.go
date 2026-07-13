@@ -173,7 +173,7 @@ func (flow Flow) Publish(ctx context.Context, request Request) (Result, error) {
 	}
 	switch request.Target {
 	case TargetOfficial:
-		published, publishErr := flow.publishOfficial(ctx, request, result, onlineVersion)
+		published, publishErr := flow.publishOfficial(ctx, request, result, onlineVersion, logger)
 		if publishErr == nil {
 			logger.Info("store publication completed", "store", request.Target, "package", artifact.PackageID, "version", artifact.Version)
 		}
@@ -238,7 +238,7 @@ func newerSemVer(onlineVersion, candidateVersion string) bool {
 	return onlineErr == nil && candidateErr == nil && online.GreaterThan(candidate)
 }
 
-func (flow Flow) publishOfficial(ctx context.Context, request Request, result Result, onlineVersion string) (Result, error) {
+func (flow Flow) publishOfficial(ctx context.Context, request Request, result Result, onlineVersion string, logger *slog.Logger) (Result, error) {
 	changelog := strings.TrimSpace(request.Changelog)
 	if changelog == "" {
 		return Result{}, errors.New("official publishing requires a changelog")
@@ -249,6 +249,7 @@ func (flow Flow) publishOfficial(ctx context.Context, request Request, result Re
 		Changelog: changelog, Locales: request.Config.Stores.Official.Locales,
 		CreateIfMissing: request.Config.Stores.Official.CreateIfMissing,
 		Application:     request.Config.Stores.Official.Application, DefaultName: request.Project.Name,
+		Retry: request.Config.Stores.Official.Retry, Logger: logger,
 	}
 	if request.DryRun {
 		result.Official = &official.Result{PackageID: input.PackageID, Version: input.Version, SHA256: input.SHA256}
