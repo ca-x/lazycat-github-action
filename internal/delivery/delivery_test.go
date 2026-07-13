@@ -98,11 +98,11 @@ func TestMutableDirectDeliveryPinsDigestAndComparesCurrentState(t *testing.T) {
 
 func TestMutableLazyCatDeliverySkipsEqualDigestAndCopiesChangedDigest(t *testing.T) {
 	currentRef := "registry.lazycat.cloud/acme/web:current"
-	equalInspector := &fakeInspector{result: registry.Image{Digest: digest("a"), Platform: "linux/amd64"}}
+	inspector := &fakeInspector{err: errors.New("must not inspect private LazyCat registry")}
 	equalCopier := &fakeCopier{err: errors.New("must not copy")}
-	result, err := (delivery.Resolver{Inspector: equalInspector, Copier: equalCopier}).Deliver(context.Background(), delivery.Request{
+	result, err := (delivery.Resolver{Copier: equalCopier, Inspector: inspector}).Deliver(context.Background(), delivery.Request{
 		Image: config.Image{ID: "web", Delivery: config.Delivery{Mode: "lazycat"}}, Tag: "latest",
-		SourceRef: "ghcr.io/acme/web:latest", SourceDigest: digest("a"), CurrentRef: currentRef, Mutable: true,
+		SourceRef: "ghcr.io/acme/web:latest", SourceDigest: digest("a"), CurrentRef: currentRef, CurrentDigest: digest("a"), Mutable: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -110,15 +110,17 @@ func TestMutableLazyCatDeliverySkipsEqualDigestAndCopiesChangedDigest(t *testing
 	if result.DigestChanged || result.RuntimeRef != currentRef || equalCopier.calls != 0 {
 		t.Fatalf("result=%#v copier=%d", result, equalCopier.calls)
 	}
+	if inspector.calls != 0 {
+		t.Fatalf("private registry inspections=%d", inspector.calls)
+	}
 
-	changedInspector := &fakeInspector{result: registry.Image{Digest: digest("a"), Platform: "linux/amd64"}}
 	changedCopier := &fakeCopier{result: appstore.CopyImageResult{
 		SourceImage: "ghcr.io/acme/web:latest", Platform: "amd64",
 		LazyCatImage: "registry.lazycat.cloud/acme/web:new", Progress: appstore.CopyProgress{Finished: true},
 	}}
-	result, err = (delivery.Resolver{Inspector: changedInspector, Copier: changedCopier}).Deliver(context.Background(), delivery.Request{
+	result, err = (delivery.Resolver{Copier: changedCopier, Inspector: inspector}).Deliver(context.Background(), delivery.Request{
 		Image: config.Image{ID: "web", Delivery: config.Delivery{Mode: "lazycat"}}, Tag: "latest",
-		SourceRef: "ghcr.io/acme/web:latest", SourceDigest: digest("b"), CurrentRef: currentRef, Mutable: true,
+		SourceRef: "ghcr.io/acme/web:latest", SourceDigest: digest("b"), CurrentRef: currentRef, CurrentDigest: digest("a"), Mutable: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -126,30 +128,31 @@ func TestMutableLazyCatDeliverySkipsEqualDigestAndCopiesChangedDigest(t *testing
 	if !result.DigestChanged || result.CurrentDigest != digest("a") || !result.Copied || result.RuntimeRef != "registry.lazycat.cloud/acme/web:new" {
 		t.Fatalf("result=%#v", result)
 	}
+	if inspector.calls != 0 {
+		t.Fatalf("private registry inspections=%d", inspector.calls)
+	}
 }
 
-func TestMutableLazyCatDryRunInspectsWithoutCopying(t *testing.T) {
-	inspector := &fakeInspector{result: registry.Image{Digest: digest("a"), Platform: "linux/amd64"}}
+func TestMutableLazyCatDryRunUsesPersistedDigestWithoutCopying(t *testing.T) {
 	copier := &fakeCopier{err: errors.New("must not copy")}
-	result, err := (delivery.Resolver{Inspector: inspector, Copier: copier}).Deliver(context.Background(), delivery.Request{
+	result, err := (delivery.Resolver{Copier: copier}).Deliver(context.Background(), delivery.Request{
 		Image: config.Image{ID: "web", Delivery: config.Delivery{Mode: "lazycat"}}, Tag: "latest",
-		SourceRef: "ghcr.io/acme/web:latest", SourceDigest: digest("b"), CurrentRef: "registry.lazycat.cloud/acme/web:current", Mutable: true, DryRun: true,
+		SourceRef: "ghcr.io/acme/web:latest", SourceDigest: digest("b"), CurrentRef: "registry.lazycat.cloud/acme/web:current", CurrentDigest: digest("a"), Mutable: true, DryRun: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.DigestChanged || inspector.calls != 1 || copier.calls != 0 {
-		t.Fatalf("result=%#v inspector=%d copier=%d", result, inspector.calls, copier.calls)
+	if !result.DigestChanged || copier.calls != 0 {
+		t.Fatalf("result=%#v copier=%d", result, copier.calls)
 	}
 }
 
 func TestMutableLazyCatMigratesEqualExternalImageWithoutBumpingDigest(t *testing.T) {
-	inspector := &fakeInspector{result: registry.Image{Digest: digest("a"), Platform: "linux/amd64"}}
 	copier := &fakeCopier{result: appstore.CopyImageResult{
 		SourceImage: "docker.io/acme/web:latest", Platform: "amd64",
 		LazyCatImage: "registry.lazycat.cloud/acme/web:migrated", Progress: appstore.CopyProgress{Finished: true},
 	}}
-	result, err := (delivery.Resolver{Inspector: inspector, Copier: copier}).Deliver(context.Background(), delivery.Request{
+	result, err := (delivery.Resolver{Copier: copier}).Deliver(context.Background(), delivery.Request{
 		Image: config.Image{ID: "web", Delivery: config.Delivery{Mode: "lazycat"}}, Tag: "latest",
 		SourceRef: "docker.io/acme/web:latest", SourceDigest: digest("a"), CurrentRef: "docker.1ms.run/acme/web:latest", Mutable: true,
 	})
@@ -158,6 +161,51 @@ func TestMutableLazyCatMigratesEqualExternalImageWithoutBumpingDigest(t *testing
 	}
 	if result.DigestChanged || !result.DeliveryChanged || !result.Copied || result.RuntimeRef != "registry.lazycat.cloud/acme/web:migrated" {
 		t.Fatalf("result=%#v", result)
+	}
+}
+
+func TestMutableLazyCatInitialBaselineComparesCopiedReference(t *testing.T) {
+	copier := &fakeCopier{result: appstore.CopyImageResult{
+		SourceImage: "ghcr.io/acme/web:latest", Platform: "amd64",
+		LazyCatImage: "registry.lazycat.cloud/acme/web:new", Progress: appstore.CopyProgress{Finished: true},
+	}}
+	result, err := (delivery.Resolver{Copier: copier}).Deliver(context.Background(), delivery.Request{
+		Image: config.Image{ID: "web", Delivery: config.Delivery{Mode: "lazycat"}}, Tag: "latest",
+		SourceRef: "ghcr.io/acme/web:latest", SourceDigest: digest("b"), CurrentRef: "registry.lazycat.cloud/acme/web:old", Mutable: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.DigestChanged || !result.DeliveryChanged || !result.Copied {
+		t.Fatalf("result=%#v", result)
+	}
+}
+
+func TestMutableLazyCatInitialEqualReferenceStillPersistsBaseline(t *testing.T) {
+	currentRef := "registry.lazycat.cloud/acme/web:current"
+	copier := &fakeCopier{result: appstore.CopyImageResult{
+		SourceImage: "ghcr.io/acme/web:latest", Platform: "amd64",
+		LazyCatImage: currentRef, Progress: appstore.CopyProgress{Finished: true},
+	}}
+	result, err := (delivery.Resolver{Copier: copier}).Deliver(context.Background(), delivery.Request{
+		Image: config.Image{ID: "web", Delivery: config.Delivery{Mode: "lazycat"}}, Tag: "latest",
+		SourceRef: "ghcr.io/acme/web:latest", SourceDigest: digest("a"), CurrentRef: currentRef, Mutable: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.DigestChanged || !result.DeliveryChanged || !result.Copied || result.RuntimeRef != currentRef {
+		t.Fatalf("result=%#v", result)
+	}
+}
+
+func TestMutableLazyCatDryRunRejectsMissingPrivateBaseline(t *testing.T) {
+	_, err := (delivery.Resolver{}).Deliver(context.Background(), delivery.Request{
+		Image: config.Image{ID: "web", Delivery: config.Delivery{Mode: "lazycat"}}, Tag: "latest",
+		SourceRef: "ghcr.io/acme/web:latest", SourceDigest: digest("b"), CurrentRef: "registry.lazycat.cloud/acme/web:old", Mutable: true, DryRun: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "baseline is missing") {
+		t.Fatalf("err=%v", err)
 	}
 }
 

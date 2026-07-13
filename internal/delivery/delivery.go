@@ -25,15 +25,16 @@ type targetImageInspector interface {
 }
 
 type Request struct {
-	Image        config.Image
-	Tag          string
-	SourceRef    string
-	SourceDigest string
-	CurrentRef   string
-	Mutable      bool
-	Target       platform.Target
-	DryRun       bool
-	OnProgress   func(appstore.CopyProgress)
+	Image         config.Image
+	Tag           string
+	SourceRef     string
+	SourceDigest  string
+	CurrentRef    string
+	CurrentDigest string
+	Mutable       bool
+	Target        platform.Target
+	DryRun        bool
+	OnProgress    func(appstore.CopyProgress)
 }
 
 type Result struct {
@@ -143,25 +144,28 @@ func (resolver Resolver) Deliver(ctx context.Context, request Request) (Result, 
 	case "lazycat":
 		result := Result{Mode: mode}
 		if request.Mutable {
-			if resolver.Inspector == nil {
-				return Result{}, errors.New("mutable LazyCat delivery requires an image inspector")
-			}
-			current, inspectErr := resolver.inspect(ctx, request.CurrentRef, target)
-			if inspectErr != nil {
-				return Result{}, fmt.Errorf("inspect current LazyCat image %q: %w", request.CurrentRef, inspectErr)
-			}
-			if current.Platform != target.Platform() {
-				return Result{}, fmt.Errorf("current LazyCat image %q uses platform %q instead of %q", request.CurrentRef, current.Platform, target.Platform())
-			}
 			sourceDigest, digestErr := normalizedDigest(request.SourceDigest)
 			if digestErr != nil {
 				return Result{}, digestErr
 			}
-			result.CurrentDigest = current.Digest
-			result.DigestChanged = !strings.EqualFold(strings.TrimSpace(current.Digest), sourceDigest)
-			result.DeliveryChanged = result.DigestChanged || !strings.HasPrefix(strings.TrimSpace(request.CurrentRef), "registry.lazycat.cloud/")
+			currentIsLazyCat := strings.HasPrefix(strings.TrimSpace(request.CurrentRef), "registry.lazycat.cloud/")
 			result.RuntimeRef = request.CurrentRef
-			if !result.DeliveryChanged || request.DryRun {
+			if strings.TrimSpace(request.CurrentDigest) != "" {
+				currentDigest, currentErr := normalizedDigest(request.CurrentDigest)
+				if currentErr != nil {
+					return Result{}, fmt.Errorf("current digest: %w", currentErr)
+				}
+				result.CurrentDigest = currentDigest
+				result.DigestChanged = !strings.EqualFold(currentDigest, sourceDigest)
+				result.DeliveryChanged = result.DigestChanged || !currentIsLazyCat
+				if !result.DeliveryChanged || request.DryRun {
+					return result, nil
+				}
+			} else if request.DryRun {
+				if currentIsLazyCat {
+					return Result{}, errors.New("mutable LazyCat digest baseline is missing; run a trusted non-dry migration once")
+				}
+				result.DeliveryChanged = true
 				return result, nil
 			}
 		}
@@ -183,6 +187,11 @@ func (resolver Resolver) Deliver(ctx context.Context, request Request) (Result, 
 		result.RuntimeRef = copied.LazyCatImage
 		result.Copied = true
 		result.CopyResult = &copied
+		if request.Mutable && strings.TrimSpace(request.CurrentDigest) == "" {
+			currentIsLazyCat := strings.HasPrefix(strings.TrimSpace(request.CurrentRef), "registry.lazycat.cloud/")
+			result.DeliveryChanged = true
+			result.DigestChanged = currentIsLazyCat && strings.TrimSpace(copied.LazyCatImage) != strings.TrimSpace(request.CurrentRef)
+		}
 		return result, nil
 	default:
 		return Result{}, fmt.Errorf("unsupported image delivery mode %q", mode)

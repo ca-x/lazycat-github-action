@@ -299,6 +299,8 @@ The Action compares the selected target-platform digest with the currently deliv
 
 Mutable `direct` and `mirror` references are digest-pinned so the previous state is durable. Mutable mirrors require `require_digest_match: true`. Official-store workflows must continue to use `delivery.mode: lazycat`. Dry-run performs the same digest comparison without copying or writing. `image-results` reports `currentDigest`, `sourceDigest`, `digestChanged`, `bump`, `previousVersion`, and `selectedVersion` for auditability.
 
+For LazyCat delivery, the selected source digest is persisted in the Manifest's `upstream` comment. Subsequent runs compare that baseline without anonymously reading the private LazyCat Registry. A legacy LazyCat reference without a baseline performs one authenticated copy and compares the returned content-addressed reference; an external runtime performs one Registry migration copy without a version bump. A dry-run fails closed only for the legacy private-reference case where no read-only baseline exists yet.
+
 Custom example:
 
 ```yaml

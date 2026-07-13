@@ -43,10 +43,10 @@ The version bump happens after digest-change proof and before file writes. Downg
 ## Digest state by delivery mode
 
 - `direct`: write the runtime image as `<source>:<tag>@sha256:<digest>`. The digest-pinned Manifest is the durable previous-state record.
-- `lazycat`: inspect the current `registry.lazycat.cloud` runtime reference and compare its `linux/amd64` digest with the selected source digest before copying. Copy only when different.
+- `lazycat`: persist the selected source digest in the Manifest upstream comment (`source:tag@sha256:...`) and compare that baseline with the newly selected target-platform digest. Equal digests do not call the copy API. A legacy LazyCat runtime without a digest baseline performs one authenticated copy and compares the content-addressed returned LazyCat reference with the current runtime; an external runtime performs one migration copy without a version bump. The successful write establishes the pinned baseline for later runs. Never anonymously inspect the private LazyCat Registry.
 - `mirror`: inspect the configured mirror and compare its digest. Bump mode requires `require_digest_match: true`; a missing or mismatched mirror fails without bumping.
 
-Dry-run performs read-only digest inspection and calculates the same bump decision, but never copies images, edits files, creates Releases, or queries stores.
+Dry-run compares the persisted digest baseline and calculates the same bump decision without copying images, editing files, creating Releases, or querying stores. A legacy private LazyCat runtime without a persisted baseline fails closed until one trusted non-dry migration establishes it.
 
 ## Outputs and logs
 
@@ -65,7 +65,8 @@ Structured logs report mutable-tag selection, digest comparison, no-op or bump d
 | Condition | Result |
 |---|---|
 | Current package version is not strict stable SemVer | Fail before delivery or writes |
-| Current delivered digest cannot be inspected | Fail closed; do not bump |
+| Persisted digest baseline is invalid | Fail closed; do not bump |
+| Legacy private LazyCat runtime is dry-run without a baseline | Fail closed; require one trusted migration run |
 | Mutable source lacks `linux/amd64` | `VERSION_NOT_FOUND` |
 | Mirror digest differs from source | `IMAGE_COPY_FAILED`; do not bump |
 | Digest is unchanged | Successful no-op |
@@ -76,7 +77,7 @@ Structured logs report mutable-tag selection, digest comparison, no-op or bump d
 - Config decoding, validation, unknown value rejection, and backward compatibility.
 - Patch bump arithmetic and rejection of prerelease/build versions.
 - Direct digest pinning and idempotent second run.
-- LazyCat current-digest equality skip and changed-digest copy/bump.
+- LazyCat persisted-digest equality skip, changed-digest copy/bump, legacy authenticated baseline migration, and no anonymous private-registry inspection.
 - Mirror equality, mismatch, and required verification.
 - Dry-run parity without mutation.
 - Version-source-only bump in multi-image projects.

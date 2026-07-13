@@ -3,6 +3,7 @@ package action_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -552,6 +553,39 @@ func TestRunMapsImageVersionDowngrade(t *testing.T) {
 	var actionErr *action.Error
 	if !errors.As(err, &actionErr) || actionErr.Code != action.CodeVersionDowngradeBlocked {
 		t.Fatalf("err=%#v", err)
+	}
+}
+
+func TestRunPreservesStructuredImageDeliveryError(t *testing.T) {
+	cfg := gitConfig()
+	cfg.Update.VersionSource = config.VersionSource{Type: config.VersionSourceImage, Image: "web"}
+	cfg.Images = []config.Image{{ID: "web", Target: "service", Service: "web", Source: "ghcr.io/acme/web", Channel: "stable", Sort: "semver", Delivery: config.Delivery{Mode: "lazycat"}}}
+	deps := action.Dependencies{
+		Host:       platform.Host{OS: "linux", Arch: "amd64"},
+		LoadConfig: func(string) (config.Config, error) { return cfg, nil },
+		Inspect: func(context.Context, config.Project) (project.Info, error) {
+			return project.Info{PackageID: "cloud.lazycat.example", Version: "1.0.0"}, nil
+		},
+		SetVersion: func(string, string) (yamledit.Change, error) { return yamledit.Change{}, nil },
+		Build: func(context.Context, actionbuild.Request) (actionbuild.Result, error) {
+			return actionbuild.Result{}, nil
+		},
+		CheckImages: func(context.Context, imageflow.Request) (imageflow.Result, error) {
+			return imageflow.Result{}, fmt.Errorf("%w: %w", imageflow.ErrDeliveryFailed, &lpkgo.Error{
+				Code: lpkgo.CodeRemoteUnavailable,
+				Op:   "appstore.copy_image",
+			})
+		},
+	}
+	_, err := action.Run(context.Background(), action.Input{Operation: action.OperationCheck}, deps)
+	if err == nil {
+		t.Fatal("expected image delivery failure")
+	}
+	message := err.Error()
+	for _, expected := range []string{"IMAGE_COPY_FAILED", "upstream=REMOTE_UNAVAILABLE", "op=appstore.copy_image"} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("message=%q missing %q", message, expected)
+		}
 	}
 }
 

@@ -299,6 +299,8 @@ Action 会比较目标架构的上游 digest 与当前已交付镜像 digest。d
 
 mutable `direct` 和 `mirror` 引用会固定 digest，确保上次状态可追踪；mirror 必须设置 `require_digest_match: true`。官方商店仍强制使用 `delivery.mode: lazycat`。dry-run 会做同样的 digest 比较，但不会复制镜像或写文件。`image-results` 会输出 `currentDigest`、`sourceDigest`、`digestChanged`、`bump`、`previousVersion` 和 `selectedVersion` 供审计。
 
+LazyCat 交付会把选中的源 digest 持久化到 Manifest 的 `upstream` 注释。后续运行直接比较这个基线，不会匿名读取私有 LazyCat Registry。没有基线的旧 LazyCat 引用会做一次已认证复制，并比较返回的内容寻址引用；外部运行镜像会先迁移到 LazyCat Registry，但不误加版本。只有“旧私有引用且尚无只读基线”的首次 dry-run 会失败关闭，完成一次可信非 dry-run 迁移后即可正常只读检查。
+
 Custom 示例：
 
 ```yaml

@@ -133,6 +133,8 @@ For SemVer sorting, rank filtered tag names before manifest inspection and stop 
 
 When the upstream exposes only a mutable tag such as `latest`, use `update.version_source.bump: patch` with `channel: custom`, `sort: created`, and an exact `tag_regex`. Compare the selected target-platform digest with the currently delivered digest. Equal digests must be a no-op; changed digests increment only the current stable SemVer patch after the prior digest is proven. Reject prerelease/build versions, `allow_downgrade: true`, version mapping, and mutable mirrors without `require_digest_match: true`. Direct/mirror mutable references must remain digest-pinned; official publication continues to require LazyCat delivery.
 
+For mutable LazyCat delivery, persist the selected source digest in the Manifest upstream comment and compare that baseline on later runs; never anonymously inspect the private LazyCat Registry. A legacy LazyCat runtime without a baseline may perform one authenticated copy and compare the content-addressed returned reference. An external runtime may perform one migration copy without bumping. A dry-run without a legacy private baseline must fail closed until a trusted non-dry migration establishes it.
+
 Keep `update.allow_downgrade: false` or omit it for the safe default. Compare the mapped version-source image SemVer with the current package version before delivery. Equal versions may refresh an image reference or digest. Set `allow_downgrade: true` only after the user explicitly confirms an intentional rollback.
 
 ## 🔴 CHECKPOINT — before enabling version downgrades

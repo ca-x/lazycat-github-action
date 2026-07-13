@@ -55,12 +55,12 @@
 - Test: `internal/delivery/delivery_test.go`
 
 **Interfaces:**
-- Extends `delivery.Request` with `CurrentRef` and `Mutable`.
+- Extends `delivery.Request` with `CurrentRef`, `CurrentDigest`, and `Mutable`.
 - Extends `delivery.Result` with `CurrentDigest` and `DigestChanged`.
 
 - [ ] Add failing direct, LazyCat, mirror, and dry-run tests for equal and changed digests.
 - [ ] Run `go test ./internal/delivery` and verify failure.
-- [ ] Pin direct mutable references by digest, inspect current LazyCat/mirror references for the configured target, and copy only on changed LazyCat digests.
+- [ ] Pin direct/mirror mutable references by digest, persist the source digest in the Manifest upstream comment, and use authenticated LazyCat copy results for one-time legacy baseline migration without anonymously inspecting the private Registry.
 - [ ] Run `go test ./internal/delivery` and verify success.
 
 ### Task 4: Image-flow bump decision and outputs

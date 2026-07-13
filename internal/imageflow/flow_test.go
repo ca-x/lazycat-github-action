@@ -391,14 +391,16 @@ func TestFlowBumpsPatchOnlyWhenMutableDigestChanges(t *testing.T) {
 			cfg := mutableImageConfig()
 			deliverer := &fakeDeliverer{digestChanged: test.digestChanged, currentDigest: digest("a")}
 			applied := 0
+			var appliedUpdate manifestedit.Update
 			flow := imageflow.Flow{
 				Registry:  &fakeRegistry{bySource: map[string][]versioning.Candidate{"ghcr.io/acme/web": {candidate}}},
 				Deliverer: deliverer,
 				ReadManifest: func(string, []manifestedit.Target) ([]manifestedit.Current, error) {
-					return []manifestedit.Current{{ID: "web", RuntimeRef: "registry.lazycat.cloud/web:current", UpstreamRef: "ghcr.io/acme/web:latest"}}, nil
+					return []manifestedit.Current{{ID: "web", RuntimeRef: "registry.lazycat.cloud/web:current", UpstreamRef: "ghcr.io/acme/web:latest@" + digest("a")}}, nil
 				},
-				ApplyManifest: func(string, []manifestedit.Update) ([]manifestedit.Change, error) {
+				ApplyManifest: func(_ string, updates []manifestedit.Update) ([]manifestedit.Change, error) {
 					applied++
+					appliedUpdate = updates[0]
 					return []manifestedit.Change{{ID: "web", Changed: true}}, nil
 				},
 			}
@@ -406,7 +408,7 @@ func TestFlowBumpsPatchOnlyWhenMutableDigestChanges(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if result.Version != test.wantVersion || result.Changed != test.wantChanged || deliverer.last.CurrentRef != "registry.lazycat.cloud/web:current" || !deliverer.last.Mutable {
+			if result.Version != test.wantVersion || result.Changed != test.wantChanged || deliverer.last.CurrentRef != "registry.lazycat.cloud/web:current" || deliverer.last.CurrentDigest != digest("a") || !deliverer.last.Mutable {
 				t.Fatalf("result=%#v delivery=%#v", result, deliverer.last)
 			}
 			wantApplied := 0
@@ -415,6 +417,9 @@ func TestFlowBumpsPatchOnlyWhenMutableDigestChanges(t *testing.T) {
 			}
 			if applied != wantApplied {
 				t.Fatalf("applied=%d", applied)
+			}
+			if test.wantChanged && appliedUpdate.SourceRef != "ghcr.io/acme/web:latest@"+candidate.Digest {
+				t.Fatalf("applied update=%#v", appliedUpdate)
 			}
 			image := result.Images[0]
 			if image.Bump != "patch" || image.PreviousVersion != "1.4.6" || image.SelectedVersion != test.wantVersion || image.DigestChanged != test.digestChanged {
@@ -435,7 +440,7 @@ func TestFlowMutableDryRunCalculatesBumpWithoutApplying(t *testing.T) {
 		Registry:  &fakeRegistry{bySource: map[string][]versioning.Candidate{"ghcr.io/acme/web": {{Tag: "latest", Digest: digest("b"), Created: created(12)}}}},
 		Deliverer: deliverer,
 		ReadManifest: func(string, []manifestedit.Target) ([]manifestedit.Current, error) {
-			return []manifestedit.Current{{ID: "web", RuntimeRef: "registry.lazycat.cloud/web:current", UpstreamRef: "ghcr.io/acme/web:latest"}}, nil
+			return []manifestedit.Current{{ID: "web", RuntimeRef: "registry.lazycat.cloud/web:current", UpstreamRef: "ghcr.io/acme/web:latest@" + digest("a")}}, nil
 		},
 		ApplyManifest: func(string, []manifestedit.Update) ([]manifestedit.Change, error) {
 			t.Fatal("dry-run applied manifest")

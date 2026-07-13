@@ -180,9 +180,13 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 		}
 		sourceRef := image.Source + ":" + selection.Candidate.Tag
 		current := currentByID[image.ID]
+		currentDigest := ""
+		if mutable {
+			currentDigest = referenceDigest(current.UpstreamRef)
+		}
 		deliveryRequest := delivery.Request{
 			Image: image, Tag: selection.Candidate.Tag, SourceRef: sourceRef, SourceDigest: selection.Candidate.Digest,
-			CurrentRef: current.RuntimeRef, Mutable: mutable, Target: target, DryRun: request.DryRun,
+			CurrentRef: current.RuntimeRef, CurrentDigest: currentDigest, Mutable: mutable, Target: target, DryRun: request.DryRun,
 		}
 		if request.OnProgress != nil {
 			deliveryRequest.OnProgress = func(progress appstore.CopyProgress) { request.OnProgress(image.ID, progress) }
@@ -214,7 +218,7 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 		if mutable {
 			delivered, err = flow.Deliverer.Deliver(ctx, deliveryRequest)
 			if err != nil {
-				return Result{}, fmt.Errorf("%w for %q: %v", ErrDeliveryFailed, image.ID, err)
+				return Result{}, fmt.Errorf("%w for %q: %w", ErrDeliveryFailed, image.ID, err)
 			}
 			needsUpdate = delivered.DigestChanged || delivered.DeliveryChanged
 		} else {
@@ -222,7 +226,7 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 			case "direct", "mirror":
 				delivered, err = flow.Deliverer.Deliver(ctx, deliveryRequest)
 				if err != nil {
-					return Result{}, fmt.Errorf("%w for %q: %v", ErrDeliveryFailed, image.ID, err)
+					return Result{}, fmt.Errorf("%w for %q: %w", ErrDeliveryFailed, image.ID, err)
 				}
 				needsUpdate = current.UpstreamRef != sourceRef || current.RuntimeRef != delivered.RuntimeRef
 			case "lazycat":
@@ -230,7 +234,7 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 				if shouldDeliver {
 					delivered, err = flow.Deliverer.Deliver(ctx, deliveryRequest)
 					if err != nil {
-						return Result{}, fmt.Errorf("%w for %q: %v", ErrDeliveryFailed, image.ID, err)
+						return Result{}, fmt.Errorf("%w for %q: %w", ErrDeliveryFailed, image.ID, err)
 					}
 				} else {
 					delivered = delivery.Result{Mode: "lazycat", RuntimeRef: current.RuntimeRef}
@@ -254,7 +258,11 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 		if needsUpdate {
 			result.Changed = true
 			if !request.DryRun {
-				updates = append(updates, manifestedit.Update{Target: imageTarget(image), SourceRef: sourceRef, RuntimeRef: delivered.RuntimeRef})
+				manifestSourceRef := sourceRef
+				if mutable {
+					manifestSourceRef += "@" + selection.Candidate.Digest
+				}
+				updates = append(updates, manifestedit.Update{Target: imageTarget(image), SourceRef: manifestSourceRef, RuntimeRef: delivered.RuntimeRef})
 			}
 		}
 		selectedVersion := selection.Version
@@ -294,6 +302,14 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 	}
 	logger.Info("Docker image update completed", "changed", result.Changed, "version", result.Version, "images", len(result.Images))
 	return result, nil
+}
+
+func referenceDigest(reference string) string {
+	_, digest, found := strings.Cut(strings.TrimSpace(reference), "@")
+	if !found {
+		return ""
+	}
+	return strings.TrimSpace(digest)
 }
 
 func selectImages(images []config.Image, imageID string) ([]config.Image, error) {
