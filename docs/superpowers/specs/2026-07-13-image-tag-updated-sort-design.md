@@ -23,6 +23,17 @@ sort: updated
 
 Nightly remains restricted to `created`. Stable and beta continue to default to `semver`. Updated sorting is initially supported only for Docker Hub repositories because the OCI Distribution API does not define a portable tag-update timestamp.
 
+The project may also select its LazyCat target architecture:
+
+```yaml
+project:
+  target_arch: arm64
+```
+
+`project.target_arch` is optional, defaults to `amd64`, and accepts only `amd64` or `arm64`. The target operating system remains Linux, so the effective platforms are `linux/amd64` and `linux/arm64`. Runner architecture remains independent: either Action binary may build or inspect either configured target when the project toolchain supports cross-building.
+
+The target architecture is a project-wide invariant. It controls OCI manifest selection, mirror digest verification, LazyCat Registry copy requests, build environment variables, LPK/result metadata, and publication validation. Per-image architecture overrides are intentionally not supported because one LPK must have one coherent target platform.
+
 ## Architecture and Data Flow
 
 1. Configuration validation accepts `updated` for stable, beta, and custom channels.
@@ -33,6 +44,8 @@ Nightly remains restricted to `created`. Stable and beta continue to default to 
 6. The selected candidate continues through the existing delivery, Manifest editing, versioning, build, Release, and store flows.
 
 Docker Hub metadata requests use a bounded response, context cancellation, an HTTP timeout, a maximum of 10,000 tags, and status-only errors. Remote response bodies are not included in diagnostics.
+
+Target architecture is normalized once at the configuration boundary and then passed explicitly as a `platform.Target` value. It is never stored in mutable package-level state, so tests and concurrent callers cannot leak architecture choices into each other.
 
 ## Downgrade and Mutable-Tag Behavior
 
@@ -65,6 +78,7 @@ Rejected. That would change existing stable repositories and make version select
 - Docker Hub metadata tests cover pagination, URL escaping, missing timestamps, tag limits, cancellation, non-2xx responses, and bounded JSON.
 - Registry tests prove ranked inspection skips a newer arm64-only tag and stops at the first usable `linux/amd64` candidate.
 - Image-flow tests prove the downgrade guard remains active and updated sorting triggers mutable-tag delivery refresh.
+- Platform, registry, delivery, build, LPK, publish-flow, and Action tests prove an explicit arm64 target reaches every downstream consumer while omission remains amd64.
 - Metadata tests require README and Skill coverage.
 - Full Go, race, vet, staticcheck, shell/action metadata, and actionlint checks run before release.
 - A released `v1` is exercised through `lazycat-contrib/sublink-pro-lzcapp`; logs must show `sort=updated` and selection of the tag with the newest Docker Hub `last_updated` timestamp.
@@ -74,8 +88,8 @@ Rejected. That would change existing stable repositories and make version select
 - Existing configurations continue to select by SemVer.
 - `sort: updated` selects the most recently updated eligible Docker Hub tag.
 - An unavailable or unsupported update timestamp fails explicitly rather than falling back to OCI creation time.
-- Target platform filtering remains `linux/amd64`.
+- Target platform filtering always matches the normalized project target.
+- The omitted target architecture remains `linux/amd64`; explicit `target_arch: arm64` consistently produces `linux/arm64` inspection, copy, build, validation, and output metadata.
 - Downgrade protection remains enabled by default.
 - README, Chinese README, configuration reference, Skill guidance, and evals explain the new mode.
 - The next patch release, floating `v1`, GitHub Release assets, and Marketplace entry are verified.
-

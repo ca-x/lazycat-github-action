@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add opt-in `sort: updated` selection based on Docker Hub tag `last_updated` metadata without changing default SemVer behavior.
+**Goal:** Add opt-in Docker Hub update-time sorting and an optional project target architecture that defaults to amd64.
 
-**Architecture:** Extend the configuration and versioning contracts with an `updated` sort. Add a bounded Docker Hub metadata adapter behind the registry client, rank tags before manifest inspection, and preserve the existing downgrade guard and `linux/amd64` platform selection.
+**Architecture:** Extend the configuration and versioning contracts with an `updated` sort. Add a bounded Docker Hub metadata adapter behind the registry client, rank tags before manifest inspection, and replace fixed target constants with an immutable `platform.Target` passed through inspection, delivery, build, validation, and publication.
 
 **Tech Stack:** Go, `go-containerregistry`, Docker Hub HTTP API, YAML v3, GitHub Actions.
 
@@ -16,6 +16,8 @@
 - Updated sorting is fail-closed and Docker Hub-only until another registry exposes an equivalent timestamp.
 - `update.allow_downgrade: false` remains effective.
 - Registry response bodies, credentials, and tokens must not enter errors or logs.
+- `project.target_arch` defaults to `amd64`, accepts `amd64` or `arm64`, and always uses Linux.
+- Target architecture is passed explicitly and must not use mutable package-level state.
 
 ---
 
@@ -80,7 +82,46 @@
 - [ ] Add a test proving a lower updated selection remains blocked before delivery when `allow_downgrade` is false.
 - [ ] Run `go test ./internal/imageflow -count=1` and require GREEN.
 
-### Task 4: Documentation and Skill contract
+### Task 4: Configurable target architecture
+
+**Files:**
+- Modify: `internal/platform/platform.go`
+- Modify: `internal/platform/platform_test.go`
+- Modify: `internal/config/types.go`
+- Modify: `internal/config/load.go`
+- Modify: `internal/config/load_test.go`
+- Modify: `internal/registry/client.go`
+- Modify: `internal/registry/client_test.go`
+- Modify: `internal/delivery/delivery.go`
+- Modify: `internal/delivery/delivery_test.go`
+- Modify: `internal/build/build.go`
+- Modify: `internal/build/build_test.go`
+- Modify: `internal/lpkcheck/check.go`
+- Modify: `internal/lpkcheck/check_test.go`
+- Modify: `internal/imageflow/flow.go`
+- Modify: `internal/imageflow/flow_test.go`
+- Modify: `internal/publishflow/flow.go`
+- Modify: `internal/publishflow/flow_test.go`
+- Modify: `internal/action/action.go`
+- Modify: `internal/action/action_test.go`
+
+**Interfaces:**
+- Produces: `config.Project.TargetArch string` from `project.target_arch`
+- Produces: immutable `platform.Target{OS, Arch}` with `Platform() string`
+- Consumes: one target value across registry, delivery, build, LPK validation, image flow, publish flow, and Action output
+
+- [ ] Add config/platform tests proving omission yields amd64, explicit arm64 is accepted, and other values fail.
+- [ ] Run `go test ./internal/config ./internal/platform -count=1` and require RED.
+- [ ] Implement target normalization without mutable global state; run focused tests and require GREEN.
+- [ ] Add registry and delivery tests proving arm64 manifest selection, mirror verification, and LazyCat copy `Platform: "arm64"`.
+- [ ] Run `go test ./internal/registry ./internal/delivery -count=1` and require RED.
+- [ ] Pass the target through registry and delivery interfaces; run focused tests and require GREEN.
+- [ ] Add build/LPK tests proving `LAZYCAT_TARGET_ARCH=arm64`, `LAZYCAT_TARGET_PLATFORM=linux/arm64`, and arm64 result metadata.
+- [ ] Run `go test ./internal/build ./internal/lpkcheck -count=1` and require RED, implement explicit target parameters, then require GREEN.
+- [ ] Add image-flow, publish-flow, and Action tests proving the configured target reaches selection, validation, logs, and outputs while omitted configuration remains amd64.
+- [ ] Pass the target explicitly through those flows and run their focused test suites until GREEN.
+
+### Task 5: Documentation and Skill contract
 
 **Files:**
 - Modify: `README.md`
@@ -97,9 +138,10 @@
 - [ ] Extend metadata tests and eval contracts first; run `go test ./internal/metadata -count=1` and require RED.
 - [ ] Document updated/created/semver distinctions in both READMEs, the Skill, and configuration reference.
 - [ ] Add an eval and Chinese test prompt for an older SemVer tag that was updated more recently.
+- [ ] Document `project.target_arch`, amd64 default, arm64 support, Runner/target independence, and project-wide target consistency.
 - [ ] Run `go test ./internal/metadata -count=1` and JSON parsing tests and require GREEN.
 
-### Task 5: Verification, consumer experiment, and release
+### Task 6: Verification, consumer experiment, and release
 
 **Files:**
 - Modify in consumer repository: `.github/lazycat-action.yml`
@@ -116,4 +158,3 @@
 - [ ] Publish the next patch release, move floating `v1`, and verify checksums, SBOMs, attestations, and Marketplace resolution.
 - [ ] Add `sort: updated` to `lazycat-contrib/sublink-pro-lzcapp`, trigger the reusable workflow, and verify logs show updated sorting and the expected tag selection.
 - [ ] Confirm the consumer workflow succeeds without an unintended SemVer upgrade to `v1.2.26`.
-
