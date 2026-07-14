@@ -42,6 +42,8 @@ jobs:
     version: ${{ github.ref_name }}
 ```
 
+Gitea Actions 和 Forgejo Actions 用户应通过完整 URL 直接调用 composite Action，GitHub reusable workflow 不能原样迁移。具体配置和限制见[《在 Gitea Actions 和 Forgejo Actions 中使用 LazyCat GitHub Action》](docs/gitea-forgejo-actions.zh-CN.md)。
+
 调用方不需要编译本项目。启动脚本会按 Runner 架构下载 Action 二进制，并校验发布包 SHA256。
 
 ## 进度日志

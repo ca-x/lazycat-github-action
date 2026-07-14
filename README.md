@@ -42,6 +42,8 @@ Use the composite Action directly inside an existing job:
     version: ${{ github.ref_name }}
 ```
 
+Gitea Actions and Forgejo Actions users should call the composite Action directly with a fully qualified URL. The GitHub reusable workflow is not portable as-is. See [Using this Action with Gitea Actions and Forgejo Actions](docs/gitea-forgejo-actions.md).
+
 Callers do not compile this repository. The bootstrap downloads a checksum-verified Action binary for the Runner architecture.
 
 ## Progress logs
