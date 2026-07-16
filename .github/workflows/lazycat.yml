@@ -368,10 +368,43 @@ jobs:
           set -euo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+
+          remote_ref="refs/remotes/origin/${GITHUB_REF_NAME}"
+          write_commit_output() {
+            echo "commit=$(git rev-parse HEAD)" >>"${GITHUB_OUTPUT}"
+          }
+          refresh_remote() {
+            git fetch --no-tags origin "+refs/heads/${GITHUB_REF_NAME}:${remote_ref}"
+          }
+          managed_files_match_remote() {
+            git diff --quiet "${remote_ref}" -- "${PACKAGE_FILE}" "${MANIFEST_FILE}"
+          }
+          adopt_matching_remote() {
+            echo "Remote branch already contains the exact managed-file update; continuing from ${remote_ref}."
+            git reset --hard "${remote_ref}"
+            write_commit_output
+          }
+
+          refresh_remote
+          if managed_files_match_remote; then
+            adopt_matching_remote
+            exit 0
+          fi
+
           git add -- "${PACKAGE_FILE}" "${MANIFEST_FILE}"
           git commit -m "chore: update LazyCat application to ${VERSION} [skip ci]"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
-          echo "commit=$(git rev-parse HEAD)" >>"${GITHUB_OUTPUT}"
+          if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+            write_commit_output
+            exit 0
+          fi
+
+          refresh_remote
+          if managed_files_match_remote; then
+            adopt_matching_remote
+            exit 0
+          fi
+          echo "Direct-publish push failed and the remote managed files differ from this update; refusing to overwrite concurrent changes." >&2
+          exit 1
 
       - name: Classify Release work
         id: release-state
@@ -386,6 +419,7 @@ jobs:
           CHANGED: ${{ steps.lazycat.outputs.changed }}
           DRY_RUN: ${{ inputs.dry-run }}
         with:
+          retries: 3
           script: |
             if (context.ref.startsWith('refs/tags/') || context.eventName === 'release') {
               core.setOutput('should-release', process.env.LPK_PATH ? 'true' : 'false');
@@ -557,6 +591,7 @@ jobs:
           LPK_PATH: ${{ steps.release-asset.outputs.lpk-path }}
           LPK_SHA256: ${{ steps.release-build.outputs.sha256 }}
         with:
+          retries: 3
           script: |
             const path = require('path');
             const tag = process.env.RELEASE_TAG;
@@ -607,6 +642,7 @@ jobs:
           LPK_PATH: ${{ steps.release-asset.outputs.lpk-path }}
           LPK_SHA256: ${{ steps.release-build.outputs.sha256 }}
         with:
+          retries: 3
           script: |
             const path = require('path');
             const release = await github.rest.repos.getReleaseByTag({...context.repo, tag: process.env.RELEASE_TAG});
@@ -632,6 +668,7 @@ jobs:
           PACKAGE_ID: ${{ steps.lazycat.outputs.package-id }}
           VERSION: ${{ steps.lazycat.outputs.version }}
         with:
+          retries: 3
           script: |
             const packageId = process.env.PACKAGE_ID;
             const version = process.env.VERSION;

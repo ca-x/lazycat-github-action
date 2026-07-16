@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -357,8 +358,8 @@ func TestActionMetadataExposesStableContract(t *testing.T) {
 	if document.Runs.Using != "composite" {
 		t.Fatalf("runs.using=%q", document.Runs.Using)
 	}
-	if !strings.Contains(string(data), "LAZYCAT_ACTION_VERSION: v1.1.21") {
-		t.Fatal("action.yml must bootstrap release v1.1.21")
+	if !strings.Contains(string(data), "LAZYCAT_ACTION_VERSION: v1.1.22") {
+		t.Fatal("action.yml must bootstrap release v1.1.22")
 	}
 }
 
@@ -386,6 +387,164 @@ func TestReusableWorkflowRecoversMissingReleaseForUnchangedPublish(t *testing.T)
 			t.Fatalf("missing unchanged-publish Release recovery contract %q", required)
 		}
 	}
+}
+
+func TestReusableWorkflowRecoversStalePublishRerunsAndRetriesReleaseReads(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "lazycat.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(data)
+
+	commitStep := workflowStep(t, workflow, "Commit direct-publish update")
+	for _, required := range []string{
+		`remote_ref="refs/remotes/origin/${GITHUB_REF_NAME}"`,
+		`git fetch --no-tags origin "+refs/heads/${GITHUB_REF_NAME}:${remote_ref}"`,
+		`git diff --quiet "${remote_ref}" -- "${PACKAGE_FILE}" "${MANIFEST_FILE}"`,
+		`git reset --hard "${remote_ref}"`,
+		`if git push origin "HEAD:${GITHUB_REF_NAME}"; then`,
+		`if managed_files_match_remote; then`,
+		`adopt_matching_remote`,
+		`echo "commit=$(git rev-parse HEAD)" >>"${GITHUB_OUTPUT}"`,
+	} {
+		if !strings.Contains(commitStep, required) {
+			t.Fatalf("direct-publish rerun recovery is missing %q", required)
+		}
+	}
+	if strings.Contains(commitStep, "git push --force") || strings.Contains(commitStep, "git push -f") {
+		t.Fatal("direct-publish rerun recovery must never force-push")
+	}
+
+	for _, name := range []string{
+		"Classify Release work",
+		"Inspect existing Release Asset",
+		"Resolve Release Asset URL",
+		"Locate existing Release Asset for store reconciliation",
+	} {
+		step := workflowStep(t, workflow, name)
+		if !strings.Contains(step, "retries: 3") {
+			t.Fatalf("safe Release read step %q must retry transient GitHub 5xx responses", name)
+		}
+	}
+}
+
+func TestDirectPublishScriptAdoptsMatchingRemoteUpdate(t *testing.T) {
+	root := t.TempDir()
+	remote := filepath.Join(root, "remote.git")
+	seed := filepath.Join(root, "seed")
+	stale := filepath.Join(root, "stale")
+	updater := filepath.Join(root, "updater")
+
+	runGit(t, root, "init", "--bare", remote)
+	runGit(t, root, "init", "-b", "main", seed)
+	runGit(t, seed, "config", "user.name", "Test User")
+	runGit(t, seed, "config", "user.email", "test@example.com")
+	writeTestFile(t, filepath.Join(seed, "package.yml"), "version: 0.2.30\n")
+	writeTestFile(t, filepath.Join(seed, "lzc-manifest.yml"), "image: old\n")
+	runGit(t, seed, "add", "package.yml", "lzc-manifest.yml")
+	runGit(t, seed, "commit", "-m", "base")
+	runGit(t, seed, "remote", "add", "origin", remote)
+	runGit(t, seed, "push", "-u", "origin", "main")
+	runGit(t, root, "--git-dir", remote, "symbolic-ref", "HEAD", "refs/heads/main")
+	runGit(t, root, "clone", remote, stale)
+	runGit(t, root, "clone", remote, updater)
+
+	runGit(t, updater, "config", "user.name", "Updater")
+	runGit(t, updater, "config", "user.email", "updater@example.com")
+	writeTestFile(t, filepath.Join(updater, "package.yml"), "version: 0.2.31\n")
+	writeTestFile(t, filepath.Join(updater, "lzc-manifest.yml"), "image: new\n")
+	runGit(t, updater, "add", "package.yml", "lzc-manifest.yml")
+	runGit(t, updater, "commit", "-m", "update")
+	runGit(t, updater, "push", "origin", "main")
+	remoteHead := strings.TrimSpace(runGit(t, updater, "rev-parse", "HEAD"))
+
+	writeTestFile(t, filepath.Join(stale, "package.yml"), "version: 0.2.31\n")
+	writeTestFile(t, filepath.Join(stale, "lzc-manifest.yml"), "image: new\n")
+	outputFile := filepath.Join(root, "github-output")
+	command := exec.Command("bash", "-c", reusableWorkflowRunScript(t, "Commit direct-publish update"))
+	command.Dir = stale
+	command.Env = append(os.Environ(),
+		"VERSION=0.2.31",
+		"PACKAGE_FILE="+filepath.Join(stale, "package.yml"),
+		"MANIFEST_FILE="+filepath.Join(stale, "lzc-manifest.yml"),
+		"GITHUB_REF_NAME=main",
+		"GITHUB_OUTPUT="+outputFile,
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("run direct-publish script: %v\n%s", err, output)
+	}
+	if got := strings.TrimSpace(runGit(t, stale, "rev-parse", "HEAD")); got != remoteHead {
+		t.Fatalf("stale rerun HEAD=%s, want remote update %s", got, remoteHead)
+	}
+	if got := strings.TrimSpace(runGit(t, stale, "status", "--porcelain")); got != "" {
+		t.Fatalf("stale rerun left a dirty worktree:\n%s", got)
+	}
+	output, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(output), "commit="+remoteHead) {
+		t.Fatalf("direct-publish output=%q, want commit=%s", output, remoteHead)
+	}
+}
+
+func reusableWorkflowRunScript(t *testing.T, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "lazycat.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Name string `yaml:"name"`
+				Run  string `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range document.Jobs["lazycat"].Steps {
+		if step.Name == name {
+			return step.Run
+		}
+	}
+	t.Fatalf("workflow run step %q is missing", name)
+	return ""
+}
+
+func runGit(t *testing.T, directory string, arguments ...string) string {
+	t.Helper()
+	command := exec.Command("git", arguments...)
+	command.Dir = directory
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(arguments, " "), err, output)
+	}
+	return string(output)
+}
+
+func writeTestFile(t *testing.T, filename, content string) {
+	t.Helper()
+	if err := os.WriteFile(filename, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func workflowStep(t *testing.T, workflow, name string) string {
+	t.Helper()
+	marker := "- name: " + name
+	start := strings.Index(workflow, marker)
+	if start < 0 {
+		t.Fatalf("workflow step %q is missing", name)
+	}
+	rest := workflow[start:]
+	end := strings.Index(rest[len(marker):], "\n      - name: ")
+	if end < 0 {
+		return rest
+	}
+	return rest[:len(marker)+end]
 }
 
 func TestActionMetadataUsesBracketSyntaxForHyphenatedNames(t *testing.T) {
