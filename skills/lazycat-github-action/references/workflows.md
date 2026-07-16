@@ -150,6 +150,15 @@ Runner architecture changes only the Action host binary. The build output must m
 
 Use the composite Action directly only when another workflow owns GitHub Releases:
 
+The caller also owns checkout and project toolchains. Use the Node.js 24-compatible official majors:
+
+```yaml
+- uses: actions/checkout@v7
+- uses: actions/setup-node@v7
+```
+
+Replace legacy v4 checkout/setup-node steps when updating an existing caller-owned workflow.
+
 ```yaml
 - uses: ca-x/lazycat-github-action@v1
   id: publish-private

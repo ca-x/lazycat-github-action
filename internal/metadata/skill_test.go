@@ -40,6 +40,16 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 			t.Fatalf("SKILL.md missing %q", required)
 		}
 	}
+	for _, required := range []string{"Node.js 24", "actions/checkout@v7", "actions/setup-node@v7"} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("SKILL.md missing Node.js 24 Action contract %q", required)
+		}
+	}
+	for _, forbidden := range []string{"actions/checkout@v4", "actions/setup-node@v4"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("SKILL.md contains deprecated Node.js 20 Action %q", forbidden)
+		}
+	}
 	for _, required := range []string{
 		"Both repository entry points are supported",
 		"ca-x/lazycat-github-action@v1",
@@ -100,6 +110,9 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	}
 	if _, found := seen["mutable-latest-patch-bump"]; !found {
 		t.Fatal("evals are missing mutable latest patch-bump coverage")
+	}
+	if _, found := seen["node24-action-runtime"]; !found {
+		t.Fatal("evals are missing Node.js 24 Action runtime coverage")
 	}
 	for _, name := range []string{"references/configuration.md", "references/workflows.md", "assets/lazycat-action.yml"} {
 		data, err := os.ReadFile(filepath.Join(root, name))
@@ -189,6 +202,10 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 			"ca-x/lazycat-github-action/.github/workflows/lazycat.yml@v1",
 			"Composite Action",
 			"Reusable Workflow",
+			"Node.js 24",
+			"v2.327.1",
+			"actions/checkout@v7",
+			"actions/setup-node@v7",
 			"sort: updated",
 			"target_arch",
 		} {
@@ -245,8 +262,8 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	if err := json.Unmarshal(prompts, &promptCases); err != nil {
 		t.Fatal(err)
 	}
-	if len(promptCases) != 15 {
-		t.Fatalf("test-prompts.json cases=%d, want 15", len(promptCases))
+	if len(promptCases) != 16 {
+		t.Fatalf("test-prompts.json cases=%d, want 16", len(promptCases))
 	}
 	promptIDs := make(map[string]string, len(promptCases))
 	for _, prompt := range promptCases {
@@ -270,6 +287,7 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 		"store-online-version-downgrade-guard": {"allow_downgrade: false", "SemVer", "7.8.138", "7.7.406", "online-version-newer", "version-already-online", "non-SemVer", "独立"},
 		"official-retry-and-failure-isolation": {"enabled: false", "max_attempts", "initial_delay", "max_delay", "429", "5xx", "审核网络错误或 5xx 不重放", "400", "双商店", "warning", "官方唯一目标", "message"},
 		"updated-tag-and-target-architecture":  {"sort: updated", "last_updated", "v1.2.15", "v1.2.26", "target_arch", "amd64", "arm64", "allow_downgrade: false"},
+		"node24-action-runtime":                {"Node.js 24", "actions/checkout@v7", "actions/setup-node@v7", "不得生成", "@v4"},
 	} {
 		expected, found := promptIDs[id]
 		if !found {
@@ -278,6 +296,56 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 		for _, value := range required {
 			if !strings.Contains(expected, value) {
 				t.Fatalf("test prompt %q expected result missing %q", id, value)
+			}
+		}
+	}
+	reusableWorkflow, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "lazycat.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reusableText := string(reusableWorkflow)
+	if !strings.Contains(reusableText, "actions/checkout@v7") || !strings.Contains(reusableText, "actions/setup-node@v7") {
+		t.Fatal("reusable workflow must use Node.js 24-compatible checkout/setup-node v7 Actions")
+	}
+	for _, forbidden := range []string{"actions/checkout@v4", "actions/setup-node@v4"} {
+		if strings.Contains(reusableText, forbidden) {
+			t.Fatalf("reusable workflow contains deprecated Node.js 20 Action %q", forbidden)
+		}
+	}
+	for _, name := range []string{"docs/gitea-forgejo-actions.md", "docs/gitea-forgejo-actions.zh-CN.md"} {
+		data, err := os.ReadFile(filepath.Join("..", "..", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		document := string(data)
+		for _, required := range []string{"Node.js 24", "https://github.com/actions/checkout@v7"} {
+			if !strings.Contains(document, required) {
+				t.Fatalf("%s missing Node.js 24 Action contract %q", name, required)
+			}
+		}
+		if strings.Contains(document, "https://github.com/actions/checkout@v4") {
+			t.Fatalf("%s contains deprecated Node.js 20 checkout Action", name)
+		}
+	}
+	activeActionFiles := []string{
+		".github/workflows/ci.yml",
+		".github/workflows/lazycat.yml",
+		".github/workflows/release.yml",
+		"docs/gitea-forgejo-actions.md",
+		"docs/gitea-forgejo-actions.zh-CN.md",
+		"skills/lazycat-github-action/SKILL.md",
+		"skills/lazycat-github-action/references/workflows.md",
+	}
+	for _, name := range activeActionFiles {
+		data, err := os.ReadFile(filepath.Join("..", "..", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for lineNumber, line := range strings.Split(string(data), "\n") {
+			for _, action := range []string{"actions/checkout@", "actions/setup-node@"} {
+				if strings.Contains(line, action) && !strings.Contains(line, action+"v7") {
+					t.Fatalf("%s:%d uses a non-v7 Node.js Action: %s", name, lineNumber+1, strings.TrimSpace(line))
+				}
 			}
 		}
 	}

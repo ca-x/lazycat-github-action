@@ -96,6 +96,12 @@
       "prompt": "The official image publishes only latest. Automatically increment the package patch version when its amd64 digest changes, publish both stores, and avoid duplicate releases when it does not change.",
       "mustInclude": ["bump: patch", "channel: custom", "sort: created", "tag_regex: '^latest$'", "digest", "skip_if_version_exists: true", "mode: lazycat"],
       "mustNotInclude": ["allow_downgrade: true", "bump on every run", "mode: direct", "version_regex"]
+    },
+    {
+      "id": "node24-action-runtime",
+      "prompt": "Generate a caller-owned composite workflow that checks out the repository and configures Node without GitHub's Node.js 20 deprecation warning.",
+      "mustInclude": ["Node.js 24", "actions/checkout@v7", "actions/setup-node@v7"],
+      "mustNotInclude": ["actions/checkout@v4", "actions/setup-node@v4"]
     }
   ]
 }

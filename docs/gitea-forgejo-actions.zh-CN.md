@@ -22,6 +22,7 @@
 
 - 使用 Linux amd64 或 arm64。
 - Runner 镜像或主机中包含 Bash、curl、tar、grep 和 sha256sum。
+- Runner 支持当前官方 GitHub Actions 所需的 Node.js 24 Action 运行时。
 - 调用 Action 前已经 checkout 项目工作区。
 - 使用默认启动方式时，Runner 可以访问源镜像仓库、懒猫服务和 GitHub Releases。
 
@@ -47,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: https://github.com/actions/checkout@v4
+        uses: https://github.com/actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -89,7 +90,7 @@ jobs:
     runs-on: docker
     steps:
       - name: Checkout
-        uses: https://github.com/actions/checkout@v4
+        uses: https://github.com/actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -129,7 +130,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: https://github.com/actions/checkout@v4
+      - uses: https://github.com/actions/checkout@v7
         with:
           fetch-depth: 0
 

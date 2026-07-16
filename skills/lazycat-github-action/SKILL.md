@@ -157,6 +157,8 @@ Buildscripts must honor those values. For the default target, Go uses `GOOS=linu
 
 The reusable workflow's `toolchains` input must match `build.toolchains` in Action configuration. Do not rely on an implicit moving toolchain version.
 
+GitHub-hosted workflows must use Node.js 24-compatible official JavaScript Actions. When a caller-owned job uses the composite Action, generate `actions/checkout@v7` and `actions/setup-node@v7`; replace the legacy v4 majors during workflow review. The reusable workflow owns these setup steps internally, but generated direct-composite examples still need the same majors.
+
 Set `build.run_buildscript: false` explicitly when `lzc-build.yml` has no `buildscript`; the Action default is `true`. For every publishing workflow, explicitly map each credential required by the enabled stores under the reusable job's `secrets:` block. Do not use only `secrets: inherit`: explicit mappings make missing repository authorization and Environment/Repository/Organization overrides reviewable. A public-image scheduled PR workflow with stores disabled should not receive unrelated repository Secrets.
 
 For versioned Release assets, set the reusable workflow input exactly:
@@ -235,6 +237,7 @@ Before finishing:
 11. Confirm the private store uses the verified versioned Release URL/SHA256 and official publication uploads the same verified bytes/SHA256 without that URL.
 12. Confirm unchanged `publish` automation recovery-builds a missing Release/asset, while an existing exact Release Asset reconciles either missing store version without rebuilding or republishing the store that is already current.
 13. Run `actionlint` and the project's build/test commands.
+14. Confirm caller-owned checkout and Node setup use `actions/checkout@v7` and `actions/setup-node@v7`, with no legacy v4 majors in active workflows.
 
 ## Common failures
 

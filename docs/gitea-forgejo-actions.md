@@ -22,6 +22,7 @@ The job must run on:
 
 - Linux amd64 or arm64.
 - A runner image or host with Bash, curl, tar, grep, and sha256sum.
+- A runner with Node.js 24 Action runtime support for current official GitHub Actions.
 - A workspace checked out before the Action runs.
 - A runner that can reach the source registries, LazyCat services, and GitHub Releases when the default bootstrap is used.
 
@@ -47,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: https://github.com/actions/checkout@v4
+        uses: https://github.com/actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -89,7 +90,7 @@ jobs:
     runs-on: docker
     steps:
       - name: Checkout
-        uses: https://github.com/actions/checkout@v4
+        uses: https://github.com/actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -129,7 +130,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: https://github.com/actions/checkout@v4
+      - uses: https://github.com/actions/checkout@v7
         with:
           fetch-depth: 0
 

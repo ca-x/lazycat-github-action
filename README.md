@@ -21,6 +21,8 @@ Both public entry points are supported and follow the floating `v1` release tag:
 | Composite Action | `ca-x/lazycat-github-action@v1` | Your job already owns checkout, permissions, toolchain setup, and GitHub mutations. |
 | Reusable Workflow | `ca-x/lazycat-github-action/.github/workflows/lazycat.yml@v1` | You want the complete LazyCat CI/CD path, including toolchains, pull requests, Artifacts, tags, Releases, assets, and store publication. |
 
+Current official checkout and Node setup Actions use the Node.js 24 runtime. Self-hosted GitHub Actions Runners must be `v2.327.1` or newer. Caller-owned composite jobs should use `actions/checkout@v7` and `actions/setup-node@v7`; the reusable workflow owns those setup steps internally.
+
 Use the reusable workflow for normal CI/CD:
 
 ```yaml

@@ -73,5 +73,10 @@
     "id": "updated-tag-and-target-architecture",
     "prompt": "Docker Hub 的 v1.2.15 比 v1.2.26 更晚更新，希望更新时间优先；同时目标懒猫设备未来可能是 ARM64，但其他项目仍保持原默认值。",
     "expected": "为该镜像显式设置 sort: updated，按 Docker Hub last_updated 选择 v1.2.15 而不是 SemVer 更高但更早更新的 v1.2.26；不要复用 sort: created。project.target_arch 为可选项目级参数，默认 amd64，可显式设置 arm64，并贯穿 OCI 检查、复制、构建和 LPK 输出。更新时间排序不关闭 allow_downgrade: false；若会降低当前 package 版本，仍需单独明确授权。"
+  },
+  {
+    "id": "node24-action-runtime",
+    "prompt": "我用 composite Action 自己写 checkout 和 Node setup，GitHub 提示 Node.js 20 已弃用。请更新生成规则。",
+    "expected": "说明官方 JavaScript Actions 必须使用 Node.js 24 兼容主版本：actions/checkout@v7 和 actions/setup-node@v7；生成或更新 caller-owned workflow 时不得生成 checkout/setup-node @v4。"
   }
 ]
