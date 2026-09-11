@@ -333,7 +333,7 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 		"image-version-downgrade-guard":         {"allow_downgrade: false", "SemVer", "VERSION_DOWNGRADE_BLOCKED", "同版本", "明确确认"},
 		"rust-protobuf-toolchain":               {"Edition 2023", "GitHub Release", "SHA256", "protoc --version", "共享 buildscript", "不得把 Proto 改成 proto3", "不得修改 Rust 源码", "build.rs"},
 		"store-online-version-downgrade-guard":  {"allow_downgrade: false", "SemVer", "7.8.138", "7.7.406", "online-version-newer", "version-already-online", "non-SemVer", "独立"},
-		"official-retry-and-failure-isolation":  {"enabled: false", "max_attempts", "initial_delay", "max_delay", "429", "5xx", "审核网络错误或 5xx 不重放", "400", "双商店", "warning", "官方唯一目标", "message"},
+		"official-retry-and-failure-isolation":  {"enabled: true", "max_attempts", "initial_delay", "max_delay", "max_upload_timeout", "600s", "429", "5xx", "审核网络错误或 5xx 不重放", "400", "双商店", "warning", "官方唯一目标", "message"},
 		"updated-tag-and-target-architecture":   {"sort: updated", "last_updated", "v1.2.15", "v1.2.26", "target_arch", "amd64", "arm64", "allow_downgrade: false"},
 		"node24-action-runtime":                 {"Node.js 24", "actions/checkout@v7", "actions/setup-node@v7", "不得生成", "@v4"},
 		"pat-default-legacy-opt-in":             {"LZC_API_TOKEN", "默认", "LAZYCAT_TOKEN", "仅", "lzc-cli 会话", "不得同时映射"},
@@ -573,7 +573,7 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 			t.Fatal(err)
 		}
 		contract := string(data)
-		for _, required := range []string{"retry", "enabled: false", "max_attempts", "initial_delay", "max_delay", "429", "5xx", "400", "container_name", "message"} {
+		for _, required := range []string{"retry", "enabled: false", "max_attempts", "initial_delay", "max_delay", "max_upload_timeout", "600s", "429", "5xx", "400", "container_name", "message"} {
 			if !strings.Contains(contract, required) {
 				t.Fatalf("%s is missing official retry/isolation contract %q", name, required)
 			}
@@ -594,8 +594,8 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	if err := yaml.Unmarshal(starterConfig, &starterDocument); err != nil {
 		t.Fatal(err)
 	}
-	if len(starterDocument.Stores.Official.Retry) != 1 || starterDocument.Stores.Official.Retry["enabled"] != false {
-		t.Fatalf("starter official retry=%#v, want only enabled: false", starterDocument.Stores.Official.Retry)
+	if len(starterDocument.Stores.Official.Retry) != 1 || starterDocument.Stores.Official.Retry["enabled"] != true {
+		t.Fatalf("starter official retry=%#v, want only enabled: true", starterDocument.Stores.Official.Retry)
 	}
 	if starterDocument.Stores.Official.ContinueIfNewerVersion == nil || !*starterDocument.Stores.Official.ContinueIfNewerVersion {
 		t.Fatalf("starter official continue_if_newer_version=%v, want true", starterDocument.Stores.Official.ContinueIfNewerVersion)

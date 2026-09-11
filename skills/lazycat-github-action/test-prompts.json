@@ -72,7 +72,7 @@
   {
     "id": "official-retry-and-failure-isolation",
     "prompt": "官方商店偶发 500，也有重复审核返回 400；项目同时发布官方和喵喵商店。请配置安全重试并说明失败如何影响整个 GitHub Action，以及能否显示官方错误消息。",
-    "expected": "配置 retry，默认 enabled: false；显式说明 max_attempts、initial_delay、max_delay。上传/检查阶段可重试无状态网络错误、429 和 5xx；审核创建只重试 429，审核网络错误或 5xx 不重放，400 也不重试。双商店时保留私有商店结果并把官方失败降级为 warning；官方唯一目标仍失败。只显示经过限制和脱敏的 JSON message，不打印原始响应正文或凭据。container_name 等兼容性 warning 不阻断。"
+    "expected": "配置 retry，默认 enabled: true、max_attempts: 3（包含首次请求）；可只配置 max_attempts 修改次数，enabled: false 关闭重试；显式说明 initial_delay、max_delay 与指数退避；上传超时从 30s 逐次翻倍，max_upload_timeout 默认 600s 且可配置，区别于 backoff 等待。上传/检查阶段可重试无状态网络错误、429 和 5xx；审核创建只重试 429，审核网络错误或 5xx 不重放，400 也不重试。双商店时保留私有商店结果并把官方失败降级为 warning；官方唯一目标仍失败。只显示经过限制和脱敏的 JSON message，不打印原始响应正文或凭据。container_name 等兼容性 warning 不阻断。"
   },
   {
     "id": "updated-tag-and-target-architecture",

@@ -208,7 +208,7 @@ Official publishing requires:
 - `stores.official.enabled: true`;
 - optional `stores.official.continue_if_newer_version: false` to pause every automatic direct-publication run that finds a pending review; omitted or true uses the newer-candidate comparison described below;
 - optional `stores.official.skip_if_version_exists: true` to query the anonymous official catalog and skip an equal version (`version-already-online`) or, with `allow_downgrade: false`, a newer online SemVer (`online-version-newer`);
-- optional retry policy, defaulting to `retry.enabled: false`; when enabled, `max_attempts` includes the first attempt and `initial_delay`/`max_delay` use Go duration syntax;
+- retry policy, defaulting to `retry.enabled: true` and `max_attempts: 3` (the initial request plus up to two retries); set `enabled: false` to disable it. `max_attempts` includes the first attempt and `initial_delay`/`max_delay` use Go duration syntax;
 - only `lazycat` image delivery;
 - official lint compliance, including locales and icon size at most 200 KB;
 - preferred PAT in `LZC_API_TOKEN`, with an optional `LZC_API_HOST` PAT API override;
@@ -218,15 +218,18 @@ Automatic first information submission is optional and is enabled only when `sto
 
 Screenshot fields accept only committed project-relative PNG/JPEG files. An agent using `agent-browser` must capture the PC/mobile views into the repository, commit and push the files to a ref the workflow will checkout, and then run publication. Choose project-confirmed viewport, DPR, authentication state, and test data rather than inventing them. Do not configure remote screenshot URLs. PC support requires 2-8 screenshots; mobile support requires 3-8. Each source must be at most 15 MiB and 320-3840 pixels in both dimensions; the Action center-crops it to 16:9 and uploads PNG. Paths outside `project.root`, symbolic links, and non-regular files are invalid. Read [references/configuration.md](references/configuration.md) for the complete optional YAML contract.
 
-Use this complete retry shape when the project explicitly opts in:
+Retries are enabled by default. Omit this block to use the defaults, or customize `max_attempts` (2-10) without an explicit enable flag:
 
 ```yaml
 retry:
-  enabled: false
+  enabled: true
   max_attempts: 3
   initial_delay: 2s
   max_delay: 30s
+  max_upload_timeout: 600s
 ```
+
+LPK upload timeout starts at 30 seconds and doubles on each retry, capped by `stores.official.retry.max_upload_timeout` (default `600s`, minimum `30s`). The default three attempts allow 30, 60, and 120 seconds; additional attempts allow 240, 480, then 600 seconds. A custom cap such as `90s` gives 30, 60, 90, 90 seconds. This timeout is separate from the backoff wait (`initial_delay`/`max_delay`). Application checks and review submission retain their existing timeouts; caller cancellation/deadlines still stop the upload.
 
 Upload/check failures may retry status-less connection/TLS/reset failures, HTTP 429, and HTTP 5xx. Review creation retries only HTTP 429; do not replay an ambiguous review network/5xx outcome because the non-idempotent request may already have been accepted. Never retry cancellation, deadline expiry, authentication, permissions, NotFound, integrity failures, HTTP 400, or another 4xx. A retry before review rechecks application existence and reopens the LPK; credentials resolve once. A valid `Retry-After` may extend the jittered wait up to `max_delay`.
 

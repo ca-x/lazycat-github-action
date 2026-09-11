@@ -29,7 +29,7 @@ stores:
     continue_if_newer_version: true
     skip_if_version_exists: false
     retry:
-      enabled: false
+      enabled: true
   private:
     enabled: false
     skip_if_version_exists: false

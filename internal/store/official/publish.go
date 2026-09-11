@@ -201,11 +201,19 @@ func (publisher Publisher) Publish(ctx context.Context, request Request) (Result
 		}
 	}
 	created := false
+	uploadClient := *httpClient
+	maxUploadTimeout := request.Retry.MaxUploadTimeout
+	if maxUploadTimeout <= 0 {
+		maxUploadTimeout = 600 * time.Second
+	}
+	if request.Retry.Enabled {
+		uploadClient.Timeout = min(uploadClient.Timeout, maxUploadTimeout)
+	}
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		if retryAfter != nil {
 			retryAfter.Reset()
 		}
-		result, err := publishAttempt(ctx, request, client, httpClient, baseURL, token, packageID, version, digest, filename, application, applicationInfos, stateAware, publisher.SDK, changelogs)
+		result, err := publishAttempt(ctx, request, client, httpClient, &uploadClient, baseURL, token, packageID, version, digest, filename, application, applicationInfos, stateAware, publisher.SDK, changelogs)
 		created = created || result.Created
 		if err == nil {
 			result.Created = created
@@ -234,6 +242,8 @@ func (publisher Publisher) Publish(ctx context.Context, request Request) (Result
 		if err := wait(ctx, delay); err != nil {
 			return Result{}, publishContextError(err)
 		}
+		// Only uploads get more time on retry, bounded by the configured ceiling.
+		uploadClient.Timeout += min(uploadClient.Timeout, maxUploadTimeout-uploadClient.Timeout)
 	}
 	return Result{}, publishError(lpkgo.CodeRemoteUnavailable, errors.New("official platform publishing failed"))
 }
@@ -298,7 +308,7 @@ func publishAttempt(
 	ctx context.Context,
 	request Request,
 	client *appstore.Client,
-	httpClient *http.Client,
+	httpClient, uploadClient *http.Client,
 	baseURL, token, packageID, version, digest, filename string,
 	application *appstore.CreateApplicationRequest,
 	applicationInfos []appstore.ApplicationInfo,
@@ -339,7 +349,7 @@ func publishAttempt(
 			return Result{Created: created}, err
 		}
 	}
-	upload, err := uploadLPK(ctx, httpClient, baseURL, token, request.LPKPath, filename)
+	upload, err := uploadLPK(ctx, uploadClient, baseURL, token, request.LPKPath, filename)
 	if err != nil {
 		return Result{Created: created}, err
 	}

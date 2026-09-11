@@ -417,8 +417,8 @@ func TestActionMetadataExposesStableContract(t *testing.T) {
 	if strings.Contains(string(data), "vars.") {
 		t.Fatal("composite action metadata must not reference the unsupported vars context")
 	}
-	if got := actionBootstrapVersion(t); got != "v1.2.10" {
-		t.Fatalf("action.yml bootstrap version=%q, want v1.2.10", got)
+	if got := actionBootstrapVersion(t); got != "v1.2.11" {
+		t.Fatalf("action.yml bootstrap version=%q, want v1.2.11", got)
 	}
 }
 

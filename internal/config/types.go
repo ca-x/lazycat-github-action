@@ -110,10 +110,11 @@ func (store OfficialStore) ShouldContinueIfNewerVersion() bool {
 }
 
 type OfficialRetry struct {
-	Enabled      bool          `yaml:"enabled"`
-	MaxAttempts  int           `yaml:"max_attempts"`
-	InitialDelay time.Duration `yaml:"initial_delay"`
-	MaxDelay     time.Duration `yaml:"max_delay"`
+	Enabled          bool          `yaml:"enabled"`
+	MaxAttempts      int           `yaml:"max_attempts"`
+	InitialDelay     time.Duration `yaml:"initial_delay"`
+	MaxDelay         time.Duration `yaml:"max_delay"`
+	MaxUploadTimeout time.Duration `yaml:"max_upload_timeout"`
 }
 
 type OfficialApplication struct {

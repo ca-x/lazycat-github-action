@@ -52,7 +52,7 @@ update:
 					t.Fatalf("official locales=%v", got.Stores.Official.Locales)
 				}
 				retry := got.Stores.Official.Retry
-				if retry.Enabled || retry.MaxAttempts != 3 || retry.InitialDelay != 2*time.Second || retry.MaxDelay != 30*time.Second {
+				if !retry.Enabled || retry.MaxAttempts != 3 || retry.InitialDelay != 2*time.Second || retry.MaxDelay != 30*time.Second || retry.MaxUploadTimeout != 600*time.Second {
 					t.Fatalf("official retry=%#v", retry)
 				}
 			},
@@ -129,7 +129,7 @@ images:
 			wantErr: "max_tags must be between 1 and 50000",
 		},
 		{
-			name: "official retry values are retained",
+			name: "official retry values are retained without explicit enable",
 			yaml: `version: 1
 project: {}
 update:
@@ -138,17 +138,18 @@ update:
 stores:
   official:
     retry:
-      enabled: true
       max_attempts: 7
       initial_delay: 750ms
       max_delay: 45s
+      max_upload_timeout: 300s
 `,
 			check: func(t *testing.T, got config.Config) {
 				want := config.OfficialRetry{
-					Enabled:      true,
-					MaxAttempts:  7,
-					InitialDelay: 750 * time.Millisecond,
-					MaxDelay:     45 * time.Second,
+					Enabled:          true,
+					MaxAttempts:      7,
+					InitialDelay:     750 * time.Millisecond,
+					MaxDelay:         45 * time.Second,
+					MaxUploadTimeout: 300 * time.Second,
 				}
 				if got.Stores.Official.Retry != want {
 					t.Fatalf("official retry=%#v want %#v", got.Stores.Official.Retry, want)
@@ -259,6 +260,19 @@ stores:
       max_delay: 5m1s
 `,
 			wantErr: "max_delay must not exceed 5m",
+		},
+		{
+			name: "official upload timeout below minimum",
+			yaml: `version: 1
+update:
+  version_source:
+    type: git
+stores:
+  official:
+    retry:
+      max_upload_timeout: 29s
+`,
+			wantErr: "max_upload_timeout must be at least 30s",
 		},
 		{
 			name: "disabled official retry retains compatibility values",

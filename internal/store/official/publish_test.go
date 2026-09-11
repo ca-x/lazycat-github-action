@@ -30,7 +30,7 @@ import (
 	"github.com/lib-x/lzc-toolkit-go/lpk"
 )
 
-func TestPublisherRetryDefaultsOffAfterOneCompleteAttempt(t *testing.T) {
+func TestPublisherRetryExplicitlyDisabledStopsAfterOneCompleteAttempt(t *testing.T) {
 	path, digest := publishLPK(t)
 	checks := 0
 	uploads := 0
@@ -55,6 +55,120 @@ func TestPublisherRetryDefaultsOffAfterOneCompleteAttempt(t *testing.T) {
 	})
 	if err == nil || checks != 1 || uploads != 1 {
 		t.Fatalf("err=%v checks=%d uploads=%d", err, checks, uploads)
+	}
+}
+
+func TestPublisherRetryFromLoadedConfig(t *testing.T) {
+	for _, test := range []struct {
+		name              string
+		settings          string
+		attempts          int
+		wantSuccess       bool
+		connectionFailure bool
+		timeoutSeconds    []int
+		sdk               bool
+	}{
+		{name: "default recovers on third attempt", attempts: 3, wantSuccess: true},
+		{name: "default recovers from statusless connection failure", attempts: 3, wantSuccess: true, connectionFailure: true},
+		{name: "default stops after three attempts", attempts: 3},
+		{name: "custom attempts without enable flag", settings: "    retry:\n      max_attempts: 5\n", attempts: 5, wantSuccess: true},
+		{name: "default timeout ceiling", settings: "    retry:\n      max_attempts: 7\n", attempts: 7, wantSuccess: true, timeoutSeconds: []int{30, 60, 120, 240, 480, 600, 600}},
+		{name: "custom timeout ceiling with PAT", settings: "    retry:\n      max_attempts: 5\n      max_upload_timeout: 90s\n", attempts: 5, wantSuccess: true, timeoutSeconds: []int{30, 60, 90, 90, 90}, sdk: true},
+		{name: "higher configured timeout ceiling", settings: "    retry:\n      max_attempts: 7\n      max_upload_timeout: 900s\n", attempts: 7, wantSuccess: true, timeoutSeconds: []int{30, 60, 120, 240, 480, 900, 900}},
+		{name: "minimum timeout ceiling", settings: "    retry:\n      max_upload_timeout: 30s\n", attempts: 3, wantSuccess: true, timeoutSeconds: []int{30, 30, 30}},
+		{name: "explicit disable", settings: "    retry:\n      enabled: false\n", attempts: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			filename := filepath.Join(t.TempDir(), "config.yml")
+			data := "version: 1\nupdate:\n  strategy: publish\n  version_source:\n    type: git\nstores:\n  official:\n    enabled: true\n" + test.settings
+			if err := os.WriteFile(filename, []byte(data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := config.Load(filename)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path, digest := publishLPK(t)
+			uploads, reviews, waits := 0, 0, 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch strings.Replace(r.URL.Path, "/sdk/", "/api/", 1) {
+				case "/api/v3/developer/app/check/exist":
+					_, _ = w.Write([]byte(`{"exist":true}`))
+				case "/api/v3/developer/app/lpk/upload":
+					uploads++
+					if err := r.ParseMultipartForm(2 << 20); err != nil {
+						t.Error(err)
+					}
+					if test.wantSuccess && uploads == test.attempts {
+						_, _ = fmt.Fprintf(w, `{"package":"cloud.lazycat.apps.publish-demo","version":"1.0.0","url":"/demo.lpk","sha256":"%s"}`, digest)
+						return
+					}
+					if test.connectionFailure {
+						conn, _, err := w.(http.Hijacker).Hijack()
+						if err != nil {
+							t.Error(err)
+							return
+						}
+						_ = conn.Close()
+						return
+					}
+					http.Error(w, "unavailable", http.StatusServiceUnavailable)
+				case "/api/v3/developer/app/cloud.lazycat.apps.publish-demo/review/create":
+					reviews++
+					_, _ = w.Write([]byte(`{"success":true}`))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			httpClient := server.Client()
+			baseTransport := httpClient.Transport
+			uploadRequests := 0
+			httpClient.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				wantTimeout := 30 * time.Second
+				if strings.HasSuffix(request.URL.Path, "/lpk/upload") {
+					sequence := test.timeoutSeconds
+					if sequence == nil {
+						sequence = []int{30, 60, 120, 240, 480}
+					}
+					if uploadRequests >= len(sequence) {
+						t.Errorf("unexpected extra upload: %d", uploadRequests+1)
+					} else {
+						wantTimeout = time.Duration(sequence[uploadRequests]) * time.Second
+					}
+					uploadRequests++
+				}
+				deadline, ok := request.Context().Deadline()
+				if remaining := time.Until(deadline); !ok || remaining > wantTimeout || remaining < wantTimeout-time.Second {
+					t.Errorf("%s timeout remaining=%v present=%v, want %v", request.URL.Path, remaining, ok, wantTimeout)
+				}
+				return baseTransport.RoundTrip(request)
+			})
+			publisher := official.Publisher{
+				BaseURL: server.URL, HTTPClient: httpClient, SDK: test.sdk,
+				Wait: func(_ context.Context, delay time.Duration) error {
+					waits++
+					if delay < 0 || delay > cfg.Stores.Official.Retry.MaxDelay {
+						t.Errorf("unexpected retry delay: %v", delay)
+					}
+					return nil
+				},
+			}
+			result, err := publisher.Publish(t.Context(), official.Request{
+				Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+				Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+				Retry: cfg.Stores.Official.Retry,
+			})
+			if (err == nil) != test.wantSuccess || result.Published != test.wantSuccess || uploads != test.attempts || waits != test.attempts-1 {
+				t.Fatalf("result=%#v err=%v uploads=%d waits=%d", result, err, uploads, waits)
+			}
+			if httpClient.Timeout != 0 {
+				t.Errorf("shared client timeout changed to %v", httpClient.Timeout)
+			}
+			if (test.wantSuccess && reviews != 1) || (!test.wantSuccess && reviews != 0) {
+				t.Fatalf("reviews=%d", reviews)
+			}
+		})
 	}
 }
 

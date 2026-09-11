@@ -183,10 +183,11 @@ stores:
     create_if_missing: false
     changelog_locales: [zh, en]
     retry:
-      enabled: false
+      enabled: true
       max_attempts: 3
       initial_delay: 2s
       max_delay: 30s
+      max_upload_timeout: 600s
   private:
     enabled: false
 ```
@@ -518,10 +519,11 @@ stores:
     create_if_missing: true
     changelog_locales: [zh, en]
     retry:
-      enabled: false
+      enabled: true
       max_attempts: 3
       initial_delay: 2s
       max_delay: 30s
+      max_upload_timeout: 600s
     application:
       language: zh
       name: Example App
@@ -551,9 +553,11 @@ Screenshot files must already be committed and pushed to a ref the workflow will
 
 When `LZC_APPSTORE_COS_DOMAIN` is set, that lookup uses the configured COS domain; otherwise it uses the production catalog.
 
+LPK upload timeout starts at 30 seconds and doubles on each retry, capped by `stores.official.retry.max_upload_timeout` (default `600s`, minimum `30s`). The default three attempts allow 30, 60, and 120 seconds; additional attempts allow 240, 480, then 600 seconds. A custom cap such as `90s` gives 30, 60, 90, 90 seconds. This timeout is separate from the backoff wait (`initial_delay`/`max_delay`). Application checks and review submission retain their existing timeouts; caller cancellation/deadlines still stop the upload.
+
 Official publishing always uploads the verified local LPK file as multipart data; it never sends the GitHub Release URL to the official platform. A recovered Release Asset is first downloaded beneath the project root and revalidated.
 
-Official retry is opt-in and defaults to `enabled: false`. `max_attempts` includes the initial attempt and accepts 2-10 when enabled. `initial_delay` and `max_delay` use Go duration syntax. A safe retry before review repeats the application existence check and reopens the LPK, while credentials are resolved once. Upload/check failures may retry status-less connection/TLS/reset errors, HTTP 429, and HTTP 5xx. Review creation retries only HTTP 429; a review network failure or 5xx is returned without replay because the server may already have accepted the non-idempotent request. Cancellation, deadline expiry, authentication/permission failures, NotFound, integrity failures, HTTP 400, and other 4xx responses are not retried.
+Official retry defaults to `enabled: true` with three total attempts (the initial request plus up to two retries), exponential backoff with full jitter, `initial_delay: 2s`, and `max_delay: 30s`. Set `enabled: false` to disable retries. You can set only `max_attempts` to customize the attempt limit without an explicit enable flag. `max_attempts` includes the initial attempt and accepts 2-10 when enabled. `initial_delay` and `max_delay` use Go duration syntax. A safe retry before review repeats the application existence check and reopens the LPK, while credentials are resolved once. Upload/check failures may retry status-less connection/TLS/reset errors, HTTP 429, and HTTP 5xx. Review creation retries only HTTP 429; a review network failure or 5xx is returned without replay because the server may already have accepted the non-idempotent request. Cancellation, deadline expiry, authentication/permission failures, NotFound, integrity failures, HTTP 400, and other 4xx responses are not retried.
 
 Failures identify the safe stage as `store.official.upload` or `store.official.review`. The Action never prints a raw upstream response body. For valid JSON failures it may display a normalized, bounded `message`, `msg`, string `error`, or nested `error.message`/`error.msg`; suspected credential content is suppressed. In a dual-store reusable workflow, an official failure becomes a warning and `store-results.official.failureReason: official-publish-failed` after the private result is preserved. An official-only workflow remains strict and fails. If the official store is disabled, official lint blocking, precheck, credentials, and publication do not run.
 

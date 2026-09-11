@@ -141,13 +141,16 @@ Official retry is configured in `.github/lazycat-action.yml`, not as a workflow 
 stores:
   official:
     retry:
-      enabled: false
+      enabled: true
       max_attempts: 3
       initial_delay: 2s
       max_delay: 30s
+      max_upload_timeout: 600s
 ```
 
-Enabling it lets upload/check failures retry status-less connection/TLS/reset failures, HTTP 429, and HTTP 5xx. Review creation retries only HTTP 429; ambiguous review network/5xx outcomes are returned without replay. HTTP 400 and other 4xx responses are not retried. Cancellation and deadline expiry stop requests and waits. A retry before review reopens the LPK and repeats the application existence check; credentials resolve once.
+LPK upload timeout starts at 30 seconds and doubles on each retry, capped by `stores.official.retry.max_upload_timeout` (default `600s`, minimum `30s`). The default three attempts allow 30, 60, and 120 seconds; additional attempts allow 240, 480, then 600 seconds. A custom cap such as `90s` gives 30, 60, 90, 90 seconds. This timeout is separate from the backoff wait (`initial_delay`/`max_delay`). Application checks and review submission retain their existing timeouts; caller cancellation/deadlines still stop the upload.
+
+It defaults to enabled with three total attempts (the initial request plus up to two retries) and exponential backoff with full jitter. Set `enabled: false` to disable it; setting only `max_attempts` customizes the attempt limit. Upload/check failures retry status-less connection/TLS/reset failures, HTTP 429, and HTTP 5xx. Review creation retries only HTTP 429; ambiguous review network/5xx outcomes are returned without replay. HTTP 400 and other 4xx responses are not retried. Cancellation and deadline expiry stop requests and waits. A retry before review reopens the LPK and repeats the application existence check; credentials resolve once.
 
 Store steps are independent. A private-store failure does not suppress the official attempt. When both stores are enabled, an official failure is reported as a warning and `failureReason: official-publish-failed` while the private result remains available; an official-only workflow still fails. With official disabled, no official lint blocking or publication path runs. Compatibility lint such as unknown `container_name` stays visible without blocking private publication.
 

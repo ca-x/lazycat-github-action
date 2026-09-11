@@ -36,6 +36,8 @@ func Load(filename string) (Config, error) {
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 	var value Config
+	// Set this before decoding so an explicit retry.enabled: false is preserved.
+	value.Stores.Official.Retry.Enabled = true
 	if err := decoder.Decode(&value); err != nil {
 		return Config{}, fmt.Errorf("decode Action config %q: %w", filename, err)
 	}
@@ -85,6 +87,9 @@ func applyDefaults(value *Config) {
 	}
 	if value.Stores.Official.Retry.MaxDelay == 0 {
 		value.Stores.Official.Retry.MaxDelay = 30 * time.Second
+	}
+	if value.Stores.Official.Retry.MaxUploadTimeout == 0 {
+		value.Stores.Official.Retry.MaxUploadTimeout = 600 * time.Second
 	}
 
 	value.Project.Root = filepath.Clean(strings.TrimSpace(value.Project.Root))
@@ -193,6 +198,9 @@ func validate(value Config) error {
 		}
 		if retry.MaxDelay > 5*time.Minute {
 			return errors.New("official retry max_delay must not exceed 5m")
+		}
+		if retry.MaxUploadTimeout < 30*time.Second {
+			return errors.New("official retry max_upload_timeout must be at least 30s")
 		}
 	}
 	for _, locale := range value.Stores.Official.Locales {

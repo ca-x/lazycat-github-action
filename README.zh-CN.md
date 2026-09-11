@@ -183,10 +183,11 @@ stores:
     create_if_missing: false
     changelog_locales: [zh, en]
     retry:
-      enabled: false
+      enabled: true
       max_attempts: 3
       initial_delay: 2s
       max_delay: 30s
+      max_upload_timeout: 600s
   private:
     enabled: false
 ```
@@ -513,10 +514,11 @@ stores:
     create_if_missing: true
     changelog_locales: [zh, en]
     retry:
-      enabled: false
+      enabled: true
       max_attempts: 3
       initial_delay: 2s
       max_delay: 30s
+      max_upload_timeout: 600s
     application:
       language: zh
       name: Example App
@@ -546,9 +548,11 @@ stores:
 
 设置 `LZC_APPSTORE_COS_DOMAIN` 时，版本查询使用该 COS 域名；未设置时使用生产目录。
 
+LPK 上传超时从 30 秒开始，每次重试翻倍，由 `stores.official.retry.max_upload_timeout` 限制上限（默认 `600s`，最小 `30s`）。默认三次尝试分别允许 30、60、120 秒；增加尝试次数后依次为 240、480、600 秒，之后保持 600 秒。上限设为 `90s` 时则为 30、60、90、90 秒。上传超时和 backoff 等待（`initial_delay`/`max_delay`）分别计算。应用检查和审核提交仍使用原有超时，调用方取消或 deadline 到期会停止上传。
+
 官方发布始终把已验证的本地 LPK 文件作为 multipart 数据上传，绝不会把 GitHub Release URL 发送给官方平台。复用 Release Asset 时，会先把精确版本文件下载到项目目录下并重新校验。
 
-官方重试为显式开启，默认 `enabled: false`。启用后，`max_attempts` 为 2-10 且包含首次尝试，`initial_delay` 与 `max_delay` 使用 Go duration 语法。审核前的安全重试会重新检查应用是否存在并重新打开 LPK，但凭据只解析一次。上传/检查阶段可重试无 HTTP 状态的连接/TLS/重置错误、HTTP 429 和 HTTP 5xx；审核创建只重试 HTTP 429。审核阶段的网络错误或 5xx 不会重放，因为服务端可能已经受理这个非幂等请求。取消、deadline 超时、鉴权、权限、NotFound、完整性错误、HTTP 400 和其他 4xx 都不重试。
+官方重试默认开启（`enabled: true`），默认总共尝试 3 次（首次请求加最多 2 次重试），使用带随机抖动的指数退避，`initial_delay: 2s`、`max_delay: 30s`。设置 `enabled: false` 可关闭重试；只配置 `max_attempts` 即可修改总尝试次数，无需显式开启。启用后，`max_attempts` 为 2-10 且包含首次尝试，`initial_delay` 与 `max_delay` 使用 Go duration 语法。审核前的安全重试会重新检查应用是否存在并重新打开 LPK，但凭据只解析一次。上传/检查阶段可重试无 HTTP 状态的连接/TLS/重置错误、HTTP 429 和 HTTP 5xx；审核创建只重试 HTTP 429。审核阶段的网络错误或 5xx 不会重放，因为服务端可能已经受理这个非幂等请求。取消、deadline 超时、鉴权、权限、NotFound、完整性错误、HTTP 400 和其他 4xx 都不重试。
 
 失败会安全地区分 `store.official.upload` 与 `store.official.review`。Action 绝不打印原始响应正文；对合法 JSON 错误，只会显示经过单行化和长度限制的 `message`、`msg`、字符串 `error` 或嵌套的 `error.message`/`error.msg`，疑似凭据内容会被隐藏。双商店 reusable workflow 中，私有结果会被保留，官方失败降级为 warning，并写入 `store-results.official.failureReason: official-publish-failed`；如果官方商店是唯一目标，失败仍会使 workflow 失败。未启用官方商店时，不运行官方 lint 阻断、预检、凭据解析或发布。
 
