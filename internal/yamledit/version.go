@@ -25,6 +25,17 @@ func SetPackageVersion(filename, value string) (Change, error) {
 	if !IsValidPackageVersion(value) {
 		return Change{}, fmt.Errorf("invalid package version %q: expected SemVer without a leading v", value)
 	}
+	return setPackageField(filename, "version", value)
+}
+
+func SetPackageLicense(filename, value string) (Change, error) {
+	if value == "" {
+		return Change{}, errors.New("package license is empty")
+	}
+	return setPackageField(filename, "license", value)
+}
+
+func setPackageField(filename, field, value string) (Change, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return Change{}, fmt.Errorf("read package file %q: %w", filename, err)
@@ -42,12 +53,12 @@ func SetPackageVersion(filename, value string) (Change, error) {
 		return Change{}, fmt.Errorf("parse package file %q: %w", filename, err)
 	}
 
-	old, versionNode, versionIndex := findMappingValue(mapping, "version")
+	old, versionNode, versionIndex := findMappingValue(mapping, field)
 	if versionNode != nil && old == value {
 		return Change{Changed: false, Old: old, New: value}, nil
 	}
 	if versionNode == nil {
-		key := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "version"}
+		key := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: field}
 		versionNode = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
 		_, _, packageIndex := findMappingValue(mapping, "package")
 		insertAt := len(mapping.Content)

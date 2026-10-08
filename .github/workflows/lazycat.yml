@@ -114,6 +114,10 @@ on:
         value: ${{ jobs.lazycat.outputs.operation }}
       changed:
         value: ${{ jobs.lazycat.outputs.changed }}
+      license-changed:
+        value: ${{ jobs.lazycat.outputs.license-changed }}
+      license:
+        value: ${{ jobs.lazycat.outputs.license }}
       package-id:
         value: ${{ jobs.lazycat.outputs.package-id }}
       package-file:
@@ -167,6 +171,8 @@ jobs:
     outputs:
       operation: ${{ steps.lazycat.outputs.operation }}
       changed: ${{ steps.lazycat.outputs.changed }}
+      license-changed: ${{ steps.lazycat.outputs.license-changed }}
+      license: ${{ steps.lazycat.outputs.license }}
       package-id: ${{ steps.lazycat.outputs.package-id }}
       package-file: ${{ steps.lazycat.outputs.package-file }}
       manifest-file: ${{ steps.lazycat.outputs.manifest-file }}
@@ -358,6 +364,32 @@ jobs:
           path: ${{ steps.lazycat.outputs.lpk-path }}
           if-no-files-found: error
 
+      - name: Commit license synchronization separately
+        if: steps.lazycat.outputs.license-changed == 'true' && !inputs.dry-run && github.ref_type == 'branch' && (steps.lazycat.outputs.update-strategy == 'publish' || steps.lazycat.outputs.operation == 'check')
+        shell: bash
+        env:
+          PACKAGE_FILE: ${{ steps.lazycat.outputs.package-file }}
+          LICENSE_FILE: ${{ steps.lazycat.outputs.license-file }}
+          LICENSE: ${{ steps.lazycat.outputs.license }}
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          relative="$(realpath --relative-to="${GITHUB_WORKSPACE}" -- "${PACKAGE_FILE}")"
+          case "${relative}" in
+            ../*|/*) echo "Package file escapes workspace" >&2; exit 1 ;;
+          esac
+          mode="$(git ls-files -s -- "${relative}" | awk '{print $1}')"
+          if [[ -z "${mode}" ]]; then
+            echo "Package file must be tracked to commit its license" >&2
+            exit 1
+          fi
+          blob="$(git hash-object -w -- "${LICENSE_FILE}")"
+          git update-index --add --cacheinfo "${mode},${blob},${relative}"
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: sync upstream license to ${LICENSE} [skip ci]"
+          fi
+
       - name: Create update pull request
         if: steps.lazycat.outputs.operation == 'check' && steps.lazycat.outputs.changed == 'true' && steps.lazycat.outputs.update-strategy == 'pull' && !inputs.dry-run
         uses: peter-evans/create-pull-request@v8
@@ -415,7 +447,9 @@ jobs:
           fi
 
           git add -- "${PACKAGE_FILE}" "${MANIFEST_FILE}"
-          git commit -m "chore: update LazyCat application to ${VERSION} [skip ci]"
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update LazyCat application to ${VERSION} [skip ci]"
+          fi
           if git push origin "HEAD:${GITHUB_REF_NAME}"; then
             write_commit_output
             exit 0
@@ -870,6 +904,8 @@ jobs:
         env:
           PACKAGE_FILE: ${{ steps.lazycat.outputs.package-file }}
           VERSION: ${{ steps.lazycat.outputs.version }}
+          LICENSE_CHANGED: ${{ steps.lazycat.outputs.license-changed }}
+          LICENSE: ${{ steps.lazycat.outputs.license }}
         with:
           script: |
             const fs = require('fs');
@@ -888,7 +924,34 @@ jobs:
               return;
             }
             const content = fs.readFileSync(absolute);
-            const existing = Buffer.from(current.data.content, 'base64');
+            let existing = Buffer.from(current.data.content, 'base64');
+            let sha = current.data.sha;
+            if (process.env.LICENSE_CHANGED === 'true') {
+              const text = existing.toString('utf8');
+              if (!/^(?:package|'package'|"package")[ \t]*:/m.test(text)) {
+                core.warning('Default-branch package layout cannot be safely edited; skipping metadata synchronization.');
+                return;
+              }
+              const licenseLine = content.toString('utf8').match(/^license:[^\n]*(?:\n|$)/m)?.[0];
+              if (!licenseLine) {
+                core.setFailed('Synchronized package is missing its license field');
+                return;
+              }
+              // Replace the root license scalar or block without changing other fields.
+              const pattern = /^(?:license|'license'|"license")[ \t]*:[^\n]*(?:\n[ \t]+[^\n]*)*(?:\n|$)/m;
+              const updated = Buffer.from(pattern.test(text)
+                ? text.replace(pattern, licenseLine)
+                : text.replace(/^(?:\.\.\.)[ \t]*(?:\n|$)/m, '') + `${text.endsWith('\n') ? '' : '\n'}${licenseLine}`);
+              if (!existing.equals(updated)) {
+                const response = await github.rest.repos.createOrUpdateFileContents({
+                  ...context.repo, path: relative, branch, sha,
+                  message: `chore: sync upstream license to ${process.env.LICENSE} [skip ci]`,
+                  content: updated.toString('base64'),
+                });
+                sha = response.data.content.sha;
+                existing = updated;
+              }
+            }
             if (existing.equals(content)) {
               return;
             }
@@ -896,7 +959,7 @@ jobs:
               ...context.repo,
               path: relative,
               branch,
-              sha: current.data.sha,
+              sha,
               message: `chore: sync package version to ${process.env.VERSION} [skip ci]`,
               content: content.toString('base64'),
             });

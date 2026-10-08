@@ -144,6 +144,22 @@
       "prompt": "A Docker Hub repository mixes plain two-part weekly tags such as 2.578, three-part LTS tags such as 2.568.2, JDK-suffixed variants, and latest. The app tracks weekly releases and package.yml is 2.578.0. Fix default stable selecting the lower LTS version and CONFIG_INVALID after switching to updated sorting.",
       "mustInclude": ["channel: custom", "sort: semver", "tag_regex", "version_regex", "(?P<version>", "version_template", "{version}.0", "allow_downgrade: false"],
       "mustNotInclude": ["sort: created", "channel: nightly", "version_template: '{version}'", "tag_regex: '^2\\.578$'"]
+    },
+    {
+      "id": "github-license-sync-best-effort",
+      "prompt": "Configure a LazyCat application with a GitHub homepage. Automatically correct a mismatched license, keep license changes in a separate commit, and continue publication if license lookup fails. Explain the default and opt-out.",
+      "mustInclude": [
+        "sync_license: true",
+        "spdx_id",
+        "github.com/google/licensecheck",
+        "separate",
+        "continue",
+        "sync_license: false"
+      ],
+      "mustNotInclude": [
+        "block publication on license lookup failure",
+        "guess AND/OR"
+      ]
     }
   ]
 }

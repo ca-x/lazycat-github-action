@@ -50,6 +50,21 @@ Gitea Actions 和 Forgejo Actions 用户应通过完整 URL 直接调用 composi
 
 调用方不需要编译本项目。启动脚本会按 Runner 架构下载 Action 二进制，并校验发布包 SHA256。
 
+## GitHub license 自动同步
+
+默认启用 `update.sync_license: true`。在 `check` 或 `build` 时，如果 `package.yml.homepage` 指向 GitHub 仓库，Action 查询 `GET /repos/{owner}/{repo}/license`，优先使用有效的 `license.spdx_id`。API 未识别（例如 `NOASSERTION`）时，使用 `github.com/google/licensecheck` 解析 API 返回的 LICENSE 原文；仅接受覆盖率至少 90% 且识别出一种 license 的结果，不推断多 license 的 AND/OR 关系。
+
+识别结果与 `package.yml.license` 不一致时更新该字段。reusable workflow 将 license 更新单独提交为 `chore: sync upstream license to <license> [skip ci]`，与镜像、版本更新分开；仅 license 变化也能创建 PR 或直接提交，不会因此递增版本或重建已有 Release。Tag/Release 成功发布后的默认分支同步也将 license 与版本分开提交。composite Action 仅更新文件并输出 `license-changed`、`license`、`license-file`（版本更新前的 package 快照），由调用方完成独立提交。
+
+查询超时、限流、网络错误、仓库没有 LICENSE、解析不确定或无法保存 license 更新时，保留原值，记录提示并继续后续构建和发布。查询最长 10 秒；`dry-run`、直接商店发布已有 LPK、官方审核初始暂停均不查询或修改 license。Action 默认使用 GitHub workflow token 查询；公开仓库也支持匿名查询。
+
+关闭方式：
+
+```yaml
+update:
+  sync_license: false
+```
+
 ## 进度日志
 
 Action 使用 Go 官方 `log/slog` 输出结构化进度，同时不会打印 Secret 值和受保护的构建环境变量。每次运行会先显示执行模式（`docker-image`、`source-build`、`prebuilt-content` 或 `store-publish`），再按实际流程输出以下阶段：

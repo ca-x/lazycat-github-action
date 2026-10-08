@@ -210,3 +210,9 @@ Replace legacy v4 checkout/setup-node steps when updating an existing caller-own
 The LPK path must remain under the project root. The Action reopens the LPK, checks package/version, and computes SHA256 before sending store metadata.
 
 When `skip_if_version_exists` is enabled, `store-results` includes `skipped`, optional `onlineVersion`, and optional `skipReason`. Equal versions use `version-already-online`; valid SemVer online versions greater than the candidate use `online-version-newer` while `allow_downgrade: false`. Explicit rollback authorization continues publishing, and a non-SemVer value is compared only for exact equality. Decisions are independent per store and happen before write credentials are used. Status-less connection failures, HTTP 429, and HTTP 5xx receive up to three exponential-backoff attempts; not-found publishes; other errors or retry exhaustion stop. `dry-run` remains network-free.
+
+## Independent license commits
+
+Keep `update.sync_license: true` by default. The reusable workflow commits the `license-file` snapshot separately as `chore: sync upstream license to <license> [skip ci]` before staging package-version and Manifest updates. A license-only `check` still creates a PR under `pull` or pushes a commit under `publish`, without a version bump or rebuild of an existing Release. Tag/Release publication synchronizes the default branch in separate license and version commits. The composite Action updates files only; caller-owned workflows must use `license-changed`, `license`, and `license-file` to preserve this separation.
+
+License API or parser failures are warnings and must not stop build/publish tasks. Prefer a valid GitHub API SPDX ID, then use `github.com/google/licensecheck` on the actual LICENSE text; uncertain/multiple text matches preserve the existing value. Do not synchronize during dry runs, existing-LPK store submissions, or the initial official-review pause.

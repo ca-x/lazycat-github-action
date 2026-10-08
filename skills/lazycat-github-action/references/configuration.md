@@ -259,3 +259,9 @@ Secrets: `APPSTORE_URL`, `APPSTORE_TOKEN`, optional `APP_ID`, and optional comma
 With scheduled or manually dispatched `publish` automation, an unchanged image check recovery-builds the current version when its Release or exact versioned asset is missing. An existing exact `<package-id>-v<version>.lpk` can repair a missing store submission without rebuilding. The workflow verifies the GitHub asset digest and downloaded bytes before either store call; it never substitutes an unversioned or differently named LPK.
 
 Secret scope is a workflow concern, not a configuration field. An organization Secret must authorize the repository. If the same name is defined more than once, Environment overrides Repository and Repository overrides Organization.
+
+## GitHub license synchronization
+
+`update.sync_license` is an optional boolean that defaults to `true`; set `false` to opt out. `check` and `build` inspect `package.yml.homepage`. For GitHub repository URLs, the Action queries `GET /repos/{owner}/{repo}/license` with a 10-second limit. A valid API SPDX identifier takes precedence; missing/`NOASSERTION` identifiers trigger `github.com/google/licensecheck` on the base64 LICENSE content. Accept only one distinct text match with at least 90% coverage. Missing licenses, uncertain or multiple matches, failed queries, and failed edits leave the existing license intact and do not block subsequent work. Non-GitHub homepages, dry runs, existing-LPK publish operations, and initial official-review pauses do not perform this check.
+
+`license-changed`, `license`, and `license-file` expose whether synchronization occurred, the detected identifier, and a license-only package snapshot before version edits. `changed` also includes license changes. The workflow token is supplied by the composite Action; anonymous public-repository lookup is supported. A license-only change does not increment the application version.

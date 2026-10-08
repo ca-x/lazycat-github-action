@@ -156,6 +156,9 @@ func WriteOutputs(writer io.Writer, result action.Result) error {
 		{key: "result-file", value: result.ResultFile},
 		{key: "runner-arch", value: result.RunnerArch},
 		{key: "target-platform", value: result.TargetPlatform},
+		{key: "license-changed", value: strconv.FormatBool(result.LicenseChanged)},
+		{key: "license", value: result.License},
+		{key: "license-file", value: result.LicenseFile},
 	}
 	for index, output := range outputs {
 		delimiter := fmt.Sprintf("lazycat_output_%d", index)

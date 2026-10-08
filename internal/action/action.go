@@ -22,6 +22,7 @@ import (
 	"github.com/ca-x/lazycat-github-action/internal/httpx"
 	"github.com/ca-x/lazycat-github-action/internal/imageflow"
 	"github.com/ca-x/lazycat-github-action/internal/imagemirror"
+	"github.com/ca-x/lazycat-github-action/internal/licenselookup"
 	"github.com/ca-x/lazycat-github-action/internal/platform"
 	"github.com/ca-x/lazycat-github-action/internal/platformauth"
 	"github.com/ca-x/lazycat-github-action/internal/project"
@@ -83,6 +84,9 @@ type Input struct {
 
 type Result struct {
 	Operation             string          `json:"operation"`
+	LicenseChanged        bool            `json:"licenseChanged"`
+	License               string          `json:"license,omitempty"`
+	LicenseFile           string          `json:"licenseFile,omitempty"`
 	Changed               bool            `json:"changed"`
 	PackageID             string          `json:"packageId"`
 	PackageFile           string          `json:"packageFile"`
@@ -168,6 +172,7 @@ type Dependencies struct {
 	Logger               *slog.Logger
 	LoadConfig           func(string) (config.Config, error)
 	Inspect              func(context.Context, config.Project) (project.Info, error)
+	LookupLicense        func(context.Context, string) (string, error)
 	SetVersion           func(string, string) (yamledit.Change, error)
 	Build                func(context.Context, actionbuild.Request) (actionbuild.Result, error)
 	CheckImages          func(context.Context, imageflow.Request) (imageflow.Result, error)
@@ -203,13 +208,14 @@ func DefaultDependenciesWithEnv(host platform.Host, getenv func(string) string) 
 	publishFlow := publishflow.Default()
 	publishFlow.Logger = logger
 	return Dependencies{
-		Host:        host,
-		Logger:      logger,
-		LoadConfig:  config.Load,
-		Inspect:     project.Inspect,
-		SetVersion:  yamledit.SetPackageVersion,
-		Build:       builder.Build,
-		CheckImages: imageFlow.Check,
+		Host:          host,
+		Logger:        logger,
+		LoadConfig:    config.Load,
+		Inspect:       project.Inspect,
+		SetVersion:    yamledit.SetPackageVersion,
+		LookupLicense: licenselookup.Client{Token: getenv("GITHUB_TOKEN")}.Lookup,
+		Build:         builder.Build,
+		CheckImages:   imageFlow.Check,
 		WaitingReviewVersion: func(ctx context.Context, packageID string) (string, bool, error) {
 			resolved, err := resolver.Resolve(ctx)
 			if err != nil {
@@ -487,11 +493,12 @@ func runBuild(ctx context.Context, input Input, cfg config.Config, info project.
 		return result, nil
 	}
 
+	syncLicense(ctx, input, cfg, info, dependencies, &result)
 	change, err := dependencies.SetVersion(info.PackageFile, input.Version)
 	if err != nil {
 		return Result{}, actionError(CodeConfigInvalid, "unable to update package.yml version", err)
 	}
-	result.Changed = change.Changed
+	result.Changed = change.Changed || result.LicenseChanged
 	updated, err := dependencies.Inspect(ctx, cfg.Project)
 	if err != nil {
 		rollbackVersion(dependencies, info.PackageFile, change)
@@ -564,7 +571,12 @@ func runCheck(ctx context.Context, input Input, cfg config.Config, info project.
 	}
 	result.ImageResults = encodedImages
 	result.Changed = checked.Changed || info.Version != checked.Version
-	if input.DryRun || !result.Changed {
+	if !input.DryRun {
+		syncLicense(ctx, input, cfg, info, dependencies, &result)
+	}
+	// Metadata-only updates do not require an image validation build.
+	imageChanged := checked.Changed || info.Version != checked.Version
+	if input.DryRun || !imageChanged {
 		if err := writeResult(&result, resultDirectory(dependencies.ResultDir, info.Root)); err != nil {
 			return Result{}, actionError(CodeBuildFailed, "unable to write image check result", err)
 		}

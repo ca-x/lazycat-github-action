@@ -47,9 +47,14 @@ func (project Project) Target() platform.Target {
 }
 
 type Update struct {
+	SyncLicense    *bool         `yaml:"sync_license"`
 	Strategy       Strategy      `yaml:"strategy"`
 	AllowDowngrade bool          `yaml:"allow_downgrade"`
 	VersionSource  VersionSource `yaml:"version_source"`
+}
+
+func (update Update) ShouldSyncLicense() bool {
+	return update.SyncLicense == nil || *update.SyncLicense
 }
 
 type VersionSource struct {

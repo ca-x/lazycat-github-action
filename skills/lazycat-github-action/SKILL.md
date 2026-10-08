@@ -259,6 +259,12 @@ Before an automatic scheduled or manually dispatched `publish` run with the offi
 
 Organization Secrets must authorize the target repository. For the same Secret name, GitHub applies the most specific scope: Environment overrides Repository, and Repository overrides Organization. Use organization Secrets as shared defaults and repository Secrets only for intentional overrides; state the effective scope when reviewing a workflow with duplicate names.
 
+## Synchronize GitHub licenses
+
+Keep `update.sync_license: true` (the default) unless the user disables it. For a GitHub `package.yml.homepage`, `check`/`build` prefer the repository-license API's valid `license.spdx_id`; when unavailable or `NOASSERTION`, use `github.com/google/licensecheck` on the returned LICENSE text. Only one distinct license with at least 90% coverage is accepted; never guess multi-license AND/OR semantics. Failed checks, uncertain detection, and failed edits must preserve the license and continue publication. Dry runs, existing-LPK store publication, and initial official-review pauses must not query/edit licenses.
+
+Use the reusable workflow's independent license commit for PR, direct, and Tag/Release default-branch updates. For composite Action workflows, consume `license-changed`, `license`, and `license-file` to commit the license-only package snapshot before staging the final version/image update. Do not combine license changes with a version commit, bump the version solely for a license change, or rebuild an existing Release solely for metadata. See [references/configuration.md](references/configuration.md) for configuration and [references/workflows.md](references/workflows.md) for commit behavior.
+
 ## Verify the generated result
 
 Before finishing:

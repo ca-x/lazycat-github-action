@@ -50,6 +50,21 @@ Gitea Actions and Forgejo Actions users should call the composite Action directl
 
 Callers do not compile this repository. The bootstrap downloads a checksum-verified Action binary for the Runner architecture.
 
+## GitHub license synchronization
+
+`update.sync_license` defaults to `true`. During `check` and `build`, a GitHub repository in `package.yml.homepage` is queried via `GET /repos/{owner}/{repo}/license`. A valid API `license.spdx_id` takes precedence. If the API cannot identify the license (for example, `NOASSERTION`), `github.com/google/licensecheck` scans the returned LICENSE content. Fallback detection requires at least 90% coverage and one distinct license; it does not infer AND/OR relationships for multiple licenses.
+
+When the detected license differs, the Action updates `package.yml.license`. The reusable workflow creates a separate `chore: sync upstream license to <license> [skip ci]` commit before image/version commits, including license-only PRs and direct updates. License-only changes do not bump versions or rebuild an existing Release. Tag/Release synchronization to the default branch also separates license and version commits. The composite Action exposes `license-changed`, `license`, and `license-file` (the package snapshot before version edits); its caller owns the separate commit.
+
+Lookup timeouts, rate limits, network failures, missing licenses, uncertain detection, and license edit/snapshot failures preserve the existing value and continue subsequent build/publish work. The lookup is bounded to 10 seconds. Dry runs, publishing an existing LPK directly to a store, and the initial official-review pause do not query or edit licenses. The Action uses the workflow GitHub token by default; public repositories also support anonymous lookup.
+
+Disable synchronization explicitly when required:
+
+```yaml
+update:
+  sync_license: false
+```
+
 ## Progress logs
 
 The Action emits structured `log/slog` progress records without printing Secret values or protected build environment variables. A run identifies its execution mode (`docker-image`, `source-build`, `prebuilt-content`, or `store-publish`) and then reports the applicable stages:

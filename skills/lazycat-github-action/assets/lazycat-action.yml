@@ -8,6 +8,7 @@ project:
   target_arch: amd64
 
 update:
+  sync_license: true
   strategy: pull
   allow_downgrade: false
   version_source:

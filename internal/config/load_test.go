@@ -39,6 +39,9 @@ update:
 				if got.Update.Strategy != config.StrategyPull {
 					t.Fatalf("strategy=%q", got.Update.Strategy)
 				}
+				if !got.Update.ShouldSyncLicense() {
+					t.Fatal("license synchronization should default to enabled")
+				}
 				if got.Update.AllowDowngrade {
 					t.Fatal("allow_downgrade should default to false")
 				}
@@ -57,6 +60,21 @@ update:
 				}
 			},
 		},
+		{
+			name: "license synchronization can be disabled",
+			yaml: `version: 1
+update:
+  sync_license: false
+  version_source:
+    type: git
+`,
+			check: func(t *testing.T, got config.Config) {
+				if got.Update.ShouldSyncLicense() {
+					t.Fatal("license synchronization should be disabled")
+				}
+			},
+		},
+
 		{
 			name: "official review newer-version continuation can be disabled",
 			yaml: `version: 1

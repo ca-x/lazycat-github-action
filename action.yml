@@ -63,6 +63,15 @@ outputs:
   changed:
     description: Whether managed project files changed.
     value: ${{ steps.run.outputs.changed }}
+  license-changed:
+    description: Whether the GitHub license was synchronized.
+    value: ${{ steps.run.outputs['license-changed'] }}
+  license:
+    description: License identified from the actual GitHub LICENSE content.
+    value: ${{ steps.run.outputs.license }}
+  license-file:
+    description: License-only package snapshot for a separate commit.
+    value: ${{ steps.run.outputs['license-file'] }}
   package-id:
     description: LazyCat package identifier.
     value: ${{ steps.run.outputs['package-id'] }}
@@ -128,7 +137,8 @@ runs:
       id: run
       shell: bash
       env:
-        LAZYCAT_ACTION_VERSION: v1.2.11
+        LAZYCAT_ACTION_VERSION: v1.2.12
+        GITHUB_TOKEN: ${{ env.GITHUB_TOKEN || github.token }}
         INPUT_OPERATION: ${{ inputs.operation }}
         INPUT_CONFIG: ${{ inputs.config }}
         INPUT_IMAGE_ID: ${{ inputs['image-id'] }}
