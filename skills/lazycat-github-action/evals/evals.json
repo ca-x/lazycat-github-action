@@ -160,6 +160,12 @@
         "block publication on license lookup failure",
         "guess AND/OR"
       ]
+    },
+    {
+      "id": "source-built-embedded-docker",
+      "prompt": "An upstream only ships a Dockerfile. Configure building it into an LPK without publishing an application container image, on a runner that must produce arm64. Explain scheduled auto behavior and private-store publication.",
+      "mustInclude": ["lzc-build.yml", "embed:", "builder: local", "type: git", "toolchains: docker", "target_arch: arm64", "1.5.0", "upstream-match"],
+      "mustNotInclude": ["push the application image to GHCR", "configure embed as an image version source", "pin lzc-cli 2.0.8"]
     }
   ]
 }

@@ -675,6 +675,7 @@ func TestResolveOperation(t *testing.T) {
 		{name: "manual image check", input: action.Input{Operation: action.OperationAuto, EventName: "workflow_dispatch"}, cfg: image, want: action.OperationCheck},
 		{name: "manual explicit version build", input: action.Input{Operation: action.OperationAuto, EventName: "workflow_dispatch", Version: "1.2.3"}, cfg: image, want: action.OperationBuild},
 		{name: "tag git build", input: action.Input{Operation: action.OperationAuto, EventName: "push", RefType: "tag", RefName: "v1.2.3"}, cfg: git, want: action.OperationBuild},
+		{name: "scheduled git build", input: action.Input{Operation: action.OperationAuto, EventName: "schedule"}, cfg: git, want: action.OperationBuild},
 		{name: "scheduled image check", input: action.Input{Operation: action.OperationAuto, EventName: "schedule"}, cfg: image, want: action.OperationCheck},
 		{name: "explicit check unchanged", input: action.Input{Operation: action.OperationCheck, EventName: "workflow_dispatch"}, cfg: git, want: action.OperationCheck},
 		{name: "explicit build unchanged", input: action.Input{Operation: action.OperationBuild, EventName: "schedule"}, cfg: image, want: action.OperationBuild},

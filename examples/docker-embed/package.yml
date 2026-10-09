@@ -1,0 +1,5 @@
+package: community.lazycat.app.sourceweb
+version: 1.0.0
+name: Source Web
+description: Static Web application built from a Dockerfile and fully embedded in its LPK
+min_os_version: 1.5.0

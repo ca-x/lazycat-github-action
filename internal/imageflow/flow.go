@@ -140,6 +140,19 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 			return Result{}, fmt.Errorf("manifest reader did not return image target %q", image.ID)
 		}
 	}
+	// Embedded images are built from workspace source, never resolved through a registry.
+	managed := make([]config.Image, 0, len(selected))
+	for _, image := range selected {
+		if strings.HasPrefix(strings.TrimSpace(currentByID[image.ID].RuntimeRef), "embed:") {
+			if request.Config.Update.VersionSource.Type == config.VersionSourceImage && request.Config.Update.VersionSource.Image == image.ID {
+				return Result{}, errors.New("embedded images cannot be an image version source; use update.version_source.type: git")
+			}
+			logger.Info("embedded image skipped during registry check", "image_id", image.ID)
+			continue
+		}
+		managed = append(managed, image)
+	}
+	selected = managed
 	if flow.ResolveImage != nil {
 		for index, image := range selected {
 			resolved, err := flow.ResolveImage(image, currentByID[image.ID])

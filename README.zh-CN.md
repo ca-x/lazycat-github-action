@@ -65,6 +65,48 @@ update:
   sync_license: false
 ```
 
+## 从源码构建 Docker 镜像并内嵌到 LPK
+
+没有发布容器镜像的应用，可以直接从源码构建镜像并装进 LPK v2，无需推送应用镜像到 registry。在 `lzc-build.yml` 定义构建，在 `lzc-manifest.yml` 引用同名 alias：
+
+```yaml
+# lzc-build.yml
+images:
+  app:
+    dockerfile: upstream/Dockerfile
+    context: upstream
+    builder: local
+```
+
+```yaml
+# lzc-manifest.yml
+services:
+  app:
+    image: embed:app
+```
+
+Action 配置使用 Git/package 版本来源，并选择 Docker 工具链：
+
+```yaml
+# .github/lazycat-action.yml
+update:
+  strategy: publish
+  version_source:
+    type: git
+build:
+  toolchains:
+    - kind: docker
+  run_buildscript: false
+```
+
+调用 reusable workflow 时也设置 `toolchains: docker`。构建前需准备好源码目录；例如通过项目 buildscript 拉取源码时，设置 `run_buildscript: true`。Git 版本项目的 `auto` 在 Tag、Release、手动和定时事件下都会走构建，不会自动发现上游源码版本或递增包版本。不要将本地构建 alias 放入 Action 配置顶层的 `images` 列表，该列表用于 registry 镜像更新。混合镜像检查会跳过 `embed:` 目标，继续检查普通镜像；内嵌目标不能用作镜像版本来源。
+
+Runner 需要 Docker、Buildx 和支持 OCI 导出的 builder，推荐 `docker-container` driver。直接调用 composite Action 时，应先通过 `docker/setup-buildx-action@v4` 等方式配置 Buildx。构建遵循 `project.target_arch`，默认 `amd64`，也支持 `arm64`；跨架构 Dockerfile 中的 `RUN` 需要 QEMU 或合适的原生 builder。reusable workflow 在选择 Docker 后配置 Buildx 和可选 QEMU。基础镜像由 BuildKit 正常获取，不需要单独预拉取到 Docker daemon，也不需要推送应用镜像。
+
+Action 直接导出完整 OCI 镜像，将全部 layer 内嵌，`images.lock` 的 upstream 留空。打包前校验目标架构、blob digest、rootfs diff ID 及每层完整的 tar/gzip 内容，不调用 CLI 的 Docker-save/local-pack 实现。支持 `app: path/to/Dockerfile` 简写、`dockerfile-content: |` 和可选 `context`。context 默认是 Dockerfile 所在目录；内联 Dockerfile 默认使用项目根目录。Dockerfile/context 必须位于 `project.root` 内，文件形式的 Dockerfile 还必须在 context 内。`builder` 默认 `local`；显式远程 builder、`upstream-match` layer 去重和未知构建字段会被拒绝。
+
+内嵌 LPK 沿用已有 GitHub Release、SHA256 校验和私有商店发布流程。官方发布仍需显式配置，并遵守已有 lint/审核检查。LPK v2 需要 `package.yml.min_os_version: 1.5.0` 或更高版本。[完整示例](examples/docker-embed) 默认仅发布 GitHub Release，两个商店均关闭；需要社区发布时启用私有商店并配置 Secrets。
+
 ## 进度日志
 
 Action 使用 Go 官方 `log/slog` 输出结构化进度，同时不会打印 Secret 值和受保护的构建环境变量。每次运行会先显示执行模式（`docker-image`、`source-build`、`prebuilt-content` 或 `store-publish`），再按实际流程输出以下阶段：

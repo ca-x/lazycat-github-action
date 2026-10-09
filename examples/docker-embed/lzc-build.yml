@@ -1,0 +1,6 @@
+manifest: lzc-manifest.yml
+images:
+  web:
+    dockerfile: Dockerfile
+    context: .
+    builder: local

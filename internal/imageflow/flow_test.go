@@ -890,3 +890,43 @@ func imageConfig() config.Config {
 
 func digest(character string) string { return "sha256:" + strings.Repeat(character, 64) }
 func created(day int) time.Time      { return time.Date(2026, 7, day, 0, 0, 0, 0, time.UTC) }
+
+func TestFlowSkipsEmbeddedImagesAndStillChecksRegistryImages(t *testing.T) {
+	cfg := imageConfig()
+	registryClient := &fakeRegistry{bySource: map[string][]versioning.Candidate{"ghcr.io/acme/web": {{Tag: "v2.0.0", Digest: digest("w"), Created: created(2)}}}}
+	deliverer := &fakeDeliverer{}
+	flow := imageflow.Flow{Registry: registryClient, Deliverer: deliverer,
+		ReadManifest: func(string, []manifestedit.Target) ([]manifestedit.Current, error) {
+			return []manifestedit.Current{
+				{ID: "db", RuntimeRef: "embed:db", UpstreamRef: "embed:db"},
+				{ID: "web", RuntimeRef: "ghcr.io/acme/web:v1.0.0", UpstreamRef: "ghcr.io/acme/web:v1.0.0"},
+			}, nil
+		},
+		ResolveImage: func(image config.Image, current manifestedit.Current) (config.Image, error) {
+			if image.ID == "db" {
+				t.Fatal("embedded image was resolved through registry delivery")
+			}
+			return image, nil
+		},
+		ApplyManifest: func(_ string, updates []manifestedit.Update) ([]manifestedit.Change, error) {
+			if len(updates) != 1 || updates[0].Target.ID != "web" {
+				t.Fatalf("updates=%v", updates)
+			}
+			return []manifestedit.Change{{ID: "web", Changed: true}}, nil
+		},
+	}
+	result, err := flow.Check(t.Context(), imageflow.Request{Config: cfg, Project: project.Info{Version: "1.0.0"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if registryClient.calls != 1 || deliverer.calls != 1 || len(result.Images) != 1 || result.Version != "2.0.0" {
+		t.Fatalf("result=%+v registry=%d delivery=%d", result, registryClient.calls, deliverer.calls)
+	}
+	cfg.Update.VersionSource.Image = "db"
+	if _, err := flow.Check(t.Context(), imageflow.Request{Config: cfg, Project: project.Info{Version: "1.0.0"}}); err == nil || !strings.Contains(err.Error(), "type: git") {
+		t.Fatalf("embedded version source err=%v", err)
+	}
+	if registryClient.calls != 1 {
+		t.Fatal("embedded version source caused registry queries")
+	}
+}

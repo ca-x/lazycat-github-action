@@ -299,6 +299,9 @@ func ResolveOperation(input Input, cfg config.Config) (Operation, error) {
 		}
 		return OperationBuild, nil
 	case "schedule":
+		if cfg.Update.VersionSource.Type == config.VersionSourceGit {
+			return OperationBuild, nil
+		}
 		return OperationCheck, nil
 	default:
 		return OperationBuild, nil

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/ca-x/lazycat-github-action/internal/diagnostic"
+	"github.com/ca-x/lazycat-github-action/internal/imagebuild"
 	"github.com/ca-x/lazycat-github-action/internal/lpkcheck"
 	"github.com/ca-x/lazycat-github-action/internal/platform"
 	"github.com/ca-x/lazycat-github-action/internal/project"
@@ -33,6 +34,7 @@ type Request struct {
 	RunBuildScript  bool
 	Target          platform.Target
 	Runner          toolkitbuild.CommandRunner
+	ImageBuilder    toolkitbuild.ImageBuilder
 }
 
 type Result struct {
@@ -187,6 +189,26 @@ func (builder Builder) Build(ctx context.Context, request Request) (result Resul
 	} else {
 		builder.logger().Info("project buildscript disabled")
 	}
+	imageBuilder := request.ImageBuilder
+	if imageBuilder == nil {
+		imageEnvironment := map[string]string{}
+		for _, entry := range os.Environ() {
+			key, value, ok := strings.Cut(entry, "=")
+			if ok {
+				if _, protected := protectedBuildEnvironment[key]; !protected {
+					imageEnvironment[key] = value
+				}
+			}
+		}
+		for key, value := range environment {
+			imageEnvironment[key] = value
+		}
+		entries := make([]string, 0, len(imageEnvironment))
+		for key, value := range imageEnvironment {
+			entries = append(entries, key+"="+value)
+		}
+		imageBuilder = imagebuild.Builder{Target: target, Environment: entries, Stdout: builder.stdout(), Stderr: builder.stderr(), Logger: builder.logger()}
+	}
 	toolkitResult, err := toolkitbuild.BuildFile(ctx, temporary, toolkitbuild.Request{
 		Root:               request.Project.Root,
 		ConfigFile:         request.Project.BuildConfig,
@@ -194,6 +216,7 @@ func (builder Builder) Build(ctx context.Context, request Request) (result Resul
 		InheritEnvironment: true,
 		RunBuildScript:     request.RunBuildScript,
 		Runner:             protectedRunner{base: runner},
+		ImageBuilder:       imageBuilder,
 	})
 	if err != nil {
 		return Result{}, wrapToolkitBuildError(request.Project, err)
@@ -334,7 +357,13 @@ func safePublicBuildDetail(toolkitError *lpkgo.Error) string {
 		return diagnostic.SafeYAMLSyntaxDetail(toolkitError.Cause)
 	}
 	if toolkitError.Code == lpkgo.CodeCommandFailed {
-		return safeBuildscriptExitDetail(toolkitError.Cause)
+		if detail := safeBuildscriptExitDetail(toolkitError.Cause); detail != "" {
+			return detail
+		}
+		var imageError interface{ PublicErrorDetail() string }
+		if errors.As(toolkitError.Cause, &imageError) {
+			return diagnostic.SafeDetail(imageError.PublicErrorDetail())
+		}
 	}
 	return ""
 }

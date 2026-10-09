@@ -1,0 +1,17 @@
+version: 1
+project:
+  output: dist/application.lpk
+  target_arch: amd64
+update:
+  strategy: publish
+  version_source:
+    type: git
+build:
+  toolchains:
+    - kind: docker
+  run_buildscript: false
+stores:
+  official:
+    enabled: false
+  private:
+    enabled: false

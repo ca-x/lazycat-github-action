@@ -65,6 +65,48 @@ update:
   sync_license: false
 ```
 
+## Build Docker images from source and embed them
+
+Source-only applications can build and ship their images inside an LPK v2 without pushing an application image to a registry. Define local image builds in `lzc-build.yml` and reference the same aliases in `lzc-manifest.yml`:
+
+```yaml
+# lzc-build.yml
+images:
+  app:
+    dockerfile: upstream/Dockerfile
+    context: upstream
+    builder: local
+```
+
+```yaml
+# lzc-manifest.yml
+services:
+  app:
+    image: embed:app
+```
+
+Use Git/package versions and select the Docker toolchain:
+
+```yaml
+# .github/lazycat-action.yml
+update:
+  strategy: publish
+  version_source:
+    type: git
+build:
+  toolchains:
+    - kind: docker
+  run_buildscript: false
+```
+
+For the reusable workflow, set `toolchains: docker`. Checkout or prepare the source directory before the build, for example in a project buildscript with `run_buildscript: true`. `auto` builds Git-version projects on Tag, Release, manual, and scheduled events. It does not discover upstream source versions or bump the package version automatically. Keep locally built aliases out of the Action configuration's top-level `images` list, which manages registry updates. In mixed image checks, `embed:` targets are skipped while registry targets retain their normal behavior; an embedded target cannot be an image version source.
+
+Docker and Buildx must be installed on the runner, with an OCI-capable builder (the `docker-container` driver is recommended). Composite Action callers should set up Buildx, for example with `docker/setup-buildx-action@v4`. Builds use `project.target_arch` (`amd64` by default, or `arm64`); cross-platform Dockerfile `RUN` steps need QEMU/emulation or a suitable native builder. The reusable workflow sets up Buildx and optional QEMU when Docker is selected. Dockerfile base images are fetched normally by BuildKit; no separate daemon pre-pull or application-image push is required.
+
+The Action exports a full OCI image, embeds every layer with an empty upstream in `images.lock`, and checks platform, blob digests, rootfs diff IDs, and each complete layer tar/gzip stream before packaging. It does not use the CLI's Docker-save/local-pack implementation. Supported forms include `app: path/to/Dockerfile` and `dockerfile-content: |` with an optional `context`. Context defaults to the Dockerfile's directory, or the project root for inline content. Dockerfiles and contexts must stay within `project.root`, and file Dockerfiles must be inside their context. `builder` defaults to `local`; explicit remote builders, `upstream-match` layer deduplication, and unknown build fields are rejected.
+
+The existing Release and private-store flow works with the embedded LPK and its verified SHA256. Official publication remains explicitly configured and subject to its existing lint/review gates. LPK v2 requires `package.yml.min_os_version: 1.5.0` or higher. See [the Docker source example](examples/docker-embed), which publishes GitHub Releases with both stores disabled; enable the private store and supply its Secrets when needed.
+
 ## Progress logs
 
 The Action emits structured `log/slog` progress records without printing Secret values or protected build environment variables. A run identifies its execution mode (`docker-image`, `source-build`, `prebuilt-content`, or `store-publish`) and then reports the applicable stages:

@@ -1,0 +1,8 @@
+application:
+  subdomain: source-web
+  upstreams:
+    - location: /
+      backend: http://web:80/
+services:
+  web:
+    image: embed:web

@@ -265,6 +265,12 @@ Keep `update.sync_license: true` (the default) unless the user disables it. For 
 
 Use the reusable workflow's independent license commit for PR, direct, and Tag/Release default-branch updates. For composite Action workflows, consume `license-changed`, `license`, and `license-file` to commit the license-only package snapshot before staging the final version/image update. Do not combine license changes with a version commit, bump the version solely for a license change, or rebuild an existing Release solely for metadata. See [references/configuration.md](references/configuration.md) for configuration and [references/workflows.md](references/workflows.md) for commit behavior.
 
+## Source-built embedded Docker images
+
+For source-only upstreams, configure `lzc-build.yml.images.<alias>` with `dockerfile` (or `dockerfile-content`), optional `context`, and `builder: local`; reference `embed:<alias>` in the Manifest. Use `update.version_source.type: git`, select Docker in both the Action configuration and reusable workflow, and prepare sources before building. Keep embedded aliases out of the Action's registry-update `images` list. Git `auto` builds on schedule as well as manual/Tag/Release events; it does not discover upstream source versions. Mixed registry checks skip `embed:` targets, and an embedded image cannot drive registry version selection.
+
+The Action directly exports full OCI images and embeds all layers, with platform/digest/diff-ID/tar/gzip validation. It does not invoke the CLI local pack path, push application images, or require daemon base-image pre-pulls. Honor `project.target_arch`, provision QEMU for cross-platform `RUN`, keep contexts/Dockerfiles within the project, and require LPK v2 `min_os_version: 1.5.0` or higher. Remote builders and `upstream-match` deduplication are unsupported; do not silently replace them. Read [references/configuration.md](references/configuration.md) for supported image-build forms and [references/workflows.md](references/workflows.md) for the Docker setup. Prefer private/community publication when that is the selected target; keep official publication explicitly configured with its existing checks.
+
 ## Verify the generated result
 
 Before finishing:
