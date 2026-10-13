@@ -17,6 +17,8 @@ jobs:
     # Remove mappings for stores that are disabled. Organization Secrets must
     # explicitly authorize this repository.
     secrets:
+      # Optional PAT for repository Website updates (Administration: write).
+      GH_REPO_TOKEN: ${{ secrets.GH_REPO_TOKEN }}
       LZC_API_HOST: ${{ secrets.LZC_API_HOST }}
       LZC_API_TOKEN: ${{ secrets.LZC_API_TOKEN }}
       APPSTORE_URL: ${{ secrets.APPSTORE_URL }}

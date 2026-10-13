@@ -47,10 +47,15 @@ func (project Project) Target() platform.Target {
 }
 
 type Update struct {
+	SyncHomepage   *bool         `yaml:"sync_homepage"`
 	SyncLicense    *bool         `yaml:"sync_license"`
 	Strategy       Strategy      `yaml:"strategy"`
 	AllowDowngrade bool          `yaml:"allow_downgrade"`
 	VersionSource  VersionSource `yaml:"version_source"`
+}
+
+func (update Update) ShouldSyncHomepage() bool {
+	return update.SyncHomepage == nil || *update.SyncHomepage
 }
 
 func (update Update) ShouldSyncLicense() bool {

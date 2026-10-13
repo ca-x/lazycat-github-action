@@ -13,7 +13,7 @@ Both repository entry points are supported and use the floating `v1` release tag
 
 | Entry point | Reference | Responsibility |
 |---|---|---|
-| Composite Action | `ca-x/lazycat-github-action@v1` | Runs one `check`, `build`, or `publish` operation inside a caller-owned job. The caller owns checkout, permissions, toolchains, Release handling, and any other GitHub mutation. |
+| Composite Action | `ca-x/lazycat-github-action@v1` | Runs one `check`, `build`, or `publish` operation inside a caller-owned job. The caller owns checkout, permissions, toolchains, Release handling, tags, and PRs. Optional repository Website synchronization is handled by the Action. |
 | Reusable Workflow | `ca-x/lazycat-github-action/.github/workflows/lazycat.yml@v1` | Owns the complete automation path: toolchains, pull requests, Artifacts, tags, Releases, versioned assets, store reconciliation, and private/official publication. |
 
 Default to the reusable workflow for generated project automation. Use the composite Action only when the existing workflow already provides the surrounding lifecycle. Do not describe one entry point as replacing or disabling the other.
@@ -270,6 +270,12 @@ Use the reusable workflow's independent license commit for PR, direct, and Tag/R
 For source-only upstreams, configure `lzc-build.yml.images.<alias>` with `dockerfile` (or `dockerfile-content`), optional `context`, and `builder: local`; reference `embed:<alias>` in the Manifest. Use `update.version_source.type: git`, select Docker in both the Action configuration and reusable workflow, and prepare sources before building. Keep embedded aliases out of the Action's registry-update `images` list. Git `auto` builds on schedule as well as manual/Tag/Release events; it does not discover upstream source versions. Mixed registry checks skip `embed:` targets, and an embedded image cannot drive registry version selection.
 
 The Action directly exports full OCI images and embeds all layers, with platform/digest/diff-ID/tar/gzip validation. It does not invoke the CLI local pack path, push application images, or require daemon base-image pre-pulls. Honor `project.target_arch`, provision QEMU for cross-platform `RUN`, keep contexts/Dockerfiles within the project, and require LPK v2 `min_os_version: 1.5.0` or higher. Remote builders and `upstream-match` deduplication are unsupported; do not silently replace them. Read [references/configuration.md](references/configuration.md) for supported image-build forms and [references/workflows.md](references/workflows.md) for the Docker setup. Prefer private/community publication when that is the selected target; keep official publication explicitly configured with its existing checks.
+
+## Fill the current GitHub repository Website
+
+Keep `update.sync_homepage: true` (default) unless disabled by the user. After successful `check`/`build`, fill only an empty current repository Website from the valid HTTP(S) `package.yml.homepage`. Derive the target from `GITHUB_REPOSITORY`, never from the upstream URL. Preserve existing Websites and leave package files/commits unchanged. Only GitHub.com Actions are supported; skip non-GitHub hosts, local runs, dry runs, PR events, failures, official-review pauses, and existing-LPK publication. Metadata API or permission failures must warn and continue.
+
+Use optional `GH_REPO_TOKEN` with target-repository Administration: write permission; the default `GITHUB_TOKEN` usually cannot edit repository settings. Explicitly pass the Secret through reusable workflows, or set `env.GH_REPO_TOKEN` for composite calls. Never expose this token to buildscript/Docker processes. See [references/configuration.md](references/configuration.md) for the opt-out and [references/workflows.md](references/workflows.md) for credential wiring.
 
 ## Verify the generated result
 

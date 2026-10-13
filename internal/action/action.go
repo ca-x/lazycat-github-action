@@ -1,6 +1,7 @@
 package action
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,6 +20,7 @@ import (
 	"github.com/ca-x/lazycat-github-action/internal/config"
 	"github.com/ca-x/lazycat-github-action/internal/delivery"
 	"github.com/ca-x/lazycat-github-action/internal/diagnostic"
+	"github.com/ca-x/lazycat-github-action/internal/githubrepo"
 	"github.com/ca-x/lazycat-github-action/internal/httpx"
 	"github.com/ca-x/lazycat-github-action/internal/imageflow"
 	"github.com/ca-x/lazycat-github-action/internal/imagemirror"
@@ -172,6 +174,7 @@ type Dependencies struct {
 	Logger               *slog.Logger
 	LoadConfig           func(string) (config.Config, error)
 	Inspect              func(context.Context, config.Project) (project.Info, error)
+	EnsureRepoHomepage   func(context.Context, string) (bool, error)
 	LookupLicense        func(context.Context, string) (string, error)
 	SetVersion           func(string, string) (yamledit.Change, error)
 	Build                func(context.Context, actionbuild.Request) (actionbuild.Result, error)
@@ -208,14 +211,15 @@ func DefaultDependenciesWithEnv(host platform.Host, getenv func(string) string) 
 	publishFlow := publishflow.Default()
 	publishFlow.Logger = logger
 	return Dependencies{
-		Host:          host,
-		Logger:        logger,
-		LoadConfig:    config.Load,
-		Inspect:       project.Inspect,
-		SetVersion:    yamledit.SetPackageVersion,
-		LookupLicense: licenselookup.Client{Token: getenv("GITHUB_TOKEN")}.Lookup,
-		Build:         builder.Build,
-		CheckImages:   imageFlow.Check,
+		Host:               host,
+		Logger:             logger,
+		LoadConfig:         config.Load,
+		Inspect:            project.Inspect,
+		SetVersion:         yamledit.SetPackageVersion,
+		LookupLicense:      licenselookup.Client{Token: getenv("GITHUB_TOKEN")}.Lookup,
+		EnsureRepoHomepage: githubrepo.Client{ServerURL: getenv("GITHUB_SERVER_URL"), Repository: getenv("GITHUB_REPOSITORY"), Token: cmp.Or(getenv("GH_REPO_TOKEN"), getenv("GITHUB_TOKEN"))}.EnsureHomepage,
+		Build:              builder.Build,
+		CheckImages:        imageFlow.Check,
 		WaitingReviewVersion: func(ctx context.Context, packageID string) (string, bool, error) {
 			resolved, err := resolver.Resolve(ctx)
 			if err != nil {
@@ -365,16 +369,26 @@ func Run(ctx context.Context, input Input, dependencies Dependencies) (Result, e
 			}
 		}
 	}
+	var result Result
 	switch operation {
 	case OperationBuild:
-		return runBuild(ctx, input, cfg, info, dependencies)
+		result, err = runBuild(ctx, input, cfg, info, dependencies)
 	case OperationCheck:
-		return runCheck(ctx, input, cfg, info, officialReviewVersion, dependencies)
+		result, err = runCheck(ctx, input, cfg, info, officialReviewVersion, dependencies)
 	case OperationPublishOfficial, OperationPublishPrivate:
 		return runPublish(ctx, input, operation, cfg, info, dependencies)
 	default:
 		return Result{}, actionError(CodeConfigInvalid, fmt.Sprintf("unsupported operation %q", operation), nil)
 	}
+	if err == nil && !input.DryRun && input.EventName != "pull_request" && input.EventName != "pull_request_target" && !result.OfficialReviewPending && cfg.Update.ShouldSyncHomepage() && info.Homepage != "" && dependencies.EnsureRepoHomepage != nil {
+		updated, syncErr := dependencies.EnsureRepoHomepage(ctx, info.Homepage)
+		if syncErr != nil {
+			logger.Warn("GitHub repository website synchronization failed; continuing")
+		} else if updated {
+			logger.Info("GitHub repository website filled from package.yml")
+		}
+	}
+	return result, err
 }
 
 func pausedOfficialReviewResult(input Input, operation Operation, reviewVersion string, info project.Info, cfg config.Config, dependencies Dependencies, logger *slog.Logger, message string) (Result, error) {

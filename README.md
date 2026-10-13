@@ -50,6 +50,26 @@ Gitea Actions and Forgejo Actions users should call the composite Action directl
 
 Callers do not compile this repository. The bootstrap downloads a checksum-verified Action binary for the Runner architecture.
 
+## Fill an empty GitHub repository Website
+
+`update.sync_homepage` defaults to `true`. After a successful `check` or `build`, the Action reads the current repository's Website (`homepage` in the GitHub repository API). If empty, it sets it to the valid HTTP(S) URL in `package.yml.homepage`. An existing Website is preserved; the upstream repository referenced by the package URL is never edited. This changes GitHub About metadata, so it does not edit package files, create a commit, or set the managed-file `changed` output.
+
+This applies only to GitHub.com Actions with `GITHUB_SERVER_URL=https://github.com` and a valid `GITHUB_REPOSITORY`. Local runs, other hosts (including currently unsupported GitHub Enterprise hosts), empty/invalid package URLs, dry runs, pull-request events, failed builds/checks, official-review pauses, and existing-LPK store publish operations skip the update. API failures and insufficient permissions warn and do not fail subsequent work. The API calls have a combined 10-second timeout.
+
+Repository settings updates require a token permitted to administer the target repository. The workflow `GITHUB_TOKEN` usually cannot update these settings, even with `contents: write`. Optionally provide a fine-grained PAT with repository **Administration: write** as the `GH_REPO_TOKEN` Secret; classic PATs need appropriate repository access. The Action prefers `GH_REPO_TOKEN`, then falls back to `GITHUB_TOKEN`. Pass the Secret explicitly to the reusable workflow:
+
+```yaml
+secrets:
+  GH_REPO_TOKEN: ${{ secrets.GH_REPO_TOKEN }}
+```
+
+For composite Action calls, set `env.GH_REPO_TOKEN` instead. This credential is filtered from project buildscript and Docker build environments. To disable the feature:
+
+```yaml
+update:
+  sync_homepage: false
+```
+
 ## GitHub license synchronization
 
 `update.sync_license` defaults to `true`. During `check` and `build`, a GitHub repository in `package.yml.homepage` is queried via `GET /repos/{owner}/{repo}/license`. A valid API `license.spdx_id` takes precedence. If the API cannot identify the license (for example, `NOASSERTION`), `github.com/google/licensecheck` scans the returned LICENSE content. Fallback detection requires at least 90% coverage and one distinct license; it does not infer AND/OR relationships for multiple licenses.

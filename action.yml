@@ -137,8 +137,9 @@ runs:
       id: run
       shell: bash
       env:
-        LAZYCAT_ACTION_VERSION: v1.3.0
+        LAZYCAT_ACTION_VERSION: v1.3.1
         GITHUB_TOKEN: ${{ env.GITHUB_TOKEN || github.token }}
+        GH_REPO_TOKEN: ${{ env.GH_REPO_TOKEN }}
         INPUT_OPERATION: ${{ inputs.operation }}
         INPUT_CONFIG: ${{ inputs.config }}
         INPUT_IMAGE_ID: ${{ inputs['image-id'] }}

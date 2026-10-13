@@ -39,6 +39,9 @@ update:
 				if got.Update.Strategy != config.StrategyPull {
 					t.Fatalf("strategy=%q", got.Update.Strategy)
 				}
+				if !got.Update.ShouldSyncHomepage() {
+					t.Fatal("repository homepage synchronization should default to enabled")
+				}
 				if !got.Update.ShouldSyncLicense() {
 					t.Fatal("license synchronization should default to enabled")
 				}
@@ -65,10 +68,14 @@ update:
 			yaml: `version: 1
 update:
   sync_license: false
+  sync_homepage: false
   version_source:
     type: git
 `,
 			check: func(t *testing.T, got config.Config) {
+				if got.Update.ShouldSyncHomepage() {
+					t.Fatal("repository homepage synchronization should be disabled")
+				}
 				if got.Update.ShouldSyncLicense() {
 					t.Fatal("license synchronization should be disabled")
 				}

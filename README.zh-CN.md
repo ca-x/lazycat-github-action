@@ -50,6 +50,26 @@ Gitea Actions 和 Forgejo Actions 用户应通过完整 URL 直接调用 composi
 
 调用方不需要编译本项目。启动脚本会按 Runner 架构下载 Action 二进制，并校验发布包 SHA256。
 
+## 自动补全 GitHub 仓库 Website
+
+`update.sync_homepage` 默认开启。`check` 或 `build` 成功后，Action 查询当前运行仓库 About 中的 Website（GitHub API 的 `homepage` 字段）；为空时填入 `package.yml.homepage` 中的有效 HTTP(S) 网址。已有 Website 会保留，不会修改该网址指向的上游仓库。这只更新 GitHub 仓库设置，不修改 package 文件、不创建 commit，也不将受管文件的 `changed` 输出设为 true。
+
+仅在 GitHub.com Actions 中启用，要求 `GITHUB_SERVER_URL=https://github.com` 和有效的 `GITHUB_REPOSITORY`。本地运行、其他托管平台（当前也不支持 GitHub Enterprise 主机）、包网址为空或无效、dry-run、PR 事件、构建/检查失败、官方审核暂停和直接发布已有 LPK 到商店时均跳过。API 请求失败或权限不足只记录提示，后续任务继续执行；查询和更新共用 10 秒超时。
+
+更新仓库设置需要仓库管理权限，普通 workflow `GITHUB_TOKEN` 通常无法执行，即使已设置 `contents: write`。可配置可选 Secret `GH_REPO_TOKEN`，使用对目标仓库拥有 **Administration: write** 权限的 fine-grained PAT；classic PAT 需要相应仓库访问权限。Action 优先使用 `GH_REPO_TOKEN`，缺省时回退到 `GITHUB_TOKEN`。调用 reusable workflow 时显式传入：
+
+```yaml
+secrets:
+  GH_REPO_TOKEN: ${{ secrets.GH_REPO_TOKEN }}
+```
+
+调用 composite Action 时通过 `env.GH_REPO_TOKEN` 传入。该凭据不会传入项目 buildscript 和 Docker 构建进程。关闭方式：
+
+```yaml
+update:
+  sync_homepage: false
+```
+
 ## GitHub license 自动同步
 
 默认启用 `update.sync_license: true`。在 `check` 或 `build` 时，如果 `package.yml.homepage` 指向 GitHub 仓库，Action 查询 `GET /repos/{owner}/{repo}/license`，优先使用有效的 `license.spdx_id`。API 未识别（例如 `NOASSERTION`）时，使用 `github.com/google/licensecheck` 解析 API 返回的 LICENSE 原文；仅接受覆盖率至少 90% 且识别出一种 license 的结果，不推断多 license 的 AND/OR 关系。
