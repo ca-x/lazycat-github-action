@@ -298,7 +298,7 @@ jobs:
 
 `strategy: pull` is the default. When a newer image exists, the workflow updates only the configured targets, builds and validates the LPK, uploads a Workflow Artifact, and opens or updates `lazycat/update-all`.
 
-With `operation: auto`, `workflow_dispatch` builds a Git-version-source project (using `package.yml.version` when no version input is supplied) and checks an image-version-source project. An explicit manual version always builds. Tag pushes build and schedules check images. Explicit operations otherwise keep their requested behavior, but `check` is rejected for Tag and Release events so an image update cannot be published under an unrelated event tag.
+With `operation: auto`, `workflow_dispatch` builds a Git-version-source project (using `package.yml.version` when no version input is supplied) and checks an image-version-source project. An explicit manual version always builds. Tag pushes build; schedules build Git version sources and check image version sources. Explicit `operation: check` also builds for `version_source.type: git`, returning `operation: build` without requiring images. Tag and Release events still reject explicit `check`.
 
 Use `image-id` to process one configured image:
 

@@ -8,7 +8,7 @@ branding:
 
 inputs:
   operation:
-    description: auto, check, build, publish-official, or publish-private; auto uses the event and configured version source; check rejects tag and release events.
+    description: auto, check, build, publish-official, or publish-private; Git-source check builds; check rejects tag and release events.
     required: false
     default: auto
   config:
@@ -137,7 +137,7 @@ runs:
       id: run
       shell: bash
       env:
-        LAZYCAT_ACTION_VERSION: v1.3.1
+        LAZYCAT_ACTION_VERSION: v1.3.2
         GITHUB_TOKEN: ${{ env.GITHUB_TOKEN || github.token }}
         GH_REPO_TOKEN: ${{ env.GH_REPO_TOKEN }}
         INPUT_OPERATION: ${{ inputs.operation }}

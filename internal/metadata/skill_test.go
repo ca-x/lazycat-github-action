@@ -40,6 +40,9 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 			t.Fatalf("SKILL.md missing %q", required)
 		}
 	}
+	if !strings.Contains(text, "Explicit `operation: check` with `version_source.type: git` runs a source build") {
+		t.Fatal("SKILL.md must explain image-free check behavior")
+	}
 	for _, required := range []string{"Node.js 24", "actions/checkout@v7", "actions/setup-node@v7"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("SKILL.md missing Node.js 24 Action contract %q", required)

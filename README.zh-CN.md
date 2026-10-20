@@ -298,7 +298,7 @@ jobs:
 
 `strategy: pull` 是默认策略。发现新镜像后，workflow 只更新显式配置的目标，构建并校验 LPK，上传 Workflow Artifact，然后创建或更新 `lazycat/update-all`。
 
-使用 `operation: auto` 时，`workflow_dispatch` 会构建 Git 版本源项目（未提供版本输入时读取 `package.yml.version`），对镜像版本源项目则执行检查；手动显式提供版本始终执行构建。Tag push 执行构建，schedule 执行镜像检查。其他情况下显式操作仍保持原语义，但 Tag 和 Release 事件会拒绝 `check`，避免把镜像更新发布到无关的事件 Tag 下。
+使用 `operation: auto` 时，`workflow_dispatch` 会构建 Git 版本源项目（未提供版本输入时读取 `package.yml.version`），对镜像版本源项目则执行检查；手动显式提供版本始终执行构建。Tag push 执行构建；schedule 对 Git 版本源执行构建，对镜像版本源执行检查。显式 `operation: check` 遇到 `version_source.type: git` 时也会执行构建校验，结果的 `operation` 为 `build`，无需配置镜像。Tag 和 Release 事件仍会拒绝显式 `check`。
 
 如果只想处理一个镜像，可以传 `image-id`：
 

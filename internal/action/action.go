@@ -283,7 +283,18 @@ func ResolveOperation(input Input, cfg config.Config) (Operation, error) {
 	}
 	if operation != OperationAuto {
 		switch operation {
-		case OperationCheck, OperationBuild, OperationPublishOfficial, OperationPublishPrivate:
+		case OperationCheck:
+			if cfg.Update.VersionSource.Type == config.VersionSourceGit {
+				if input.EventName == "release" || input.RefType == "tag" {
+					return "", errors.New("check operation is not supported for tag or release events")
+				}
+				if input.ImageID != "" {
+					return "", errors.New("image-id requires update.version_source.type=image for check")
+				}
+				return OperationBuild, nil
+			}
+			return OperationCheck, nil
+		case OperationBuild, OperationPublishOfficial, OperationPublishPrivate:
 			return operation, nil
 		default:
 			return "", fmt.Errorf("unsupported operation %q", operation)

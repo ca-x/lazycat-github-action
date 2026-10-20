@@ -677,7 +677,8 @@ func TestResolveOperation(t *testing.T) {
 		{name: "tag git build", input: action.Input{Operation: action.OperationAuto, EventName: "push", RefType: "tag", RefName: "v1.2.3"}, cfg: git, want: action.OperationBuild},
 		{name: "scheduled git build", input: action.Input{Operation: action.OperationAuto, EventName: "schedule"}, cfg: git, want: action.OperationBuild},
 		{name: "scheduled image check", input: action.Input{Operation: action.OperationAuto, EventName: "schedule"}, cfg: image, want: action.OperationCheck},
-		{name: "explicit check unchanged", input: action.Input{Operation: action.OperationCheck, EventName: "workflow_dispatch"}, cfg: git, want: action.OperationCheck},
+		{name: "explicit git check builds", input: action.Input{Operation: action.OperationCheck, EventName: "workflow_dispatch"}, cfg: git, want: action.OperationBuild},
+		{name: "explicit image check unchanged", input: action.Input{Operation: action.OperationCheck, EventName: "workflow_dispatch"}, cfg: image, want: action.OperationCheck},
 		{name: "explicit build unchanged", input: action.Input{Operation: action.OperationBuild, EventName: "schedule"}, cfg: image, want: action.OperationBuild},
 	}
 	for _, test := range tests {
@@ -690,6 +691,36 @@ func TestResolveOperation(t *testing.T) {
 				t.Fatalf("operation=%q want=%q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestRunGitCheckBuildsWithoutImage(t *testing.T) {
+	root := t.TempDir()
+	packageFile := filepath.Join(root, "package.yml")
+	buildCalls := 0
+	deps := action.Dependencies{
+		Host:       platform.Host{OS: "linux", Arch: "amd64"},
+		ResultDir:  filepath.Join(root, "results"),
+		LoadConfig: func(string) (config.Config, error) { return gitConfig(), nil },
+		Inspect: func(context.Context, config.Project) (project.Info, error) {
+			return project.Info{Root: root, PackageFile: packageFile, Output: filepath.Join(root, "dist", "app.lpk"), PackageID: "cloud.lazycat.example", Version: "1.2.3"}, nil
+		},
+		SetVersion: func(string, string) (yamledit.Change, error) { return yamledit.Change{}, nil },
+		Build: func(_ context.Context, request actionbuild.Request) (actionbuild.Result, error) {
+			buildCalls++
+			return actionbuild.Result{Path: request.Project.Output, PackageID: request.Project.PackageID, Version: request.Version, TargetPlatform: "linux/amd64"}, nil
+		},
+		CheckImages: func(context.Context, imageflow.Request) (imageflow.Result, error) {
+			t.Fatal("git check must not check images")
+			return imageflow.Result{}, nil
+		},
+	}
+	result, err := action.Run(t.Context(), action.Input{Operation: action.OperationCheck, EventName: "workflow_dispatch"}, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if buildCalls != 1 || result.Operation != "build" || result.Version != "1.2.3" || result.LPKPath == "" {
+		t.Fatalf("build calls=%d result=%#v", buildCalls, result)
 	}
 }
 

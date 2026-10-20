@@ -98,6 +98,8 @@ If any required decision cannot be proven from inspected files or the user's req
 | Exec binary | `git` | None unless runtime also uses an image | `go`, `rust`, or `node` |
 | Prebuilt content | `git` | None | `none` |
 
+Explicit `operation: check` with `version_source.type: git` runs a source build and returns `operation: build`; no managed images are required. The build uses `package.yml.version` unless an explicit version is supplied. For source-only frontend projects, configure the needed toolchain (usually `node`) and buildscript. Do not set `image-id` for a Git-source check. Tag and Release events reject explicit `check`; use `auto` or `build` for those events.
+
 Maintained source-build references:
 
 - Go Exec: [`lazycat-contrib/cat-led`](https://github.com/lazycat-contrib/cat-led) shows a Git version source, explicit Go toolchain, versioned Release Asset, and dual-store publication.
