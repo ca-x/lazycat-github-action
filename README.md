@@ -127,6 +127,14 @@ The Action exports a full OCI image, embeds every layer with an empty upstream i
 
 The existing Release and private-store flow works with the embedded LPK and its verified SHA256. Official publication remains explicitly configured and subject to its existing lint/review gates. LPK v2 requires `package.yml.min_os_version: 1.5.0` or higher. See [the Docker source example](examples/docker-embed), which publishes GitHub Releases with both stores disabled; enable the private store and supply its Secrets when needed.
 
+## Deployment parameter validation
+
+The Action validates `lzc-deploy-params.yml`, or the file selected by `deploy_params` in `lzc-build.yml`. Keep installation parameters in this separate file. Supported parameter types are `bool`, `lzc_uid`, `string`, and `secret`. Unsupported types or fields such as `enum` and `options` stop the run.
+
+Validation covers YAML structure, duplicate fields and parameter IDs, field types, and translations. `locales` must reference declared parameters and supports only `name` and `description` translations. Boolean defaults accept `true`/`false`, quoted or unquoted; other defaults must be strings. `$random(...)` remains unchanged and is never evaluated in CI.
+
+Existing sources are checked before image selection, delivery, or buildscript execution. The final LPK's `deploy_params.yml` is checked again, including generated files and existing LPKs supplied for publication. Errors identify the file, field position, and line without printing defaults. These checks apply to all builds and stores independently of official-store lint. [Deployment parameter specification](https://developer.lazycat.cloud/spec/deploy-params.html)
+
 ## Progress logs
 
 The Action emits structured `log/slog` progress records without printing Secret values or protected build environment variables. A run identifies its execution mode (`docker-image`, `source-build`, `prebuilt-content`, or `store-publish`) and then reports the applicable stages:

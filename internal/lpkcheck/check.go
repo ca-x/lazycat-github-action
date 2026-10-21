@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ca-x/lazycat-github-action/internal/deployparams"
 	"github.com/ca-x/lazycat-github-action/internal/platform"
 	"github.com/lib-x/lzc-toolkit-go/lpk"
 	"github.com/lib-x/lzc-toolkit-go/manifest"
@@ -53,6 +54,9 @@ func File(ctx context.Context, request Request) (Result, error) {
 	reader, err := lpk.OpenFile(ctx, path)
 	if err != nil {
 		return Result{}, fmt.Errorf("open LPK %q: %w", path, err)
+	}
+	if err := deployparams.Package(ctx, reader); err != nil {
+		return Result{}, errors.Join(err, reader.Close())
 	}
 	packageDocument, packageErr := reader.PackageInfo(ctx)
 	closeErr := reader.Close()

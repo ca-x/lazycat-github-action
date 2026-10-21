@@ -65,6 +65,9 @@ func Inspect(ctx context.Context, cfg config.Project) (Info, error) {
 	if err != nil {
 		return Info{}, fmt.Errorf("inspect build config: %w", err)
 	}
+	if err := validateDeployParams(root, loaded.Config.DeployParams); err != nil {
+		return Info{}, err
+	}
 	manifestName := strings.TrimSpace(loaded.Config.Manifest)
 	if manifestName == "" {
 		manifestName = "lzc-manifest.yml"

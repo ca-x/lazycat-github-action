@@ -127,6 +127,14 @@ Action 直接导出完整 OCI 镜像，将全部 layer 内嵌，`images.lock` �
 
 内嵌 LPK 沿用已有 GitHub Release、SHA256 校验和私有商店发布流程。官方发布仍需显式配置，并遵守已有 lint/审核检查。LPK v2 需要 `package.yml.min_os_version: 1.5.0` 或更高版本。[完整示例](examples/docker-embed) 默认仅发布 GitHub Release，两个商店均关闭；需要社区发布时启用私有商店并配置 Secrets。
 
+## 部署参数校验
+
+Action 默认校验 `lzc-deploy-params.yml`，或 `lzc-build.yml` 中 `deploy_params` 指定的文件。部署参数应放在这个独立文件中。支持的参数类型只有 `bool`、`lzc_uid`、`string` 和 `secret`；`enum`、`options` 等未定义类型或字段会直接阻断运行。
+
+校验包括 YAML 结构、重复字段、重复参数 ID、字段值类型和翻译引用。`locales` 必须引用已声明的参数，翻译字段只支持 `name`、`description`。`bool` 的默认值支持 `true`/`false` 及其带引号形式，其他参数的默认值必须为字符串；`$random(...)` 保持原样，不在 CI 中执行。
+
+现有源文件在镜像检查、交付和 buildscript 执行前校验；最终 LPK 中的 `deploy_params.yml` 也会再次校验，包括 buildscript 生成的文件和发布时提供的已有 LPK。错误包含文件、字段位置和行号，不输出参数默认值。此校验独立于官方商店 lint，私有商店和普通构建同样生效。[部署参数规范](https://developer.lazycat.cloud/spec/deploy-params.html)
+
 ## 进度日志
 
 Action 使用 Go 官方 `log/slog` 输出结构化进度，同时不会打印 Secret 值和受保护的构建环境变量。每次运行会先显示执行模式（`docker-image`、`source-build`、`prebuilt-content` 或 `store-publish`），再按实际流程输出以下阶段：

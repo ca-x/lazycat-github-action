@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ca-x/lazycat-github-action/internal/deployparams"
 	"github.com/ca-x/lazycat-github-action/internal/diagnostic"
 	"github.com/ca-x/lazycat-github-action/internal/imagebuild"
 	"github.com/ca-x/lazycat-github-action/internal/lpkcheck"
@@ -143,6 +144,9 @@ func (builder Builder) Build(ctx context.Context, request Request) (result Resul
 	if request.Tag == "" {
 		request.Tag = "v" + request.Version
 	}
+	if err := project.ValidateDeployParams(ctx, request.Project.Root, request.Project.BuildConfig); err != nil {
+		return Result{}, err
+	}
 	target, err := request.Target.Normalize()
 	if err != nil {
 		return Result{}, fmt.Errorf("build LPK: %w", err)
@@ -227,6 +231,9 @@ func (builder Builder) Build(ctx context.Context, request Request) (result Resul
 	reader, err := lpk.OpenFile(ctx, temporary)
 	if err != nil {
 		return Result{}, fmt.Errorf("reopen built LPK: %w", err)
+	}
+	if err := deployparams.Package(ctx, reader); err != nil {
+		return Result{}, errors.Join(err, reader.Close())
 	}
 	packageDocument, packageErr := reader.PackageInfo(ctx)
 	if packageErr != nil {

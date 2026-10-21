@@ -724,6 +724,52 @@ func TestRunGitCheckBuildsWithoutImage(t *testing.T) {
 	}
 }
 
+func TestRunRejectsInvalidDeployParamsBeforeImageWorkWithPublicDiagnostic(t *testing.T) {
+	root := t.TempDir()
+	for name, data := range map[string]string{
+		"lzc-build.yml":         "manifest: lzc-manifest.yml\n",
+		"lzc-manifest.yml":      "application: {}\n",
+		"package.yml":           "package: cloud.lazycat.example\nversion: 1.0.0\n",
+		"lzc-deploy-params.yml": "params:\n  - id: auth\n    type: enum\n    default_value: private-default-value\n",
+	} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := gitConfig()
+	cfg.Project.Root = root
+	cfg.Update.VersionSource = config.VersionSource{Type: config.VersionSourceImage, Image: "web"}
+	deps := action.Dependencies{
+		Host:       platform.Host{OS: "linux", Arch: "amd64"},
+		LoadConfig: func(string) (config.Config, error) { return cfg, nil },
+		Inspect:    project.Inspect,
+		SetVersion: func(string, string) (yamledit.Change, error) {
+			t.Fatal("invalid deployment parameters must stop before version edits")
+			return yamledit.Change{}, nil
+		},
+		Build: func(context.Context, actionbuild.Request) (actionbuild.Result, error) {
+			t.Fatal("invalid deployment parameters must stop before building")
+			return actionbuild.Result{}, nil
+		},
+		CheckImages: func(context.Context, imageflow.Request) (imageflow.Result, error) {
+			t.Fatal("invalid deployment parameters must stop before image selection or delivery")
+			return imageflow.Result{}, nil
+		},
+	}
+	_, err := action.Run(t.Context(), action.Input{Operation: action.OperationCheck}, deps)
+	if err == nil {
+		t.Fatal("invalid deployment parameters were accepted")
+	}
+	for _, required := range []string{"CONFIG_INVALID", "path=lzc-deploy-params.yml", "params[0].type", "line 3"} {
+		if !strings.Contains(err.Error(), required) {
+			t.Fatalf("error missing %q: %v", required, err)
+		}
+	}
+	if strings.Contains(err.Error(), "private-default-value") || strings.Contains(err.Error(), root) {
+		t.Fatalf("error exposed project data: %v", err)
+	}
+}
+
 func TestRunAutoPublishPausesBeforeImageWorkWhileOfficialReviewIsPending(t *testing.T) {
 	tests := []struct {
 		name          string

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -143,6 +144,108 @@ func TestBuilderUsesConfiguredARM64Target(t *testing.T) {
 	if result.TargetPlatform != "linux/arm64" || runner.command.Env["LAZYCAT_TARGET_ARCH"] != "arm64" || runner.command.Env["LAZYCAT_TARGET_PLATFORM"] != "linux/arm64" {
 		t.Fatalf("result=%#v env=%#v", result, runner.command.Env)
 	}
+}
+
+func TestBuilderRejectsUnsupportedDeployParamType(t *testing.T) {
+	info := templatedFixtureProject(t)
+	if err := os.WriteFile(info.BuildConfig, []byte("contentdir: content\nbuildscript: generate-deploy-params\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &recordingRunner{}
+	data := "params:\n  - id: auth_enabled\n    type: enum\n    name: Enable Authentication\n    description: Require login\n    default_value: 'false'\n"
+	if err := os.WriteFile(filepath.Join(info.Root, "lzc-deploy-params.yml"), []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := (actionbuild.Builder{}).Build(t.Context(), actionbuild.Request{
+		Project: info, Version: info.Version, RunBuildScript: true, Runner: runner,
+	})
+	if err == nil {
+		t.Fatal("unsupported enum deployment parameter was accepted and built into an LPK")
+	}
+	if !strings.Contains(err.Error(), "params[0].type") {
+		t.Fatalf("expected the invalid parameter field in the error, got %v", err)
+	}
+	if runner.command.Script != "" {
+		t.Fatal("buildscript executed before deployment parameter validation")
+	}
+}
+
+func TestBuilderPanSouHistoricalDeployParams(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		valid bool
+	}{
+		{"pansou-enum.yml", false},
+		{"pansou-bool.yml", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			info := templatedFixtureProject(t)
+			data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "deploy-params", test.name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(info.Root, "lzc-deploy-params.yml"), data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err = (actionbuild.Builder{}).Build(t.Context(), actionbuild.Request{Project: info, Version: info.Version})
+			if (err == nil) != test.valid {
+				t.Fatalf("build error=%v", err)
+			}
+			if !test.valid {
+				if _, err := os.Stat(info.Output); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("invalid deployment parameters produced an LPK: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestBuilderValidatesGeneratedDeployParamsBeforeReplacingOutput(t *testing.T) {
+	for _, valid := range []bool{false, true} {
+		t.Run(fmt.Sprintf("valid=%t", valid), func(t *testing.T) {
+			info := templatedFixtureProject(t)
+			if err := os.WriteFile(info.BuildConfig, []byte("contentdir: content\nbuildscript: generate-deploy-params\ndeploy_params: generated/params.yml\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Dir(info.Output), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(info.Output, []byte("previous LPK"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			kind := "enum"
+			if valid {
+				kind = "bool"
+			}
+			runner := &deployParamsRunner{path: filepath.Join(info.Root, "generated", "params.yml"), data: "params:\n  - id: auth\n    type: " + kind + "\n    default_value: 'false'\n"}
+			_, err := (actionbuild.Builder{}).Build(t.Context(), actionbuild.Request{
+				Project: info, Version: info.Version, RunBuildScript: true, Runner: runner,
+			})
+			if !runner.called || (err == nil) != valid {
+				t.Fatalf("runner called=%t error=%v", runner.called, err)
+			}
+			if !valid {
+				data, readErr := os.ReadFile(info.Output)
+				if readErr != nil || string(data) != "previous LPK" {
+					t.Fatalf("existing output was changed: data=%q error=%v", data, readErr)
+				}
+			}
+		})
+	}
+}
+
+type deployParamsRunner struct {
+	path   string
+	data   string
+	called bool
+}
+
+func (runner *deployParamsRunner) Run(_ context.Context, _ toolkitbuild.Command) error {
+	runner.called = true
+	if err := os.MkdirAll(filepath.Dir(runner.path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(runner.path, []byte(runner.data), 0o600)
 }
 
 func TestBuilderOfficialWarningsCanFailTheBuild(t *testing.T) {

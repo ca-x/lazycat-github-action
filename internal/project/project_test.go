@@ -103,6 +103,50 @@ func TestInspectHonorsManifestPathFromBuildConfig(t *testing.T) {
 	}
 }
 
+func TestInspectRejectsInvalidDeployParamsInSelectedFile(t *testing.T) {
+	for _, name := range []string{"lzc-deploy-params.yml", "config/install.yml"} {
+		t.Run(name, func(t *testing.T) {
+			root := createProject(t, "application: {}\n")
+			if name != "lzc-deploy-params.yml" {
+				if err := os.WriteFile(filepath.Join(root, "lzc-build.yml"), []byte("deploy_params: "+name+"\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			path := filepath.Join(root, name)
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("params:\n  - id: auth\n    type: enum\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := project.Inspect(t.Context(), config.Project{
+				Root: root, BuildConfig: "lzc-build.yml", PackageFile: "package.yml", Output: "dist/app.lpk",
+			})
+			if err == nil || !strings.Contains(err.Error(), name) || !strings.Contains(err.Error(), "params[0].type") {
+				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+}
+
+func TestInspectDeployParamsUsesConfiguredFile(t *testing.T) {
+	root := createProject(t, "application: {}\n")
+	for name, data := range map[string]string{
+		"lzc-build.yml":         "deploy_params: install.yml\n",
+		"lzc-deploy-params.yml": "params: invalid-unused-file\n",
+		"install.yml":           "params:\n  - id: auth\n    type: bool\n    default_value: false\n",
+	} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := project.Inspect(t.Context(), config.Project{
+		Root: root, BuildConfig: "lzc-build.yml", PackageFile: "package.yml", Output: "dist/app.lpk",
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestInspectSupportsTemplateControlsInManifest(t *testing.T) {
 	root := createProject(t, `application:
   subdomain: templated

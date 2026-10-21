@@ -1,0 +1,32 @@
+params:
+  - id: auth_enabled
+    type: enum
+    name: "Enable Authentication"
+    description: "Require login to use the search API (JWT). Default off"
+    default_value: "false"
+    options:
+      - value: "false"
+        label: "Off"
+      - value: "true"
+        label: "On"
+    optional: true
+  - id: auth_users
+    type: string
+    name: "Auth Users"
+    description: "Only when auth is on. Format: user:pass,user2:pass2"
+    default_value: "admin:admin123"
+    optional: true
+
+locales:
+  zh:
+    auth_enabled:
+      name: "启用认证"
+      description: "开启后所有 API（除登录）需要 JWT 登录。默认关闭"
+      options:
+        - value: "false"
+          label: "关闭"
+        - value: "true"
+          label: "开启"
+    auth_users:
+      name: "认证账号"
+      description: "仅开启认证时生效。格式：用户名:密码,用户名2:密码2"

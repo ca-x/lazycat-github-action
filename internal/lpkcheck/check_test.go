@@ -7,12 +7,35 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	actionbuild "github.com/ca-x/lazycat-github-action/internal/build"
 	"github.com/ca-x/lazycat-github-action/internal/lpkcheck"
 	"github.com/ca-x/lazycat-github-action/internal/platform"
 	"github.com/ca-x/lazycat-github-action/internal/project"
+	lpkgo "github.com/lib-x/lzc-toolkit-go"
+	"github.com/lib-x/lzc-toolkit-go/lpk"
 )
+
+func TestFileRejectsPreviouslyBuiltInvalidDeployParams(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "legacy-build.lpk")
+	_, err := lpk.WriteFile(t.Context(), path, lpk.WriteRequest{
+		Layout: lpk.LayoutV2,
+		Files: fstest.MapFS{
+			"package.yml":       {Data: []byte("package: cloud.lazycat.example\nversion: 1.2.3\n")},
+			"manifest.yml":      {Data: []byte("application: {}\n")},
+			"deploy_params.yml": {Data: []byte("params:\n  - id: auth\n    type: enum\n")},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = lpkcheck.File(t.Context(), lpkcheck.Request{ProjectRoot: root, Path: path})
+	if !errors.Is(err, lpkgo.ErrInvalidManifest) || !strings.Contains(err.Error(), "deploy_params.yml") || !strings.Contains(err.Error(), "params[0].type") {
+		t.Fatalf("error=%v", err)
+	}
+}
 
 func TestFileValidatesBuiltLPK(t *testing.T) {
 	info := fixtureProject(t)

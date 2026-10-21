@@ -75,6 +75,10 @@ Before YAML handling, detect standalone Go Template controls: `if`, `else`, `end
 
 Protect every standalone control line, perform the narrow YAML inspection/edit, and restore each line byte-for-byte in its original order. Leave inline expressions such as `PASSWORD={{.U.password}}` untouched, and fail closed on a reserved-marker collision, invalid protected YAML, lost or duplicated markers, missing or duplicate image targets, or any unexpected control-line/diff change. Verify the ordered control lines before and after, then run the real LazyCat build or validation command. An ordinary YAML parse/serialize round trip over the raw templated Manifest is unsafe.
 
+## Deployment parameter validation
+
+Inspect `lzc-deploy-params.yml` or the `lzc-build.yml` `deploy_params` path. Use only `bool`, `lzc_uid`, `string`, and `secret` parameter types and the documented fields `id`, `type`, `name`, `description`, `optional`, `default_value`, `hidden`. A toggle uses `bool`; `enum` and `options` are unsupported. `locales` references declared parameter IDs and translates only `name` and `description`. Keep these declarations out of `package.yml`. The Action rejects invalid sources before image selection/delivery or buildscript execution, and validates final LPK deployment metadata before accepting a build or existing publication artifact. Preserve `$random(...)` strings and never print default values in diagnostics. See the [deployment parameter specification](https://developer.lazycat.cloud/spec/deploy-params.html).
+
 ## 🔴 CHECKPOINT — before writing project files
 
 Confirm all repository-specific decisions that affect generated files:
