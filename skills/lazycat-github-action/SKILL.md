@@ -206,6 +206,35 @@ The final Release Asset name is `<package-id>-v<version>.lpk`. Verify package ID
 
 Copy [assets/lazycat-action.yml](assets/lazycat-action.yml) and [assets/lazycat-workflow.yml](assets/lazycat-workflow.yml) as starting points, then replace only values confirmed from the inspected project. Read [references/workflows.md](references/workflows.md) for tag/release, permissions, secrets, PR, and store examples.
 
+## Configure release notes
+
+Generate the same resolved `changelog` for GitHub Releases and both stores, including automatic image updates and store reconciliation. Document these settings in the generated project configuration:
+
+```yaml
+release:
+  use_github_release_notes: true
+  # github_repository: owner/repo  # Optional upstream override; GitHub URL also accepted.
+  changelog_template: |
+    {{if .ReleaseNotes}}{{.ReleaseNotes}}{{else}}Release {{.Version}}{{end}}
+```
+
+- `release.use_github_release_notes` defaults to `true`: use the matching Release-event body, otherwise automatically query a same-version GitHub Release. Set it to `false` to disable both event-body reuse and API queries; the configured template then supplies the notes.
+- `release.github_repository` is optional. Infer a GitHub repository from `package.yml.homepage`, then fall back to the current GitHub Actions repository. Set `owner/repo` or a GitHub repository URL when the homepage is a product website or the upstream differs.
+- `release.changelog_template` uses Go `text/template`. Available variables: `{{.Version}}`, `{{.Tag}}`, `{{.PackageID}}`, `{{.Name}}`, `{{.Homepage}}`, `{{.Repository}}`, `{{.ReleaseNotes}}`, `{{.ReleaseURL}}`. The default uses Release notes when available, otherwise `Release <version>`. Conditionals can provide a custom fallback such as `更新至 {{.Version}}`.
+- Both the composite Action and reusable workflow accept `changelog-template` as a per-run override. Precedence is explicit literal `changelog`, then input `changelog-template`, then config `release.changelog_template`, then the default template. Supplying `changelog` skips automatic lookup and rendering; do not pass a default `Release ...` string if automatic detection is intended.
+- Query only the actual application tag, `v<version>`, and `<version>`, deduplicated in that order. Never use `latest` or another version's notes. Missing, empty, draft, inaccessible, or failed API results use the template fallback; whitespace-only rendered text falls back to `Release <version>`. Invalid templates fail configuration validation.
+- Preserve multiline Markdown, insert Release bodies literally, and use the resolved `changelog` output consistently for the GitHub Release and both stores. Queries use `GH_REPO_TOKEN` when supplied, otherwise `GITHUB_TOKEN`; private upstream repositories require read access. See [references/configuration.md](references/configuration.md#release-and-store-changelogs) for every parameter, variable, and precedence rule.
+
+When the current Actions repository already has a same-version Release at the actual publication tag containing the expected application LPK (`<package-id>-v<version>.lpk` or the configured legacy output filename), reuse its body as final text without rendering again, for both API and Release-event paths. This prevents duplicate headings during store reconciliation. Manual Releases without the LPK still provide raw template data. Explicit `changelog` and per-run `changelog-template` inputs override final-body reuse; disable automatic detection to always use the configured template. Preserve Markdown indentation and trailing newlines. Limit resolved notes, explicit changelog text, and template source to 64 KiB UTF-8; oversized automatic Release bodies use the template fallback so store steps can receive safe Action environment inputs.
+
+To turn off automatic GitHub Release-note detection:
+
+```yaml
+release:
+  use_github_release_notes: false
+  changelog_template: '更新至 {{.Version}}。'
+```
+
 ## Configure stores
 
 Official publishing requires:

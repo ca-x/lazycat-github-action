@@ -534,6 +534,56 @@ reusable workflow 会分别传递 `LZC_API_TOKEN` 和 `LAZYCAT_TOKEN`，由嵌�
 
 项目构建会执行仓库中的 buildscript。Action 会从 buildscript 环境中移除 LZC_API_HOST、LZC_APPSTORE_COS_DOMAIN、LZC_API_TOKEN、LAZYCAT_TOKEN、Registry 凭据、GitHub token，以及 GitHub output/control 文件路径。带写权限的发布 workflow 应只用于可信分支、tag、定时任务和手动运行，不要把 Secrets 暴露给不可信 Pull Request 代码。
 
+## 发布说明与商店更新说明
+
+Composite Action 和可复用工作流现在统一生成 `changelog`，用于 GitHub Release、官方商店和喵喵商店；自动镜像更新、手动或 tag 构建、商店补发都使用同一套规则。
+
+```yaml
+# .github/lazycat-action.yml
+release:
+  use_github_release_notes: true
+  # 可选：覆盖从 package.yml.homepage 推断的 GitHub 仓库。
+  # github_repository: owner/repo
+  changelog_template: |
+    {{.Name}} {{.Tag}}
+    {{if .ReleaseNotes}}
+    {{.ReleaseNotes}}
+    {{else}}
+    更新至 {{.Version}}。
+    {{end}}
+```
+
+| 参数 | 默认值 | 说明 |
+|---|---|---|
+| `release.use_github_release_notes` | `true` | 复用当前 Release 事件正文，或自动查询 GitHub 同版本 Release。设为 `false` 后跳过两者，直接使用模板。 |
+| `release.github_repository` | 自动推断 | 支持 `owner/repo` 或 GitHub 仓库 URL；优先取 `package.yml.homepage` 中的 GitHub 仓库，否则取当前 GitHub Actions 仓库。主页是产品网站或指向其他仓库时可显式配置。 |
+| `release.changelog_template` | Release 正文，否则为 `Release <版本>` | 未显式传入 `changelog` 时使用的 Go `text/template`。 |
+| 输入 `changelog-template` | 空 | 本次运行的模板，覆盖配置文件中的 `release.changelog_template`；两种入口均支持。 |
+| 输入 `changelog` | 空 | 最终说明原文，优先级最高；提供后跳过自动查询和模板渲染，其中的模板语法保持原样。 |
+| 输出 `changelog` | 最终说明 | GitHub Release 与启用商店共用的多行 Markdown，同时保存到结果 JSON 的 `changelog` 字段。 |
+
+可用模板变量：`{{.Version}}`（不带 `v` 的应用 SemVer）、`{{.Tag}}`（实际 Release tag，保留组件前缀）、`{{.PackageID}}`、`{{.Name}}`、`{{.Homepage}}`、`{{.Repository}}`（实际查询的 `owner/repo`）、`{{.ReleaseNotes}}`、`{{.ReleaseURL}}`。未找到可用 Release 或关闭自动检测时，`ReleaseNotes` 和 `ReleaseURL` 为空。支持 Go 模板条件和内置函数；Release 正文作为普通文本插入，不会再次执行其中的模板语法。
+
+优先级：显式 `changelog` → 输入 `changelog-template` → 配置 `release.changelog_template` → 默认模板。自动检测开启时，先使用当前匹配版本 Release 事件的非空正文，否则按“实际应用 tag、`v<版本>`、`<版本>`”查询指定仓库，自动去重。不会取 `latest` 或其他版本的说明。Release 缺失、正文为空、处于草稿、无权限或 API 查询失败时，使用模板的回退内容；模板最终只有空白时回退到 `Release <版本>`。模板无效会在配置校验阶段报错。保留多行 Markdown。查询优先使用 `GH_REPO_TOKEN`，否则使用 `GITHUB_TOKEN`；私有上游需要该 token 具备读取权限。
+
+当前 GitHub Actions 仓库在实际发布 tag 上的同版本 Release 已附带本应用 LPK（`<包 ID>-v<版本>.lpk` 或配置的历史输出文件名）时，正文视为最终说明，不再套一次模板，避免商店补发时重复添加标题；API 查询和 Release 事件都遵循此规则。手动创建、尚未附带 LPK 的 Release 正文仍会作为模板数据。显式输入 `changelog` 或 `changelog-template` 可覆盖已有最终说明；关闭 `use_github_release_notes` 后始终使用配置模板。最终说明、显式 changelog 和模板源码均限制为 64 KiB UTF-8 文本，保证能够通过 Action 输入传递；自动获取的正文超过该限制时使用模板回退。保留 Markdown 首行缩进和末尾换行。
+
+关闭自动探测、固定使用自己的模板：
+
+```yaml
+release:
+  use_github_release_notes: false
+  changelog_template: '更新至 {{.Version}}。'
+```
+
+调用工作流时也可只覆盖本次模板：
+
+```yaml
+with:
+  changelog-template: |
+    {{if .ReleaseNotes}}{{.ReleaseNotes}}{{else}}更新至 {{.Version}}{{end}}
+```
+
 ## Pull Request 和 Release 工作流
 
 ### 默认安全流程：先创建 PR，合并后发布

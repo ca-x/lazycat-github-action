@@ -269,3 +269,26 @@ func TestReadInputRejectsInvalidBooleanAndVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestReadInputPreservesReleaseBodyAndTemplate(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "event.json")
+	if err := os.WriteFile(file, []byte(`{"release":{"tag_name":"v1.2.3","body":"## Fixed\n\n- Startup","html_url":"https://github.com/acme/app/releases/tag/v1.2.3","assets":[{"name":"cloud.example.app-v1.2.3.lpk"}]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{"GITHUB_EVENT_NAME": "release", "GITHUB_EVENT_PATH": file, "INPUT_CHANGELOG_TEMPLATE": "{{.Version}}\n{{.ReleaseNotes}}"}
+	input, err := githubio.ReadInput(func(key string) string { return env[key] })
+	if err != nil || input.ReleaseNotes != "## Fixed\n\n- Startup" || input.ReleaseURL != "https://github.com/acme/app/releases/tag/v1.2.3" || input.ChangelogTemplate != env["INPUT_CHANGELOG_TEMPLATE"] || input.Changelog != "" || len(input.ReleaseAssets) != 1 || input.ReleaseAssets[0] != "cloud.example.app-v1.2.3.lpk" {
+		t.Fatalf("input=%#v err=%v", input, err)
+	}
+}
+
+func TestChangelogOutputPreservesMarkdownAndDelimiterLines(t *testing.T) {
+	notes := "## Changes\n\nlazycat_output_7\nforged=value\n\n- {{.Literal}}"
+	var output bytes.Buffer
+	if err := githubio.WriteOutputs(&output, action.Result{Changelog: notes}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "changelog<<lazycat_output_7_x\n"+notes+"\nlazycat_output_7_x\n") {
+		t.Fatalf("unsafe changelog output: %s", output.String())
+	}
+}

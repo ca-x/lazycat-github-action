@@ -2,6 +2,7 @@ package private_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -21,6 +22,7 @@ const (
 )
 
 func TestClientCreatesApplicationWithExternalVersion(t *testing.T) {
+	const changelog = "\n    first()\n    second()\n\n"
 	var created bool
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Authorization") != "Bearer lcst_test" {
@@ -42,6 +44,15 @@ func TestClientCreatesApplicationWithExternalVersion(t *testing.T) {
 					t.Errorf("request body=%s missing %s", text, expected)
 				}
 			}
+			var payload struct {
+				Changelog string `json:"changelog"`
+			}
+			if err := json.Unmarshal(body, &payload); err != nil {
+				t.Error(err)
+			}
+			if payload.Changelog != changelog {
+				t.Errorf("changelog=%q, want %q", payload.Changelog, changelog)
+			}
 			response.WriteHeader(http.StatusCreated)
 			_, _ = response.Write([]byte(`{"app":{"id":17,"packageId":"cloud.lazycat.example.app","latestVersion":{"id":23,"appId":17,"version":"1.2.3","downloadUrl":"https://github.com/acme/example/releases/download/v1.2.3/app.lpk","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}`))
 		default:
@@ -53,9 +64,9 @@ func TestClientCreatesApplicationWithExternalVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := client.Publish(context.Background(), private.Request{
+	result, err := client.Publish(t.Context(), private.Request{
 		PackageID: packageID, Name: "Example App", Summary: "Published from CI", Version: version,
-		Changelog: "Release notes", DownloadURL: downloadURL, SHA256: digest,
+		Changelog: changelog, DownloadURL: downloadURL, SHA256: digest,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -88,6 +99,7 @@ func TestClientReusesExistingVersionByAppID(t *testing.T) {
 }
 
 func TestClientCreatesExternalVersionForExistingApp(t *testing.T) {
+	const changelog = "\n    first()\n    second()\n\n"
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch request.Method {
 		case http.MethodGet:
@@ -100,6 +112,15 @@ func TestClientCreatesExternalVersionForExistingApp(t *testing.T) {
 			if strings.Contains(string(body), "file") || !strings.Contains(string(body), `"downloadUrl":"`+downloadURL+`"`) {
 				t.Errorf("body=%s", body)
 			}
+			var payload struct {
+				Changelog string `json:"changelog"`
+			}
+			if err := json.Unmarshal(body, &payload); err != nil {
+				t.Error(err)
+			}
+			if payload.Changelog != changelog {
+				t.Errorf("changelog=%q, want %q", payload.Changelog, changelog)
+			}
 			response.WriteHeader(http.StatusCreated)
 			_, _ = response.Write([]byte(`{"version":{"id":56,"appId":42,"version":"1.2.3","downloadUrl":"https://github.com/acme/example/releases/download/v1.2.3/app.lpk","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`))
 		}
@@ -109,7 +130,7 @@ func TestClientCreatesExternalVersionForExistingApp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := client.Publish(context.Background(), private.Request{AppID: "42", PackageID: packageID, Name: "Example", Version: version, DownloadURL: downloadURL, SHA256: digest})
+	result, err := client.Publish(t.Context(), private.Request{AppID: "42", PackageID: packageID, Name: "Example", Version: version, Changelog: changelog, DownloadURL: downloadURL, SHA256: digest})
 	if err != nil || result.VersionID != "56" || result.Created || result.Existing {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}

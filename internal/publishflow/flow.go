@@ -271,14 +271,13 @@ func newerSemVer(onlineVersion, candidateVersion string) bool {
 }
 
 func (flow Flow) publishOfficial(ctx context.Context, request Request, result Result, onlineVersion string, logger *slog.Logger) (Result, error) {
-	changelog := strings.TrimSpace(request.Changelog)
-	if changelog == "" {
+	if strings.TrimSpace(request.Changelog) == "" {
 		return Result{}, errors.New("official publishing requires a changelog")
 	}
 	input := official.Request{
 		ProjectRoot: request.Project.Root, LPKPath: result.Artifact.Path, FileName: filepath.Base(result.Artifact.Path),
 		PackageID: result.Artifact.PackageID, Version: result.Artifact.Version, SHA256: result.Artifact.SHA256,
-		Changelog: changelog, Locales: request.Config.Stores.Official.Locales,
+		Changelog: request.Changelog, Locales: request.Config.Stores.Official.Locales,
 		CreateIfMissing: request.Config.Stores.Official.CreateIfMissing,
 		Application:     request.Config.Stores.Official.Application, DefaultName: request.Project.Name,
 		Retry: request.Config.Stores.Official.Retry, Logger: logger,
@@ -332,7 +331,7 @@ func (flow Flow) publishPrivate(ctx context.Context, request Request, result Res
 	}
 	input := private.Request{
 		AppID: appID, PackageID: result.Artifact.PackageID, Name: name, Summary: summary,
-		Version: result.Artifact.Version, Changelog: strings.TrimSpace(request.Changelog),
+		Version: result.Artifact.Version, Changelog: request.Changelog,
 		DownloadURL: strings.TrimSpace(request.DownloadURL), SHA256: result.Artifact.SHA256,
 	}
 	if request.DryRun {

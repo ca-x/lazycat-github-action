@@ -69,7 +69,7 @@ func TestReusableWorkflowContractAndActionRefs(t *testing.T) {
 		t.Fatalf("workflow_call=%#v", on["workflow_call"])
 	}
 	inputs, _ := call["inputs"].(map[string]any)
-	for _, name := range []string{"config", "operation", "runner", "image-id", "version", "dry-run", "changelog", "toolchains", "go-version", "node-version", "rust-toolchain", "node-package-manager", "enable-qemu", "docker-mirror", "ghcr-mirror", "registry-mirrors"} {
+	for _, name := range []string{"config", "operation", "runner", "image-id", "version", "dry-run", "changelog", "changelog-template", "toolchains", "go-version", "node-version", "rust-toolchain", "node-package-manager", "enable-qemu", "docker-mirror", "ghcr-mirror", "registry-mirrors"} {
 		if _, found := inputs[name]; !found {
 			t.Fatalf("missing workflow input %q", name)
 		}
@@ -81,7 +81,7 @@ func TestReusableWorkflowContractAndActionRefs(t *testing.T) {
 		}
 	}
 	outputs, _ := call["outputs"].(map[string]any)
-	for _, name := range []string{"operation", "changed", "package-id", "package-file", "manifest-file", "version", "tag", "lpk-path", "sha256", "download-url", "image-results", "store-results", "official-store-enabled", "official-review-pending", "official-review-version", "private-store-enabled", "update-strategy", "channel", "result-file", "runner-arch", "target-platform"} {
+	for _, name := range []string{"operation", "changed", "package-id", "package-file", "manifest-file", "version", "tag", "changelog", "lpk-path", "sha256", "download-url", "image-results", "store-results", "official-store-enabled", "official-review-pending", "official-review-version", "private-store-enabled", "update-strategy", "channel", "result-file", "runner-arch", "target-platform"} {
 		if _, found := outputs[name]; !found {
 			t.Fatalf("missing workflow output %q", name)
 		}
@@ -385,7 +385,7 @@ func TestActionMetadataExposesStableContract(t *testing.T) {
 	if err := yaml.Unmarshal(data, &document); err != nil {
 		t.Fatal(err)
 	}
-	for _, input := range []string{"operation", "config", "image-id", "version", "changelog", "lpk-path", "download-url", "sha256", "dry-run", "docker-mirror", "ghcr-mirror", "registry-mirrors"} {
+	for _, input := range []string{"operation", "config", "image-id", "version", "changelog", "changelog-template", "lpk-path", "download-url", "sha256", "dry-run", "docker-mirror", "ghcr-mirror", "registry-mirrors"} {
 		if _, exists := document.Inputs[input]; !exists {
 			t.Fatalf("missing input %q", input)
 		}
@@ -393,7 +393,7 @@ func TestActionMetadataExposesStableContract(t *testing.T) {
 	if _, exists := document.Inputs["private-group-codes"]; exists {
 		t.Fatal("private group codes must be a secret/environment variable, not an Action input")
 	}
-	for _, output := range []string{"operation", "changed", "package-id", "package-file", "manifest-file", "version", "tag", "lpk-path", "sha256", "download-url", "image-results", "store-results", "official-store-enabled", "official-review-pending", "official-review-version", "private-store-enabled", "update-strategy", "channel", "result-file", "runner-arch", "target-platform"} {
+	for _, output := range []string{"operation", "changed", "package-id", "package-file", "manifest-file", "version", "tag", "changelog", "lpk-path", "sha256", "download-url", "image-results", "store-results", "official-store-enabled", "official-review-pending", "official-review-version", "private-store-enabled", "update-strategy", "channel", "result-file", "runner-arch", "target-platform"} {
 		if _, exists := document.Outputs[output]; !exists {
 			t.Fatalf("missing output %q", output)
 		}
@@ -417,8 +417,8 @@ func TestActionMetadataExposesStableContract(t *testing.T) {
 	if strings.Contains(string(data), "vars.") {
 		t.Fatal("composite action metadata must not reference the unsupported vars context")
 	}
-	if got := actionBootstrapVersion(t); got != "v1.3.3" {
-		t.Fatalf("action.yml bootstrap version=%q, want v1.3.3", got)
+	if got := actionBootstrapVersion(t); got != "v1.3.4" {
+		t.Fatalf("action.yml bootstrap version=%q, want v1.3.4", got)
 	}
 }
 

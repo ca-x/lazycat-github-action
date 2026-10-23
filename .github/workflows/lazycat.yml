@@ -34,7 +34,12 @@ on:
         required: false
         default: false
       changelog:
-        description: GitHub Release changelog.
+        description: Literal release and store changelog; overrides templates and GitHub Release notes.
+        type: string
+        required: false
+        default: ""
+      changelog-template:
+        description: Optional Go text/template overriding release.changelog_template.
         type: string
         required: false
         default: ""
@@ -112,6 +117,8 @@ on:
       REGISTRY_PASSWORD:
         required: false
     outputs:
+      changelog:
+        value: ${{ jobs.lazycat.outputs.changelog }}
       operation:
         value: ${{ jobs.lazycat.outputs.operation }}
       changed:
@@ -171,6 +178,7 @@ jobs:
   lazycat:
     runs-on: ${{ inputs.runner }}
     outputs:
+      changelog: ${{ steps.lazycat.outputs.changelog }}
       operation: ${{ steps.lazycat.outputs.operation }}
       changed: ${{ steps.lazycat.outputs.changed }}
       license-changed: ${{ steps.lazycat.outputs.license-changed }}
@@ -335,29 +343,8 @@ jobs:
           image-id: ${{ inputs.image-id }}
           version: ${{ inputs.version }}
           changelog: ${{ inputs.changelog }}
+          changelog-template: ${{ inputs.changelog-template }}
           dry-run: ${{ inputs.dry-run }}
-
-      - name: Prepare release changelog
-        id: release-notes
-        shell: bash
-        env:
-          INPUT_CHANGELOG: ${{ inputs.changelog }}
-          VERSION: ${{ steps.lazycat.outputs.version }}
-        run: |
-          set -euo pipefail
-          value="${INPUT_CHANGELOG}"
-          if [[ -z "${value}" ]]; then
-            value="Release ${VERSION}"
-          fi
-          delimiter="lazycat_changelog"
-          while grep -Fxq "${delimiter}" <<<"${value}"; do
-            delimiter="${delimiter}_x"
-          done
-          {
-            echo "value<<${delimiter}"
-            echo "${value}"
-            echo "${delimiter}"
-          } >>"${GITHUB_OUTPUT}"
 
       - name: Upload validation Artifact
         if: steps.lazycat.outputs.lpk-path != ''
@@ -552,7 +539,7 @@ jobs:
           operation: build
           config: ${{ inputs.config }}
           version: ${{ steps.lazycat.outputs.version }}
-          changelog: ${{ steps.release-notes.outputs.value }}
+          changelog: ${{ steps.lazycat.outputs.changelog }}
           dry-run: false
 
       - name: Upload recovered validation Artifact
@@ -701,7 +688,7 @@ jobs:
         with:
           tag_name: ${{ steps.lazycat.outputs.tag }}
           name: ${{ steps.lazycat.outputs.tag }}
-          body: ${{ inputs.changelog }}
+          body: ${{ steps.lazycat.outputs.changelog }}
           target_commitish: ${{ steps.release-tag.outputs.exists != 'true' && (steps.direct-commit.outputs.commit != '' && steps.direct-commit.outputs.commit || github.sha) || '' }}
           files: ${{ steps.release-asset.outputs.lpk-path }}
           fail_on_unmatched_files: true
@@ -842,7 +829,7 @@ jobs:
           operation: publish-private
           config: ${{ inputs.config }}
           version: ${{ steps.lazycat.outputs.version }}
-          changelog: ${{ steps.release-notes.outputs.value }}
+          changelog: ${{ steps.lazycat.outputs.changelog }}
           lpk-path: ${{ steps.store-artifact.outputs.lpk-path }}
           download-url: ${{ steps.store-artifact.outputs.download-url }}
           sha256: ${{ steps.store-artifact.outputs.sha256 }}
@@ -861,7 +848,7 @@ jobs:
           operation: publish-official
           config: ${{ inputs.config }}
           version: ${{ steps.lazycat.outputs.version }}
-          changelog: ${{ steps.release-notes.outputs.value }}
+          changelog: ${{ steps.lazycat.outputs.changelog }}
           lpk-path: ${{ steps.store-artifact.outputs.lpk-path }}
           sha256: ${{ steps.store-artifact.outputs.sha256 }}
 

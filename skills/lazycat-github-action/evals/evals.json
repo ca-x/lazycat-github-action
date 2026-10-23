@@ -183,6 +183,26 @@
         "edit the upstream repository",
         "contents: write is sufficient"
       ]
+    },
+    {
+      "id": "release-notes-template-and-github-toggle",
+      "prompt": "Configure update notes for an LPK whose package homepage is https://github.com/acme/app. Reuse only same-version GitHub Release notes by default, wrap them in a versioned template, explain the per-run overrides, and show how to turn automatic GitHub note detection off while retaining a Chinese fallback.",
+      "mustInclude": [
+        "release:",
+        "use_github_release_notes: true",
+        "use_github_release_notes: false",
+        "changelog_template",
+        "github_repository",
+        "{{.Version}}",
+        "{{.ReleaseNotes}}",
+        "changelog-template",
+        "changelog",
+        "same-version"
+      ],
+      "mustNotInclude": [
+        "changelog: Release",
+        "/releases/latest"
+      ]
     }
   ]
 }

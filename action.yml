@@ -24,7 +24,11 @@ inputs:
     required: false
     default: ""
   changelog:
-    description: Changelog used by publish operations.
+    description: Literal release and store changelog; overrides templates and GitHub Release notes.
+    required: false
+    default: ""
+  changelog-template:
+    description: Optional Go text/template for release and store notes; overrides release.changelog_template.
     required: false
     default: ""
   lpk-path:
@@ -57,6 +61,9 @@ inputs:
     default: ""
 
 outputs:
+  changelog:
+    description: Resolved release and store changelog.
+    value: ${{ steps.run.outputs.changelog }}
   operation:
     description: Resolved check or build operation.
     value: ${{ steps.run.outputs.operation }}
@@ -137,7 +144,7 @@ runs:
       id: run
       shell: bash
       env:
-        LAZYCAT_ACTION_VERSION: v1.3.3
+        LAZYCAT_ACTION_VERSION: v1.3.4
         GITHUB_TOKEN: ${{ env.GITHUB_TOKEN || github.token }}
         GH_REPO_TOKEN: ${{ env.GH_REPO_TOKEN }}
         INPUT_OPERATION: ${{ inputs.operation }}
@@ -145,6 +152,7 @@ runs:
         INPUT_IMAGE_ID: ${{ inputs['image-id'] }}
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_CHANGELOG: ${{ inputs.changelog }}
+        INPUT_CHANGELOG_TEMPLATE: ${{ inputs['changelog-template'] }}
         INPUT_LPK_PATH: ${{ inputs['lpk-path'] }}
         INPUT_DOWNLOAD_URL: ${{ inputs['download-url'] }}
         INPUT_SHA256: ${{ inputs.sha256 }}

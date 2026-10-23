@@ -16,6 +16,12 @@ update:
     type: image
     image: web
 
+# One resolved changelog is shared by GitHub Releases and stores.
+release:
+  use_github_release_notes: true
+  # github_repository: owner/repo
+  changelog_template: "{{if .ReleaseNotes}}{{.ReleaseNotes}}{{else}}Release {{.Version}}{{end}}"
+
 images:
   - id: web
     target: service

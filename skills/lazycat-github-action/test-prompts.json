@@ -108,5 +108,10 @@
     "id": "mixed-weekly-lts-version-selection",
     "prompt": "同一个 Docker Hub 仓库同时有两段周更标签 2.578、三段 LTS 标签 2.568.2、2.578-jdk21 等 JDK 变体和 latest。应用只跟踪周更版本，package.yml 已是 2.578.0；默认 stable 选到 LTS 后触发 VERSION_DOWNGRADE_BLOCKED，改成 updated 又报 CONFIG_INVALID。请修复自动更新规则。",
     "expected": "把两段周更、三段 LTS、JDK 变体和 mutable alias 识别为不同标签族；使用 channel: custom、sort: semver 和可匹配未来纯两段版本的 tag_regex；用带 (?P<version>...) 的 version_regex 与 {version}.0 模板把 2.578 映射为严格 SemVer 2.578.0。保持 allow_downgrade: false，不得使用 sort: updated 或仓库专用脚本掩盖错误的候选族。"
+  },
+  {
+    "id": "release-notes-template-and-github-toggle",
+    "prompt": "优化应用更新说明：默认自动使用同版本 GitHub Release 正文，允许配置版本、应用名和正文模板，也需要能够关闭自动探测。请更新项目配置，说明开关默认值和参数优先级。",
+    "expected": "配置 release.use_github_release_notes，默认 true，并给 false 关闭示例；release.changelog_template 使用 Go text/template，列出 Version、Tag、PackageID、Name、Homepage、Repository、ReleaseNotes、ReleaseURL；release.github_repository 可显式指定，上游默认从 package.yml.homepage 的 GitHub 仓库推断再回退当前 GitHub 仓库。显式 changelog 为最高优先级原文并跳过查询，其次 input changelog-template、配置模板、默认模板。只查实际 tag、v<version>、<version>，不取 latest 或其他版本；正文缺失、草稿、API 错误回退，关闭时跳过事件正文和 API。GitHub Release 和两个商店使用同一份 resolved changelog 输出，保留多行 Markdown。"
   }
 ]

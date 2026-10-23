@@ -539,6 +539,56 @@ The two variables select different authentication protocols; they are not aliase
 
 The reusable workflow passes `LZC_API_TOKEN` and `LAZYCAT_TOKEN` separately so the nested Action can preserve their protocol semantics. It does not create, copy, or synchronize GitHub Secrets. Historical callers can keep only `LAZYCAT_TOKEN`; new callers should configure only `LZC_API_TOKEN`. Direct composite and local callers use the same precedence. Never put either credential in repository configuration, normal workflow inputs, or logs. Project build scripts do not receive either variable.
 
+## Release and store changelogs
+
+The composite Action and reusable workflow resolve one `changelog` for the GitHub Release and both stores, including automatic image updates, manual/tag builds, and store reconciliation.
+
+```yaml
+# .github/lazycat-action.yml
+release:
+  use_github_release_notes: true
+  # Optional: override the upstream repository inferred from package.yml.homepage.
+  # github_repository: owner/repo
+  changelog_template: |
+    {{.Name}} {{.Tag}}
+    {{if .ReleaseNotes}}
+    {{.ReleaseNotes}}
+    {{else}}
+    Updated to {{.Version}}.
+    {{end}}
+```
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `release.use_github_release_notes` | `true` | Reuse matching Release-event notes or automatically query exact-version GitHub Releases. Set `false` to skip both and use the template alone. |
+| `release.github_repository` | Inferred | `owner/repo` or a GitHub repository URL. Defaults to a GitHub `package.yml.homepage`, then the current GitHub Actions repository. Set this when the homepage is a product website or points to a different repository. |
+| `release.changelog_template` | Release notes, otherwise `Release <version>` | Go `text/template` used when the explicit `changelog` input is empty. |
+| `changelog-template` input | Empty | Per-run template override, supported by both entry points. Overrides `release.changelog_template`. |
+| `changelog` input | Empty | Literal final text. Overrides templates and all automatic Release-note lookup; template syntax in this input stays literal. |
+| `changelog` output | Resolved text | The same multiline Markdown passed to the GitHub Release and enabled stores. Also saved as `changelog` in the JSON result. |
+
+Template variables are `{{.Version}}` (application SemVer without `v`), `{{.Tag}}` (actual Release tag, including component prefixes), `{{.PackageID}}`, `{{.Name}}`, `{{.Homepage}}`, `{{.Repository}}` (resolved `owner/repo`), `{{.ReleaseNotes}}`, and `{{.ReleaseURL}}`. `ReleaseNotes` and `ReleaseURL` are empty when no usable Release is found or automatic lookup is disabled. Standard Go template conditionals and functions are supported; Release bodies are inserted as literal text and are never evaluated as templates.
+
+Precedence: an explicit `changelog` wins. Otherwise, use the `changelog-template` input, then `release.changelog_template`, then the default template. When enabled, template data prefers a nonempty body from the matching Release event, then queries the selected repository for the exact application tag, `v<version>`, and `<version>` in that order (duplicates are skipped). It never uses `latest` or notes for another version. Missing, empty, draft, inaccessible, or failed API results leave `ReleaseNotes` empty and use the template fallback; a whitespace-only rendered template falls back to `Release <version>`. Invalid templates fail configuration validation. Multiline Markdown is preserved. API queries use `GH_REPO_TOKEN` when supplied, otherwise `GITHUB_TOKEN`; a private upstream must be readable by that token.
+
+When the actual publication tag has a same-version Release in the current GitHub Actions repository containing the expected application LPK (`<package-id>-v<version>.lpk` or the configured legacy output filename), its body is treated as final text and reused without another template pass. This applies to both API lookups and Release events and prevents duplicate headings during store reconciliation. A manually authored Release without that LPK still supplies raw template data. Explicit `changelog` and per-run `changelog-template` inputs override final-body reuse; set `use_github_release_notes: false` to always use the configured template. Resolved notes, explicit changelogs, and template source are limited to 64 KiB of UTF-8 text so they can be forwarded safely as Action inputs. Oversized automatic Release bodies use the template fallback. Leading indentation and trailing newlines are preserved.
+
+To disable automatic GitHub note detection while keeping your own update text:
+
+```yaml
+release:
+  use_github_release_notes: false
+  changelog_template: 'Updated to {{.Version}}.'
+```
+
+A caller can override the template for one run:
+
+```yaml
+with:
+  changelog-template: |
+    {{if .ReleaseNotes}}{{.ReleaseNotes}}{{else}}Release {{.Version}}{{end}}
+```
+
 ## Pull request and Release workflows
 
 ### Safe default: PR, then publish after merge
@@ -864,6 +914,7 @@ These projects do not need an `images` section. Their version comes from the tag
 | `lpk-path` | Absolute built LPK path inside the job |
 | `sha256` | Lowercase 64-character LPK SHA256 |
 | `download-url` | Verified GitHub Release Asset URL when released |
+| `changelog` | Resolved release and store update notes |
 | `image-results` | JSON array of selected and delivered images |
 | `store-results` | JSON object containing official/private publication results |
 | `official-store-enabled` | Official store is enabled in configuration |

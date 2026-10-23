@@ -91,8 +91,8 @@ func (publisher Publisher) Publish(ctx context.Context, request Request) (Result
 	packageID := strings.TrimSpace(request.PackageID)
 	version := strings.TrimSpace(request.Version)
 	digest := strings.ToLower(strings.TrimSpace(request.SHA256))
-	changelog := strings.TrimSpace(request.Changelog)
-	if packageID == "" || version == "" || strings.TrimSpace(request.LPKPath) == "" || changelog == "" || !sha256Pattern.MatchString(digest) {
+	changelog := request.Changelog
+	if packageID == "" || version == "" || strings.TrimSpace(request.LPKPath) == "" || strings.TrimSpace(changelog) == "" || !sha256Pattern.MatchString(digest) {
 		return Result{}, publishError(lpkgo.CodeInvalidArgument, errors.New("LPK path, package, version, SHA256, and changelog are required"))
 	}
 	changelogs := make(map[string]string, len(request.Locales))

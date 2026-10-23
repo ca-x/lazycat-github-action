@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ca-x/lazycat-github-action/internal/platform"
+	"github.com/ca-x/lazycat-github-action/internal/releasenotes"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -92,6 +93,7 @@ func applyDefaults(value *Config) {
 		value.Stores.Official.Retry.MaxUploadTimeout = 600 * time.Second
 	}
 
+	value.Release.GitHubRepository = strings.TrimSpace(value.Release.GitHubRepository)
 	value.Project.Root = filepath.Clean(strings.TrimSpace(value.Project.Root))
 	value.Project.BuildConfig = filepath.Clean(strings.TrimSpace(value.Project.BuildConfig))
 	value.Project.PackageFile = filepath.Clean(strings.TrimSpace(value.Project.PackageFile))
@@ -158,6 +160,12 @@ func applyDefaults(value *Config) {
 }
 
 func validate(value Config) error {
+	if err := releasenotes.ValidateTemplate(value.Release.ChangelogTemplate); err != nil {
+		return fmt.Errorf("release.changelog_template: %w", err)
+	}
+	if value.Release.GitHubRepository != "" && releasenotes.Repository(value.Release.GitHubRepository) == "" {
+		return errors.New("release.github_repository must be owner/repo or a GitHub repository URL")
+	}
 	if value.Version != 1 {
 		return fmt.Errorf("unsupported configuration version %d: expected 1", value.Version)
 	}

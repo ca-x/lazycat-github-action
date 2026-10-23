@@ -45,6 +45,7 @@ type Request struct {
 	DryRun                bool
 	OfficialReviewVersion string
 	OnProgress            func(string, appstore.CopyProgress)
+	BeforeApply           func(Result) error
 }
 
 type LayerProgress struct {
@@ -347,6 +348,11 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 		if request.Config.Update.VersionSource.Type == config.VersionSourceImage && request.Config.Update.VersionSource.Image == image.ID {
 			result.Version = selectedVersion
 			result.Channel = image.Channel
+		}
+	}
+	if request.BeforeApply != nil {
+		if err := request.BeforeApply(result); err != nil {
+			return Result{}, err
 		}
 	}
 	if len(updates) > 0 {

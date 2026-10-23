@@ -1361,6 +1361,7 @@ func TestPublisherGuardRechecksWaitingReviewImmediatelyBeforeUpload(t *testing.T
 }
 
 func TestPublisherUsesToolkitProtocolAndReturnsVerifiedResult(t *testing.T) {
+	const changelog = "\n    first()\n    second()\n\n"
 	path, digest := publishLPK(t)
 	var created, uploaded, reviewed bool
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -1396,7 +1397,7 @@ func TestPublisherUsesToolkitProtocolAndReturnsVerifiedResult(t *testing.T) {
 			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 				t.Error(err)
 			}
-			if body.Version.Changelogs["zh"] != "Release notes" || body.Version.Changelogs["en"] != "Release notes" {
+			if body.Version.Changelogs["zh"] != changelog || body.Version.Changelogs["en"] != changelog {
 				t.Errorf("changelogs=%#v", body.Version.Changelogs)
 			}
 			_, _ = response.Write([]byte(`{"success":true}`))
@@ -1406,10 +1407,10 @@ func TestPublisherUsesToolkitProtocolAndReturnsVerifiedResult(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result, err := (official.Publisher{BaseURL: server.URL, HTTPClient: server.Client()}).Publish(context.Background(), official.Request{
+	result, err := (official.Publisher{BaseURL: server.URL, HTTPClient: server.Client()}).Publish(t.Context(), official.Request{
 		Provider: auth.StaticToken("ci-token"), LPKPath: path, FileName: "application.lpk",
 		PackageID: "cloud.lazycat.apps.publish-demo", Version: "1.0.0", SHA256: digest,
-		Changelog: "Release notes", Locales: []string{"zh", "en"}, CreateIfMissing: true,
+		Changelog: changelog, Locales: []string{"zh", "en"}, CreateIfMissing: true,
 		Application: config.OfficialApplication{Language: "zh", Name: "Configured Name"}, DefaultName: "Package Name",
 	})
 	if err != nil {

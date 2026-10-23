@@ -26,6 +26,7 @@ type Config struct {
 	Project Project `yaml:"project"`
 	Update  Update  `yaml:"update"`
 	Build   Build   `yaml:"build"`
+	Release Release `yaml:"release"`
 	Images  []Image `yaml:"images"`
 	Stores  Stores  `yaml:"stores"`
 }
@@ -98,6 +99,16 @@ type Delivery struct {
 	Mode               string `yaml:"mode"`
 	ImageTemplate      string `yaml:"image_template"`
 	RequireDigestMatch bool   `yaml:"require_digest_match"`
+}
+
+type Release struct {
+	ChangelogTemplate     string `yaml:"changelog_template"`
+	GitHubRepository      string `yaml:"github_repository"`
+	UseGitHubReleaseNotes *bool  `yaml:"use_github_release_notes"`
+}
+
+func (release Release) ShouldUseGitHubReleaseNotes() bool {
+	return release.UseGitHubReleaseNotes == nil || *release.UseGitHubReleaseNotes
 }
 
 type Stores struct {

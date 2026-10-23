@@ -26,6 +26,7 @@ import (
 const artifactSHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 func TestPublishOfficialPropagatesVerifiedArtifactAndRetryPolicy(t *testing.T) {
+	const changelog = "\n    first()\n    second()\n\n"
 	var logs bytes.Buffer
 	var published official.Request
 	logger := slog.New(slog.NewTextHandler(&logs, nil))
@@ -48,14 +49,14 @@ func TestPublishOfficialPropagatesVerifiedArtifactAndRetryPolicy(t *testing.T) {
 	cfg.Stores.Official.Retry = config.OfficialRetry{
 		Enabled: true, MaxAttempts: 4, InitialDelay: 3 * time.Second, MaxDelay: 45 * time.Second,
 	}
-	result, err := flow.Publish(context.Background(), publishflow.Request{
+	result, err := flow.Publish(t.Context(), publishflow.Request{
 		Target: publishflow.TargetOfficial, Config: cfg, Project: projectInfo(), LPKPath: "/repo/dist/app.lpk",
-		Version: "1.2.3", Changelog: "Release notes",
+		Version: "1.2.3", Changelog: changelog,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Official == nil || !result.Official.Published || result.Private != nil || published.ProjectRoot != "/repo" || published.PackageID != "cloud.lazycat.example" || published.SHA256 != artifactSHA || published.Changelog != "Release notes" || strings.Join(published.Locales, ",") != "zh,en" {
+	if result.Official == nil || !result.Official.Published || result.Private != nil || published.ProjectRoot != "/repo" || published.PackageID != "cloud.lazycat.example" || published.SHA256 != artifactSHA || published.Changelog != changelog || strings.Join(published.Locales, ",") != "zh,en" {
 		t.Fatalf("result=%#v request=%#v", result, published)
 	}
 	if published.Retry != cfg.Stores.Official.Retry || published.Logger != logger {
@@ -112,6 +113,7 @@ func TestPublishOfficialPrecheckRunsAfterLookupBeforeAuthenticationAndPublish(t 
 }
 
 func TestFlowPublishesPrivateStoreWithEnvironmentAndMetadataDefaults(t *testing.T) {
+	const changelog = "\n    first()\n    second()\n\n"
 	var options private.Options
 	var published private.Request
 	flow := publishflow.Flow{
@@ -131,15 +133,18 @@ func TestFlowPublishesPrivateStoreWithEnvironmentAndMetadataDefaults(t *testing.
 	}
 	cfg := publishConfig()
 	cfg.Stores.Private.Enabled = true
-	result, err := flow.Publish(context.Background(), publishflow.Request{
+	result, err := flow.Publish(t.Context(), publishflow.Request{
 		Target: publishflow.TargetPrivate, Config: cfg, Project: projectInfo(), LPKPath: "/repo/dist/app.lpk",
-		Version: "1.2.3", Changelog: "Release notes", DownloadURL: "https://github.com/acme/example/releases/download/v1.2.3/app.lpk", ExpectedSHA256: artifactSHA,
+		Version: "1.2.3", Changelog: changelog, DownloadURL: "https://github.com/acme/example/releases/download/v1.2.3/app.lpk", ExpectedSHA256: artifactSHA,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Private == nil || result.Official != nil || options.BaseURL != "https://store.example.com" || options.Token != "lcst_secret" || published.AppID != "42" || published.Name != "Example" || published.Summary != "Example summary" || published.SHA256 != artifactSHA {
 		t.Fatalf("result=%#v options=%#v request=%#v", result, options, published)
+	}
+	if published.Changelog != changelog {
+		t.Fatalf("changelog=%q, want %q", published.Changelog, changelog)
 	}
 }
 

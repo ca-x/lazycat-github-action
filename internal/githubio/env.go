@@ -24,6 +24,7 @@ func ReadInput(getenv func(string) string) (action.Input, error) {
 		ConfigPath:            strings.TrimSpace(getenv("INPUT_CONFIG")),
 		ImageID:               strings.TrimSpace(getenv("INPUT_IMAGE_ID")),
 		Changelog:             getenv("INPUT_CHANGELOG"),
+		ChangelogTemplate:     getenv("INPUT_CHANGELOG_TEMPLATE"),
 		LPKPath:               strings.TrimSpace(getenv("INPUT_LPK_PATH")),
 		DownloadURL:           strings.TrimSpace(getenv("INPUT_DOWNLOAD_URL")),
 		ExpectedSHA256:        strings.ToLower(strings.TrimSpace(getenv("INPUT_SHA256"))),
@@ -73,11 +74,15 @@ func ReadInput(getenv func(string) string) (action.Input, error) {
 		eventVersion = input.RefName
 	}
 	if input.EventName == "release" {
-		tag, err := releaseTag(strings.TrimSpace(getenv("GITHUB_EVENT_PATH")))
+		release, err := readReleaseEvent(strings.TrimSpace(getenv("GITHUB_EVENT_PATH")))
 		if err != nil {
 			return action.Input{}, err
 		}
-		eventVersion = tag
+		eventVersion = release.TagName
+		input.ReleaseNotes, input.ReleaseURL = release.Body, release.URL
+		for _, asset := range release.Assets {
+			input.ReleaseAssets = append(input.ReleaseAssets, asset.Name)
+		}
 	}
 	if rawVersion != "" {
 		version, tag, err := normalizeVersion(rawVersion)
@@ -142,6 +147,7 @@ func WriteOutputs(writer io.Writer, result action.Result) error {
 		{key: "manifest-file", value: result.ManifestFile},
 		{key: "version", value: result.Version},
 		{key: "tag", value: result.Tag},
+		{key: "changelog", value: result.Changelog},
 		{key: "lpk-path", value: result.LPKPath},
 		{key: "sha256", value: result.SHA256},
 		{key: "download-url", value: result.DownloadURL},
@@ -189,34 +195,42 @@ func WriteStepSummary(writer io.Writer, result action.Result) error {
 	return err
 }
 
-func releaseTag(filename string) (string, error) {
+type releaseEvent struct {
+	TagName string `json:"tag_name"`
+	Body    string `json:"body"`
+	URL     string `json:"html_url"`
+	Assets  []struct {
+		Name string `json:"name"`
+	} `json:"assets"`
+}
+
+func readReleaseEvent(filename string) (releaseEvent, error) {
 	if filename == "" {
-		return "", errors.New("release event is missing GITHUB_EVENT_PATH")
+		return releaseEvent{}, errors.New("release event is missing GITHUB_EVENT_PATH")
 	}
 	file, err := os.Open(filename)
 	if err != nil {
-		return "", fmt.Errorf("open GitHub event file: %w", err)
+		return releaseEvent{}, fmt.Errorf("open GitHub event file: %w", err)
 	}
 	data, readErr := io.ReadAll(io.LimitReader(file, maxEventBytes+1))
 	closeErr := file.Close()
 	if readErr != nil || closeErr != nil {
-		return "", fmt.Errorf("read GitHub event file: %w", errors.Join(readErr, closeErr))
+		return releaseEvent{}, fmt.Errorf("read GitHub event file: %w", errors.Join(readErr, closeErr))
 	}
 	if len(data) > maxEventBytes {
-		return "", errors.New("GitHub event file exceeds 1 MiB")
+		return releaseEvent{}, errors.New("GitHub event file exceeds 1 MiB")
 	}
 	var event struct {
-		Release struct {
-			TagName string `json:"tag_name"`
-		} `json:"release"`
+		Release releaseEvent `json:"release"`
 	}
 	if err := json.Unmarshal(data, &event); err != nil {
-		return "", fmt.Errorf("decode GitHub release event: %w", err)
+		return releaseEvent{}, fmt.Errorf("decode GitHub release event: %w", err)
 	}
 	if strings.TrimSpace(event.Release.TagName) == "" {
-		return "", errors.New("GitHub release event has no tag_name")
+		return releaseEvent{}, errors.New("GitHub release event has no tag_name")
 	}
-	return strings.TrimSpace(event.Release.TagName), nil
+	event.Release.TagName = strings.TrimSpace(event.Release.TagName)
+	return event.Release, nil
 }
 
 func normalizeVersion(raw string) (string, string, error) {

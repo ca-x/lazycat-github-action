@@ -930,3 +930,34 @@ func TestFlowSkipsEmbeddedImagesAndStillChecksRegistryImages(t *testing.T) {
 		t.Fatal("embedded version source caused registry queries")
 	}
 }
+
+func TestFlowPreparesSelectedMetadataBeforeManifestWrites(t *testing.T) {
+	registryClient := &fakeRegistry{bySource: map[string][]versioning.Candidate{
+		"docker.io/library/postgres": {{Tag: "17.1.0", Digest: digest("d"), Created: created(1)}},
+		"ghcr.io/acme/web":           {{Tag: "v2.0.0", Digest: digest("w"), Created: created(2)}},
+	}}
+	flow := imageflow.Flow{Registry: registryClient, Deliverer: &fakeDeliverer{},
+		ReadManifest: func(string, []manifestedit.Target) ([]manifestedit.Current, error) {
+			return []manifestedit.Current{
+				{ID: "db", RuntimeRef: "docker.io/library/postgres:17.1.0", UpstreamRef: "docker.io/library/postgres:17.1.0"},
+				{ID: "web", RuntimeRef: "ghcr.io/acme/web:v1.0.0", UpstreamRef: "ghcr.io/acme/web:v1.0.0"},
+			}, nil
+		},
+		ApplyManifest: func(string, []manifestedit.Update) ([]manifestedit.Change, error) {
+			t.Fatal("manifest modified after metadata preparation failed")
+			return nil, nil
+		},
+	}
+	metadataErr := errors.New("invalid selected release metadata")
+	calls := 0
+	_, err := flow.Check(t.Context(), imageflow.Request{Config: imageConfig(), Project: project.Info{Version: "1.0.0"}, BeforeApply: func(selected imageflow.Result) error {
+		calls++
+		if selected.Version != "2.0.0" {
+			t.Fatalf("version=%q", selected.Version)
+		}
+		return metadataErr
+	}})
+	if !errors.Is(err, metadataErr) || calls != 1 {
+		t.Fatalf("err=%v calls=%d", err, calls)
+	}
+}

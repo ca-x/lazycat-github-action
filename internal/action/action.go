@@ -30,6 +30,7 @@ import (
 	"github.com/ca-x/lazycat-github-action/internal/project"
 	"github.com/ca-x/lazycat-github-action/internal/publishflow"
 	"github.com/ca-x/lazycat-github-action/internal/registry"
+	"github.com/ca-x/lazycat-github-action/internal/releasenotes"
 	"github.com/ca-x/lazycat-github-action/internal/store/official"
 	"github.com/ca-x/lazycat-github-action/internal/yamledit"
 	lpkgo "github.com/lib-x/lzc-toolkit-go"
@@ -69,6 +70,10 @@ type Input struct {
 	Tag                   string
 	Channel               string
 	Changelog             string
+	ChangelogTemplate     string
+	ReleaseNotes          string
+	ReleaseURL            string
+	ReleaseAssets         []string
 	LPKPath               string
 	DownloadURL           string
 	ExpectedSHA256        string
@@ -95,6 +100,7 @@ type Result struct {
 	ManifestFile          string          `json:"manifestFile"`
 	Version               string          `json:"version"`
 	Tag                   string          `json:"tag"`
+	Changelog             string          `json:"changelog"`
 	LPKPath               string          `json:"lpkPath"`
 	SHA256                string          `json:"sha256"`
 	DownloadURL           string          `json:"downloadUrl,omitempty"`
@@ -170,12 +176,14 @@ func (err *Error) Unwrap() error {
 
 type Dependencies struct {
 	Host                 platform.Host
+	GitHubRepository     string
 	ResultDir            string
 	Logger               *slog.Logger
 	LoadConfig           func(string) (config.Config, error)
 	Inspect              func(context.Context, config.Project) (project.Info, error)
 	EnsureRepoHomepage   func(context.Context, string) (bool, error)
 	LookupLicense        func(context.Context, string) (string, error)
+	LookupReleaseNotes   func(context.Context, string, []string) (releasenotes.Release, error)
 	SetVersion           func(string, string) (yamledit.Change, error)
 	Build                func(context.Context, actionbuild.Request) (actionbuild.Result, error)
 	CheckImages          func(context.Context, imageflow.Request) (imageflow.Result, error)
@@ -208,15 +216,21 @@ func DefaultDependenciesWithEnv(host platform.Host, getenv func(string) string) 
 		ResolveImage: deliveryResolver.ResolveImage,
 		Logger:       logger,
 	}
+	repository := ""
+	if strings.TrimRight(getenv("GITHUB_SERVER_URL"), "/") == "https://github.com" {
+		repository = getenv("GITHUB_REPOSITORY")
+	}
 	publishFlow := publishflow.Default()
 	publishFlow.Logger = logger
 	return Dependencies{
 		Host:               host,
+		GitHubRepository:   repository,
 		Logger:             logger,
 		LoadConfig:         config.Load,
 		Inspect:            project.Inspect,
 		SetVersion:         yamledit.SetPackageVersion,
 		LookupLicense:      licenselookup.Client{Token: getenv("GITHUB_TOKEN")}.Lookup,
+		LookupReleaseNotes: releasenotes.Client{Token: cmp.Or(getenv("GH_REPO_TOKEN"), getenv("GITHUB_TOKEN"))}.Lookup,
 		EnsureRepoHomepage: githubrepo.Client{ServerURL: getenv("GITHUB_SERVER_URL"), Repository: getenv("GITHUB_REPOSITORY"), Token: cmp.Or(getenv("GH_REPO_TOKEN"), getenv("GITHUB_TOKEN"))}.EnsureHomepage,
 		Build:              builder.Build,
 		CheckImages:        imageFlow.Check,
@@ -337,6 +351,12 @@ func Run(ctx context.Context, input Input, dependencies Dependencies) (Result, e
 	cfg, err := dependencies.LoadConfig(input.ConfigPath)
 	if err != nil {
 		return Result{}, actionError(CodeConfigInvalid, "unable to load Action configuration", err)
+	}
+	if len(input.Changelog) > releasenotes.MaxChangelogBytes {
+		return Result{}, actionError(CodeConfigInvalid, "release changelog exceeds 64 KiB", nil)
+	}
+	if err := releasenotes.ValidateTemplate(changelogTemplate(input, cfg)); err != nil {
+		return Result{}, actionError(CodeConfigInvalid, "invalid release changelog template", err)
 	}
 	requestedOperation := input.Operation
 	if requestedOperation == "" {
@@ -467,9 +487,15 @@ func runPublish(ctx context.Context, input Input, operation Operation, cfg confi
 	if operation == OperationPublishPrivate {
 		target = publishflow.TargetPrivate
 	}
+	result := baseResult(input, dependencies.Host, info, cfg)
+	var err error
+	result.Changelog, err = resolveChangelog(ctx, input, cfg, info, result, dependencies)
+	if err != nil {
+		return Result{}, err
+	}
 	published, err := dependencies.Publish(ctx, publishflow.Request{
 		Target: target, Config: cfg, Project: info, LPKPath: input.LPKPath, Version: input.Version,
-		Changelog: input.Changelog, DownloadURL: input.DownloadURL, ExpectedSHA256: input.ExpectedSHA256,
+		Changelog: result.Changelog, DownloadURL: input.DownloadURL, ExpectedSHA256: input.ExpectedSHA256,
 		GuardOfficialReview: input.GuardOfficialReview, DryRun: input.DryRun,
 	})
 	if err != nil {
@@ -487,7 +513,6 @@ func runPublish(ctx context.Context, input Input, operation Operation, cfg confi
 	if err != nil {
 		return Result{}, actionError(CodeStorePublishFailed, "unable to encode store publishing result", err)
 	}
-	result := baseResult(input, dependencies.Host, info, cfg)
 	result.Operation = string(operation)
 	result.PackageID = published.Artifact.PackageID
 	result.Version = published.Artifact.Version
@@ -513,6 +538,11 @@ func runBuild(ctx context.Context, input Input, cfg config.Config, info project.
 	}
 	result := baseResult(input, dependencies.Host, info, cfg)
 	result.Operation = string(OperationBuild)
+	var err error
+	result.Changelog, err = resolveChangelog(ctx, input, cfg, info, result, dependencies)
+	if err != nil {
+		return Result{}, err
+	}
 	result.Changed = info.Version != input.Version
 	if input.DryRun {
 		if err := writeResult(&result, resultDirectory(dependencies.ResultDir, info.Root)); err != nil {
@@ -574,10 +604,22 @@ func runCheck(ctx context.Context, input Input, cfg config.Config, info project.
 	if dependencies.CheckImages == nil {
 		return Result{}, actionError(CodeConfigInvalid, "image check dependency is unavailable", nil)
 	}
+	changelog := ""
 	checked, err := dependencies.CheckImages(ctx, imageflow.Request{
 		Config: cfg, Project: info, ImageID: input.ImageID, DryRun: input.DryRun, OfficialReviewVersion: officialReviewVersion,
+		BeforeApply: func(selected imageflow.Result) error {
+			selectedInput := input
+			selectedInput.Version, selectedInput.Tag = selected.Version, "v"+selected.Version
+			var notesErr error
+			changelog, notesErr = resolveChangelog(ctx, selectedInput, cfg, info, baseResult(selectedInput, dependencies.Host, info, cfg), dependencies)
+			return notesErr
+		},
 	})
 	if err != nil {
+		var notesErr *Error
+		if errors.As(err, &notesErr) {
+			return Result{}, notesErr
+		}
 		if officialReviewVersion != "" && errors.Is(err, imageflow.ErrOfficialReviewCoversCandidate) {
 			logger := dependencies.Logger
 			if logger == nil {
@@ -592,6 +634,13 @@ func runCheck(ctx context.Context, input Input, cfg config.Config, info project.
 	input.Channel = checked.Channel
 	result := baseResult(input, dependencies.Host, info, cfg)
 	result.Operation = string(OperationCheck)
+	result.Changelog = changelog
+	if result.Changelog == "" {
+		result.Changelog, err = resolveChangelog(ctx, input, cfg, info, result, dependencies)
+		if err != nil {
+			return Result{}, err
+		}
+	}
 	result.Channel = checked.Channel
 	encodedImages, err := json.Marshal(checked.Images)
 	if err != nil {

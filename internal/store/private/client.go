@@ -242,7 +242,6 @@ func normalizeRequest(request Request) Request {
 	request.Name = strings.TrimSpace(request.Name)
 	request.Summary = strings.TrimSpace(request.Summary)
 	request.Version = strings.TrimSpace(request.Version)
-	request.Changelog = strings.TrimSpace(request.Changelog)
 	request.DownloadURL = strings.TrimSpace(request.DownloadURL)
 	request.SHA256 = strings.ToLower(strings.TrimSpace(request.SHA256))
 	return request

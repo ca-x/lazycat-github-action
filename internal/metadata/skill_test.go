@@ -40,6 +40,11 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 			t.Fatalf("SKILL.md missing %q", required)
 		}
 	}
+	for _, required := range []string{"release.use_github_release_notes", "defaults to `true`", "use_github_release_notes: false", "release.changelog_template", "release.github_repository", "changelog-template", "{{.Version}}", "{{.Tag}}", "{{.PackageID}}", "{{.Name}}", "{{.Homepage}}", "{{.Repository}}", "{{.ReleaseNotes}}", "{{.ReleaseURL}}"} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("SKILL.md missing changelog parameter documentation %q", required)
+		}
+	}
 	if !strings.Contains(text, "Explicit `operation: check` with `version_source.type: git` runs a source build") {
 		t.Fatal("SKILL.md must explain image-free check behavior")
 	}
@@ -312,8 +317,8 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	if err := json.Unmarshal(prompts, &promptCases); err != nil {
 		t.Fatal(err)
 	}
-	if len(promptCases) != 22 {
-		t.Fatalf("test-prompts.json cases=%d, want 22", len(promptCases))
+	if len(promptCases) != 23 {
+		t.Fatalf("test-prompts.json cases=%d, want 23", len(promptCases))
 	}
 	promptIDs := make(map[string]string, len(promptCases))
 	for _, prompt := range promptCases {
