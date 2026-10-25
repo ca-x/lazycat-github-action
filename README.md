@@ -50,13 +50,60 @@ Gitea Actions and Forgejo Actions users should call the composite Action directl
 
 Callers do not compile this repository. The bootstrap downloads a checksum-verified Action binary for the Runner architecture.
 
+## Keep source private and publish LPKs to another repository
+
+Run the reusable workflow in source repository A and set `with.release-repository: B/C`. Builds, source update commits/PRs, license and version synchronization stay in A. GitHub Releases, tags created for those Releases, LPK asset uploads, asset reuse, and store-reconciliation downloads use B/C. No source Git objects are pushed or copied to B/C; GitHub's generated source archives contain only B/C's own files.
+
+Prepare these settings:
+
+1. Create B/C and initialize it with a README or another commit. Make C public when users or a store must download the LPK without GitHub authentication. C needs no publishing workflow.
+2. Create a fine-grained PAT with **Resource owner: B**, select **Only select repositories → C**, and grant **Repository permissions → Contents: Read and write**. The token owner must have write access to C. Complete organization approval or SSO authorization when the organization requires it. A GitHub App installation token with the same repository access and Contents write permission also works.
+3. In **A → Settings → Secrets and variables → Actions**, create **`GH_RELEASE_TOKEN`** with that token. An organization Secret must authorize A. Store and map the Secret in the repository running the workflow, even when C belongs to another organization. A's built-in `GITHUB_TOKEN` cannot publish to another repository.
+4. Set `update.strategy: publish` and, for source/tag builds, `update.version_source.type: git` in A's existing `.github/lazycat-action.yml`. Add the destination and explicit Secret mapping to A's caller workflow:
+
+```yaml
+name: Publish LPK
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  lazycat:
+    uses: ca-x/lazycat-github-action/.github/workflows/lazycat.yml@v1
+    with:
+      config: .github/lazycat-action.yml
+      release-repository: B/C
+      versioned-release-asset: true
+      # release-target-commitish: main
+    secrets:
+      GH_RELEASE_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+```
+
+Keep the application's existing `toolchains`/version inputs and only map Secrets needed for enabled stores. Push an application tag such as `v1.2.3` in A, or run the workflow manually using `package.yml.version`.
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `release-repository` | Current source repository | `owner/repo` receiving Releases and LPKs. Set in the reusable workflow's `with`, not in `release.github_repository`. |
+| `release-target-commitish` | Source build/update commit for the same repository; destination default branch for another repository | Optional branch, tag, or SHA **in the destination**. Resolved to a destination commit before building. Used to create a missing Release tag; existing tags retain their target. |
+| `GH_RELEASE_TOKEN` | `github.token` for same-repository publication | Required for cross-repository non-PR, non-dry runs. Used only for Release operations and final-note reuse, independently from `GH_REPO_TOKEN`. Excluded from buildscript and Docker environments. |
+| `versioned-release-asset` | `false` | Set `true` to publish `<package-id>-v<version>.lpk` and support existing-asset store reconciliation. |
+
+Leaving the destination empty preserves same-repository behavior. PR validation and dry runs do not require a destination token. An invalid repository/ref, missing cross-repository token, or inaccessible/uninitialized destination fails before the build. Store reconciliation verifies the exact asset and both GitHub/local SHA256 in B/C.
+
+`release.github_repository` continues to select the **upstream release-note source**. Automatic note detection stays enabled by default. Published final notes from B/C are reused at the exact application tag when its expected LPK exists, using `GH_RELEASE_TOKEN`; ordinary upstream queries still use `GH_REPO_TOKEN` or A's `GITHUB_TOKEN`. To publish custom text instead of A's private Release body, use explicit `changelog`, or `release.use_github_release_notes: false` with `release.changelog_template`.
+
+For the composite Action, pass `release-repository: B/C` and `env.GH_RELEASE_TOKEN` for final-note reuse. The caller still owns the actual uploader: configure its `repository: B/C`, `token`, and a target commit belonging to C. The composite step alone does not upload an LPK or create a GitHub Release.
+
 ## Fill an empty GitHub repository Website
 
 `update.sync_homepage` defaults to `true`. After a successful `check` or `build`, the Action reads the current repository's Website (`homepage` in the GitHub repository API). If empty, it sets it to the valid HTTP(S) URL in `package.yml.homepage`. An existing Website is preserved; the upstream repository referenced by the package URL is never edited. This changes GitHub About metadata, so it does not edit package files, create a commit, or set the managed-file `changed` output.
 
 This applies only to GitHub.com Actions with `GITHUB_SERVER_URL=https://github.com` and a valid `GITHUB_REPOSITORY`. Local runs, other hosts (including currently unsupported GitHub Enterprise hosts), empty/invalid package URLs, dry runs, pull-request events, failed builds/checks, official-review pauses, and existing-LPK store publish operations skip the update. API failures and insufficient permissions warn and do not fail subsequent work. The API calls have a combined 10-second timeout.
 
-Repository settings updates require a token permitted to administer the target repository. The workflow `GITHUB_TOKEN` usually cannot update these settings, even with `contents: write`. Optionally provide a fine-grained PAT with repository **Administration: write** as the `GH_REPO_TOKEN` Secret; classic PATs need appropriate repository access. The Action prefers `GH_REPO_TOKEN`, then falls back to `GITHUB_TOKEN`. Pass the Secret explicitly to the reusable workflow:
+Repository settings updates require a token permitted to administer the current source repository. The workflow `GITHUB_TOKEN` usually cannot update these settings, even with `contents: write`. Optionally provide a fine-grained PAT with repository **Administration: write** as the `GH_REPO_TOKEN` Secret; classic PATs need appropriate repository access. The Action prefers `GH_REPO_TOKEN`, then falls back to `GITHUB_TOKEN`. Pass the Secret explicitly to the reusable workflow:
 
 ```yaml
 secrets:

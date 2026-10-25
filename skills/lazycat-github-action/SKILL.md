@@ -1,6 +1,6 @@
 ---
 name: lazycat-github-action
-description: Use when setting up, generating, reviewing, or debugging LazyCat GitHub Actions for LPK repositories, including Docker image updates, release/store publishing, historical LPK migration or cleanup, versioned Release assets, Go Template Manifest preservation, static or Exec builds, configurable amd64/arm64 targets, and cross-architecture runners.
+description: Use when setting up, generating, reviewing, or debugging LazyCat GitHub Actions for LPK repositories, including Docker image updates, release/store publishing, historical LPK migration or cleanup, versioned Release assets, private-source cross-repository publication, Go Template Manifest preservation, static or Exec builds, configurable amd64/arm64 targets, and cross-architecture runners.
 ---
 
 # LazyCat GitHub Action
@@ -206,6 +206,31 @@ The final Release Asset name is `<package-id>-v<version>.lpk`. Verify package ID
 
 Copy [assets/lazycat-action.yml](assets/lazycat-action.yml) and [assets/lazycat-workflow.yml](assets/lazycat-workflow.yml) as starting points, then replace only values confirmed from the inspected project. Read [references/workflows.md](references/workflows.md) for tag/release, permissions, secrets, PR, and store examples.
 
+## Configure a separate LPK publication repository
+
+For private source A with public artifacts in B/C, generate these settings in **A's caller workflow**:
+
+```yaml
+with:
+  release-repository: B/C
+  versioned-release-asset: true
+  # release-target-commitish: main  # Optional ref in C, never A's private SHA.
+secrets:
+  GH_RELEASE_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+```
+
+Explain every required setting to the user:
+
+- Create B/C with an initial README commit. Make C public when users/stores need anonymous downloads; no workflow is required in C.
+- Put `GH_RELEASE_TOKEN` in **A → Settings → Secrets and variables → Actions**, or an organization Secret authorized for A. For a fine-grained PAT choose Resource owner B, selected repository C, and **Contents: Read and write**; the token owner needs write access, plus any required organization approval/SSO. A GitHub App installation token with equivalent access is supported. A's `GITHUB_TOKEN` is scoped to A and cannot publish to C.
+- `release-repository` defaults to the current repository and accepts `owner/repo`. This workflow input is the destination; `release.github_repository` remains the upstream notes source. Never replace A's checkout/origin with C.
+- `release-target-commitish` is an optional destination branch/tag/SHA. The cross-repository default is C's default branch, resolved to C's commit; the same-repository default is A's build/update commit. Existing destination tags are preserved. Never use a private A SHA as C's new tag target or push source Git objects to C.
+- Keep source checkout, updates/PRs, and license/version synchronization in A. All Release reads, new tags, uploads, asset URLs, recovery, and store reconciliation use C and the release token. `GH_REPO_TOKEN` remains separate for A's Website/upstream metadata. `GH_RELEASE_TOKEN` is excluded from buildscript and Docker environments.
+- Use `update.strategy: publish`, and `update.version_source.type: git` for source/tag builds. Keep real build toolchains and only map credentials for enabled stores. Recommend `versioned-release-asset: true` for `<package-id>-v<version>.lpk` and verified store reconciliation. Missing cross-repository credentials or an inaccessible/uninitialized destination fails before building; PR validation and dry runs need no destination token.
+- In a composite caller, pass `release-repository` and `env.GH_RELEASE_TOKEN` for final-note reuse, then configure the caller's uploader with the same repository, token, and destination commit. The composite Action itself owns no GitHub Release upload.
+
+Read [references/workflows.md](references/workflows.md#private-source-with-a-separate-release-repository) for the full caller YAML, GitHub settings, token setup, defaults, and store constraints. Do not leave required configuration only in an explanation outside the generated workflow and documentation.
+
 ## Configure release notes
 
 Generate the same resolved `changelog` for GitHub Releases and both stores, including automatic image updates and store reconciliation. Document these settings in the generated project configuration:
@@ -225,7 +250,7 @@ release:
 - Query only the actual application tag, `v<version>`, and `<version>`, deduplicated in that order. Never use `latest` or another version's notes. Missing, empty, draft, inaccessible, or failed API results use the template fallback; whitespace-only rendered text falls back to `Release <version>`. Invalid templates fail configuration validation.
 - Preserve multiline Markdown, insert Release bodies literally, and use the resolved `changelog` output consistently for the GitHub Release and both stores. Queries use `GH_REPO_TOKEN` when supplied, otherwise `GITHUB_TOKEN`; private upstream repositories require read access. See [references/configuration.md](references/configuration.md#release-and-store-changelogs) for every parameter, variable, and precedence rule.
 
-When the current Actions repository already has a same-version Release at the actual publication tag containing the expected application LPK (`<package-id>-v<version>.lpk` or the configured legacy output filename), reuse its body as final text without rendering again, for both API and Release-event paths. This prevents duplicate headings during store reconciliation. Manual Releases without the LPK still provide raw template data. Explicit `changelog` and per-run `changelog-template` inputs override final-body reuse; disable automatic detection to always use the configured template. Preserve Markdown indentation and trailing newlines. Limit resolved notes, explicit changelog text, and template source to 64 KiB UTF-8; oversized automatic Release bodies use the template fallback so store steps can receive safe Action environment inputs.
+When the selected publication repository (`release-repository`, defaulting to the current Actions repository) already has a same-version Release at the actual publication tag containing the expected application LPK (`<package-id>-v<version>.lpk` or the configured legacy output filename), reuse its body as final text without rendering again, using `GH_RELEASE_TOKEN` for a separate destination and the source/upstream token for ordinary queries; a Release event in A is final only when A is also the publication repository. This prevents duplicate headings during store reconciliation. Manual Releases without the LPK still provide raw template data. Explicit `changelog` and per-run `changelog-template` inputs override final-body reuse; disable automatic detection to always use the configured template. Preserve Markdown indentation and trailing newlines. Limit resolved notes, explicit changelog text, and template source to 64 KiB UTF-8; oversized automatic Release bodies use the template fallback so store steps can receive safe Action environment inputs.
 
 To turn off automatic GitHub Release-note detection:
 

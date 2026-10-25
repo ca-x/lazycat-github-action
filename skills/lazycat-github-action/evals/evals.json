@@ -203,6 +203,27 @@
         "changelog: Release",
         "/releases/latest"
       ]
+    },
+    {
+      "id": "private-source-cross-repository-release",
+      "prompt": "应用源码在私有 A 仓库，LPK 要发到 B 组织的 C 仓库，不公开源码。请实际配置并说明每个参数、默认值、token 权限和 Secret 放在哪里，同时支持失败重跑与商店补发。",
+      "mustInclude": [
+        "release-repository: B/C",
+        "GH_RELEASE_TOKEN",
+        "Contents",
+        "A",
+        "release-target-commitish",
+        "default branch",
+        "versioned-release-asset: true",
+        "release.github_repository",
+        "SHA256"
+      ],
+      "mustNotInclude": [
+        "git push --mirror",
+        "target_commitish: ${{ github.sha }}",
+        "repository: B/C\n          fetch-depth",
+        "release:\n  github_repository: B/C\n  publish: true"
+      ]
     }
   ]
 }

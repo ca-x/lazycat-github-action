@@ -71,6 +71,7 @@ type Input struct {
 	Channel               string
 	Changelog             string
 	ChangelogTemplate     string
+	ReleaseRepository     string
 	ReleaseNotes          string
 	ReleaseURL            string
 	ReleaseAssets         []string
@@ -175,20 +176,21 @@ func (err *Error) Unwrap() error {
 }
 
 type Dependencies struct {
-	Host                 platform.Host
-	GitHubRepository     string
-	ResultDir            string
-	Logger               *slog.Logger
-	LoadConfig           func(string) (config.Config, error)
-	Inspect              func(context.Context, config.Project) (project.Info, error)
-	EnsureRepoHomepage   func(context.Context, string) (bool, error)
-	LookupLicense        func(context.Context, string) (string, error)
-	LookupReleaseNotes   func(context.Context, string, []string) (releasenotes.Release, error)
-	SetVersion           func(string, string) (yamledit.Change, error)
-	Build                func(context.Context, actionbuild.Request) (actionbuild.Result, error)
-	CheckImages          func(context.Context, imageflow.Request) (imageflow.Result, error)
-	WaitingReviewVersion func(context.Context, string) (string, bool, error)
-	Publish              func(context.Context, publishflow.Request) (publishflow.Result, error)
+	Host                        platform.Host
+	GitHubRepository            string
+	ResultDir                   string
+	Logger                      *slog.Logger
+	LoadConfig                  func(string) (config.Config, error)
+	Inspect                     func(context.Context, config.Project) (project.Info, error)
+	EnsureRepoHomepage          func(context.Context, string) (bool, error)
+	LookupLicense               func(context.Context, string) (string, error)
+	LookupReleaseNotes          func(context.Context, string, []string) (releasenotes.Release, error)
+	LookupPublishedReleaseNotes func(context.Context, string, []string) (releasenotes.Release, error)
+	SetVersion                  func(string, string) (yamledit.Change, error)
+	Build                       func(context.Context, actionbuild.Request) (actionbuild.Result, error)
+	CheckImages                 func(context.Context, imageflow.Request) (imageflow.Result, error)
+	WaitingReviewVersion        func(context.Context, string) (string, bool, error)
+	Publish                     func(context.Context, publishflow.Request) (publishflow.Result, error)
 }
 
 func DefaultDependencies(host platform.Host) Dependencies {
@@ -223,17 +225,18 @@ func DefaultDependenciesWithEnv(host platform.Host, getenv func(string) string) 
 	publishFlow := publishflow.Default()
 	publishFlow.Logger = logger
 	return Dependencies{
-		Host:               host,
-		GitHubRepository:   repository,
-		Logger:             logger,
-		LoadConfig:         config.Load,
-		Inspect:            project.Inspect,
-		SetVersion:         yamledit.SetPackageVersion,
-		LookupLicense:      licenselookup.Client{Token: getenv("GITHUB_TOKEN")}.Lookup,
-		LookupReleaseNotes: releasenotes.Client{Token: cmp.Or(getenv("GH_REPO_TOKEN"), getenv("GITHUB_TOKEN"))}.Lookup,
-		EnsureRepoHomepage: githubrepo.Client{ServerURL: getenv("GITHUB_SERVER_URL"), Repository: getenv("GITHUB_REPOSITORY"), Token: cmp.Or(getenv("GH_REPO_TOKEN"), getenv("GITHUB_TOKEN"))}.EnsureHomepage,
-		Build:              builder.Build,
-		CheckImages:        imageFlow.Check,
+		Host:                        host,
+		GitHubRepository:            repository,
+		Logger:                      logger,
+		LoadConfig:                  config.Load,
+		Inspect:                     project.Inspect,
+		SetVersion:                  yamledit.SetPackageVersion,
+		LookupLicense:               licenselookup.Client{Token: getenv("GITHUB_TOKEN")}.Lookup,
+		LookupReleaseNotes:          releasenotes.Client{Token: cmp.Or(getenv("GH_REPO_TOKEN"), getenv("GITHUB_TOKEN"))}.Lookup,
+		LookupPublishedReleaseNotes: releasenotes.Client{Token: cmp.Or(getenv("GH_RELEASE_TOKEN"), getenv("GITHUB_TOKEN"))}.Lookup,
+		EnsureRepoHomepage:          githubrepo.Client{ServerURL: getenv("GITHUB_SERVER_URL"), Repository: getenv("GITHUB_REPOSITORY"), Token: cmp.Or(getenv("GH_REPO_TOKEN"), getenv("GITHUB_TOKEN"))}.EnsureHomepage,
+		Build:                       builder.Build,
+		CheckImages:                 imageFlow.Check,
 		WaitingReviewVersion: func(ctx context.Context, packageID string) (string, bool, error) {
 			resolved, err := resolver.Resolve(ctx)
 			if err != nil {
@@ -351,6 +354,10 @@ func Run(ctx context.Context, input Input, dependencies Dependencies) (Result, e
 	cfg, err := dependencies.LoadConfig(input.ConfigPath)
 	if err != nil {
 		return Result{}, actionError(CodeConfigInvalid, "unable to load Action configuration", err)
+	}
+	input.ReleaseRepository = strings.TrimSpace(input.ReleaseRepository)
+	if input.ReleaseRepository != "" && releasenotes.Repository(input.ReleaseRepository) != input.ReleaseRepository {
+		return Result{}, actionError(CodeConfigInvalid, "release-repository must be owner/repo", nil)
 	}
 	if len(input.Changelog) > releasenotes.MaxChangelogBytes {
 		return Result{}, actionError(CodeConfigInvalid, "release changelog exceeds 64 KiB", nil)

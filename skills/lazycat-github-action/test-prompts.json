@@ -113,5 +113,10 @@
     "id": "release-notes-template-and-github-toggle",
     "prompt": "优化应用更新说明：默认自动使用同版本 GitHub Release 正文，允许配置版本、应用名和正文模板，也需要能够关闭自动探测。请更新项目配置，说明开关默认值和参数优先级。",
     "expected": "配置 release.use_github_release_notes，默认 true，并给 false 关闭示例；release.changelog_template 使用 Go text/template，列出 Version、Tag、PackageID、Name、Homepage、Repository、ReleaseNotes、ReleaseURL；release.github_repository 可显式指定，上游默认从 package.yml.homepage 的 GitHub 仓库推断再回退当前 GitHub 仓库。显式 changelog 为最高优先级原文并跳过查询，其次 input changelog-template、配置模板、默认模板。只查实际 tag、v<version>、<version>，不取 latest 或其他版本；正文缺失、草稿、API 错误回退，关闭时跳过事件正文和 API。GitHub Release 和两个商店使用同一份 resolved changelog 输出，保留多行 Markdown。"
+  },
+  {
+    "id": "private-source-cross-repository-release",
+    "prompt": "源码在私有 A 仓库，LPK 放到 B 组织的 C 仓库。直接修改工作流，并告诉我需要配置什么，记得更新 Skill。",
+    "expected": "在 A 的 caller workflow 设置 release-repository: B/C、versioned-release-asset: true，按需设置属于 C 的 release-target-commitish。指导创建并初始化 C，C 需要免登录下载时公开。GH_RELEASE_TOKEN 放在 A 的 Actions Secrets，fine-grained PAT 选 B/C 并授予 Contents Read and write，完成组织要求的审批/SSO；A 的 GITHUB_TOKEN 无法跨仓库写 C。源码提交、PR、license/版本同步留在 A，不能向 C push 源码对象或使用 A 的私有 SHA 创建 C 的 tag。release.github_repository 仍只选择上游说明，默认自动探测开关保持开启。目标资产/最终说明复用及商店补发一律用 C 与独立 token，核对 SHA256。说明两种入口责任及所有默认值；实际验证 workflow。"
   }
 ]

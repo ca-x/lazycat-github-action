@@ -12,6 +12,8 @@ jobs:
     with:
       operation: auto
       config: .github/lazycat-action.yml
+      # For private source A -> public artifacts B/C, use the separate starter:
+      # assets/lazycat-cross-repository-workflow.yml (requires strategy: publish).
     # Organization Secrets must authorize this repository. A same-name
     # Repository Secret overrides the Organization Secret.
     # Remove mappings for stores that are disabled. Organization Secrets must

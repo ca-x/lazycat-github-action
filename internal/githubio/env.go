@@ -25,6 +25,7 @@ func ReadInput(getenv func(string) string) (action.Input, error) {
 		ImageID:               strings.TrimSpace(getenv("INPUT_IMAGE_ID")),
 		Changelog:             getenv("INPUT_CHANGELOG"),
 		ChangelogTemplate:     getenv("INPUT_CHANGELOG_TEMPLATE"),
+		ReleaseRepository:     strings.TrimSpace(getenv("INPUT_RELEASE_REPOSITORY")),
 		LPKPath:               strings.TrimSpace(getenv("INPUT_LPK_PATH")),
 		DownloadURL:           strings.TrimSpace(getenv("INPUT_DOWNLOAD_URL")),
 		ExpectedSHA256:        strings.ToLower(strings.TrimSpace(getenv("INPUT_SHA256"))),

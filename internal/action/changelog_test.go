@@ -161,7 +161,7 @@ func changelogDependencies(t *testing.T, cfg config.Config, homepage string) act
 	if homepage == "" {
 		homepage = "https://github.com/upstream/app"
 	}
-	info := project.Info{Root: root, PackageID: "cloud.example.app", Version: "1.0.0", Name: "Example", Homepage: homepage, PackageFile: filepath.Join(root, "package.yml")}
+	info := project.Info{Root: root, PackageID: "cloud.example.app", Version: "1.0.0", Name: "Example", Homepage: homepage, PackageFile: filepath.Join(root, "package.yml"), Output: filepath.Join(root, "app.lpk")}
 	return action.Dependencies{
 		Host: platform.Host{OS: "linux", Arch: "amd64"}, GitHubRepository: "current/packaging", ResultDir: filepath.Join(root, "results"),
 		LoadConfig: func(string) (config.Config, error) { return cfg, nil },
@@ -230,5 +230,77 @@ func TestSameVersionAliasNotesRemainRawForNewComponentTag(t *testing.T) {
 	result, err := action.Run(t.Context(), action.Input{Operation: action.OperationBuild, Version: "1.2.3", Tag: "component-v1.2.3"}, deps)
 	if err != nil || result.Changelog != "component-v1.2.3\nFixed" {
 		t.Fatalf("changelog=%q err=%v", result.Changelog, err)
+	}
+}
+
+func TestSeparatePublicationRepositoryChangelog(t *testing.T) {
+	for _, test := range []struct {
+		name, tag, body, explicit, inputTemplate, event, want string
+		assets                                                []string
+		disabled, lookupError                                 bool
+		wantPublishedCalls, wantUpstreamCalls                 int
+	}{
+		{name: "reuse final publication notes", tag: "v1.2.3", body: "FINAL\nFixed", assets: []string{"cloud.example.app-v1.2.3.lpk"}, want: "FINAL\nFixed", wantPublishedCalls: 1},
+		{name: "reuse legacy output", tag: "v1.2.3", body: "FINAL", assets: []string{"app.lpk"}, want: "FINAL", wantPublishedCalls: 1},
+		{name: "missing publication falls back to source", want: "CONFIG\nUpstream", wantPublishedCalls: 1, wantUpstreamCalls: 1},
+		{name: "unrelated asset cannot mark final notes", tag: "v1.2.3", body: "Other", assets: []string{"other-v1.2.3.lpk"}, want: "CONFIG\nUpstream", wantPublishedCalls: 1, wantUpstreamCalls: 1},
+		{name: "wrong tag cannot mark final notes", tag: "1.2.3", body: "Other", assets: []string{"cloud.example.app-v1.2.3.lpk"}, want: "CONFIG\nUpstream", wantPublishedCalls: 1, wantUpstreamCalls: 1},
+		{name: "lookup failure falls back", lookupError: true, want: "CONFIG\nUpstream", wantPublishedCalls: 1, wantUpstreamCalls: 1},
+		{name: "explicit text bypasses both clients", explicit: "Literal {{.Version}}", want: "Literal {{.Version}}"},
+		{name: "disabled bypasses both clients", disabled: true, want: "CONFIG\n"},
+		{name: "per run template overrides final reuse", inputTemplate: "INPUT {{.ReleaseNotes}}", want: "INPUT Upstream", wantUpstreamCalls: 1},
+		{name: "source release event remains template data", event: "release", want: "CONFIG\nEvent notes", wantPublishedCalls: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := gitConfig()
+			cfg.Release.ChangelogTemplate = "CONFIG\n{{.ReleaseNotes}}"
+			if test.disabled {
+				enabled := false
+				cfg.Release.UseGitHubReleaseNotes = &enabled
+			}
+			deps := changelogDependencies(t, cfg, "https://github.com/private/source")
+			publishedCalls, upstreamCalls := 0, 0
+			deps.LookupPublishedReleaseNotes = func(_ context.Context, repository string, tags []string) (releasenotes.Release, error) {
+				publishedCalls++
+				if repository != "distribution/app-releases" || !reflect.DeepEqual(tags, []string{"v1.2.3"}) {
+					t.Fatalf("publication lookup=%s %v", repository, tags)
+				}
+				if test.lookupError {
+					return releasenotes.Release{}, errors.New("unavailable")
+				}
+				return releasenotes.Release{Tag: test.tag, Body: test.body, AssetNames: test.assets}, nil
+			}
+			deps.LookupReleaseNotes = func(_ context.Context, repository string, _ []string) (releasenotes.Release, error) {
+				upstreamCalls++
+				if repository != "private/source" {
+					t.Fatalf("upstream redirected to %s", repository)
+				}
+				return releasenotes.Release{Body: "Upstream"}, nil
+			}
+			result, err := action.Run(t.Context(), action.Input{
+				Operation: action.OperationBuild, Version: "1.2.3", ReleaseRepository: "distribution/app-releases",
+				Changelog: test.explicit, ChangelogTemplate: test.inputTemplate, EventName: test.event,
+				ReleaseNotes: "Event notes", ReleaseAssets: []string{"cloud.example.app-v1.2.3.lpk"},
+			}, deps)
+			if err != nil || result.Changelog != test.want || publishedCalls != test.wantPublishedCalls || upstreamCalls != test.wantUpstreamCalls {
+				t.Fatalf("changelog=%q published=%d upstream=%d err=%v", result.Changelog, publishedCalls, upstreamCalls, err)
+			}
+		})
+	}
+}
+
+func TestInvalidPublicationRepositoryFailsBeforeProjectInspection(t *testing.T) {
+	for _, repository := range []string{"https://github.com/owner/repo", "../repo", "owner/repo/extra", "owner/repo?token=secret"} {
+		t.Run(repository, func(t *testing.T) {
+			deps := changelogDependencies(t, gitConfig(), "")
+			deps.Inspect = func(context.Context, config.Project) (project.Info, error) {
+				t.Fatal("invalid publication repository reached project inspection")
+				return project.Info{}, nil
+			}
+			_, err := action.Run(t.Context(), action.Input{ReleaseRepository: repository}, deps)
+			if err == nil || !strings.Contains(err.Error(), "release-repository must be owner/repo") || strings.Contains(err.Error(), "secret") {
+				t.Fatalf("err=%v", err)
+			}
+		})
 	}
 }

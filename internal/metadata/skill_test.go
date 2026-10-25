@@ -317,8 +317,8 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	if err := json.Unmarshal(prompts, &promptCases); err != nil {
 		t.Fatal(err)
 	}
-	if len(promptCases) != 23 {
-		t.Fatalf("test-prompts.json cases=%d, want 23", len(promptCases))
+	if len(promptCases) != 24 {
+		t.Fatalf("test-prompts.json cases=%d, want 24", len(promptCases))
 	}
 	promptIDs := make(map[string]string, len(promptCases))
 	for _, prompt := range promptCases {
@@ -656,4 +656,43 @@ func markdownSection(text, heading string) string {
 		return rest[:end]
 	}
 	return rest
+}
+
+func TestCrossRepositorySkillDocumentsConfiguration(t *testing.T) {
+	root := filepath.Join("..", "..")
+	for _, name := range []string{
+		"README.md", "README.zh-CN.md", "skills/lazycat-github-action/SKILL.md",
+		"skills/lazycat-github-action/references/configuration.md", "skills/lazycat-github-action/references/workflows.md",
+	} {
+		data, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, required := range []string{"release-repository", "release-target-commitish", "GH_RELEASE_TOKEN", "Contents", "B/C", "release.github_repository", "versioned-release-asset", "SHA256"} {
+			if !strings.Contains(string(data), required) {
+				t.Fatalf("%s does not explain %s", name, required)
+			}
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(root, "skills/lazycat-github-action/assets/lazycat-cross-repository-workflow.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Jobs map[string]struct {
+			Uses    string            `yaml:"uses"`
+			With    map[string]any    `yaml:"with"`
+			Secrets map[string]string `yaml:"secrets"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(data, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	job := workflow.Jobs["lazycat"]
+	if job.With["release-repository"] != "B/C" || job.With["versioned-release-asset"] != true || job.Secrets["GH_RELEASE_TOKEN"] != "${{ secrets.GH_RELEASE_TOKEN }}" {
+		t.Fatalf("invalid cross-repository starter: %+v", job)
+	}
+	if job.Uses != "ca-x/lazycat-github-action/.github/workflows/lazycat.yml@v1" || strings.Contains(string(data), "secrets: inherit") {
+		t.Fatal("cross-repository starter must use the reusable workflow and explicit credentials")
+	}
 }

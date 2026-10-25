@@ -18,6 +18,7 @@ func TestReadInputNormalizesTagVersionAndActionFields(t *testing.T) {
 		"INPUT_IMAGE_ID":                  "web",
 		"INPUT_VERSION":                   "v1.2.3",
 		"INPUT_CHANGELOG":                 "Release notes",
+		"INPUT_RELEASE_REPOSITORY":        " distribution/app-releases ",
 		"INPUT_LPK_PATH":                  "dist/app.lpk",
 		"INPUT_DOWNLOAD_URL":              "https://github.com/acme/app/releases/download/v1.2.3/app.lpk",
 		"INPUT_SHA256":                    strings.Repeat("a", 64),
@@ -41,6 +42,9 @@ func TestReadInputNormalizesTagVersionAndActionFields(t *testing.T) {
 	}
 	if input.Version != "1.2.3" || input.Tag != "v1.2.3" || !input.DryRun || !input.GuardOfficialReview || input.SourceDateEpoch != 1783641600 {
 		t.Fatalf("input=%#v", input)
+	}
+	if input.ReleaseRepository != "distribution/app-releases" {
+		t.Fatalf("release repository=%q", input.ReleaseRepository)
 	}
 	if input.ExpectedSHA256 != strings.Repeat("a", 64) {
 		t.Fatalf("expected sha256=%q", input.ExpectedSHA256)

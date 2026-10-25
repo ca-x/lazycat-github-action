@@ -1,6 +1,7 @@
 package action
 
 import (
+	"cmp"
 	"context"
 	"log/slog"
 	"path/filepath"
@@ -34,9 +35,19 @@ func resolveChangelog(ctx context.Context, input Input, cfg config.Config, info 
 		Version: result.Version, Tag: result.Tag, PackageID: info.PackageID,
 		Name: info.Name, Homepage: info.Homepage, Repository: repository,
 	}
+	publicationRepository := releasenotes.Repository(cmp.Or(input.ReleaseRepository, deps.GitHubRepository))
 	if cfg.Release.ShouldUseGitHubReleaseNotes() {
+		// A separate publication repository can already have final notes from an earlier run.
+		// Its token is scoped independently from the private source/upstream repository.
+		if strings.TrimSpace(input.ChangelogTemplate) == "" && publicationRepository != "" && !strings.EqualFold(publicationRepository, releasenotes.Repository(deps.GitHubRepository)) && deps.LookupPublishedReleaseNotes != nil {
+			release, err := deps.LookupPublishedReleaseNotes(ctx, publicationRepository, []string{result.Tag})
+			if err == nil && release.Tag == result.Tag && strings.TrimSpace(release.Body) != "" && len(release.Body) <= releasenotes.MaxChangelogBytes && hasReleaseLPK(release.AssetNames, result, info) {
+				return release.Body, nil
+			}
+		}
+
 		if input.EventName == "release" && strings.TrimSpace(input.ReleaseNotes) != "" && len(input.ReleaseNotes) <= releasenotes.MaxChangelogBytes {
-			if strings.TrimSpace(input.ChangelogTemplate) == "" && hasReleaseLPK(input.ReleaseAssets, result, info) {
+			if strings.TrimSpace(input.ChangelogTemplate) == "" && strings.EqualFold(publicationRepository, releasenotes.Repository(deps.GitHubRepository)) && hasReleaseLPK(input.ReleaseAssets, result, info) {
 				return input.ReleaseNotes, nil
 			}
 			data.ReleaseNotes, data.ReleaseURL = input.ReleaseNotes, input.ReleaseURL
@@ -51,7 +62,7 @@ func resolveChangelog(ctx context.Context, input Input, cfg config.Config, info 
 			} else {
 				// Reuse final notes only when this repository already published the LPK.
 				// A manual Release without that artifact still supplies raw template data.
-				if strings.TrimSpace(input.ChangelogTemplate) == "" && strings.TrimSpace(release.Body) != "" && release.Tag == result.Tag && strings.EqualFold(repository, releasenotes.Repository(deps.GitHubRepository)) && hasReleaseLPK(release.AssetNames, result, info) {
+				if strings.TrimSpace(input.ChangelogTemplate) == "" && strings.TrimSpace(release.Body) != "" && release.Tag == result.Tag && strings.EqualFold(repository, publicationRepository) && hasReleaseLPK(release.AssetNames, result, info) {
 					return release.Body, nil
 				}
 				data.ReleaseNotes, data.ReleaseURL = release.Body, release.URL

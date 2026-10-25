@@ -16,6 +16,8 @@ update:
     type: image
     image: web
 
+# To publish LPKs to B/C, set caller workflow with.release-repository and
+# map A's GH_RELEASE_TOKEN Secret; github_repository below is only for notes.
 # One resolved changelog is shared by GitHub Releases and stores.
 release:
   use_github_release_notes: true

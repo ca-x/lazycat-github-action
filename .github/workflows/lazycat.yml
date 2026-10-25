@@ -43,6 +43,16 @@ on:
         type: string
         required: false
         default: ""
+      release-repository:
+        description: GitHub repository receiving LPK Releases (owner/repo); empty uses the source repository.
+        type: string
+        required: false
+        default: ""
+      release-target-commitish:
+        description: Optional branch, tag, or commit in the Release repository for a new tag; cross-repository default is its default branch.
+        type: string
+        required: false
+        default: ""
       versioned-release-asset:
         description: Copy the verified LPK to <package-id>-v<version>.lpk for GitHub Release and store publication.
         type: boolean
@@ -94,6 +104,8 @@ on:
         required: false
         default: ""
     secrets:
+      GH_RELEASE_TOKEN:
+        required: false
       GH_REPO_TOKEN:
         required: false
       LZC_API_HOST:
@@ -190,7 +202,7 @@ jobs:
       tag: ${{ steps.lazycat.outputs.tag }}
       lpk-path: ${{ steps.lazycat.outputs.lpk-path }}
       sha256: ${{ steps.lazycat.outputs.sha256 }}
-      download-url: ${{ steps.asset-url.outputs.download-url }}
+      download-url: ${{ steps.asset-url.outputs.download-url || steps.existing-asset.outputs.download-url }}
       image-results: ${{ steps.lazycat.outputs.image-results }}
       store-results: ${{ steps.store-results.outputs.store-results }}
       official-store-enabled: ${{ steps.lazycat.outputs.official-store-enabled }}
@@ -214,6 +226,50 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      - name: Resolve Release destination
+        id: release-destination
+        uses: actions/github-script@v9
+        env:
+          RELEASE_REPOSITORY: ${{ inputs.release-repository }}
+          RELEASE_TARGET: ${{ inputs.release-target-commitish }}
+          HAS_RELEASE_TOKEN: ${{ secrets.GH_RELEASE_TOKEN != '' }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        with:
+          github-token: ${{ secrets.GH_RELEASE_TOKEN || github.token }}
+          retries: 3
+          script: |
+            const source = `${context.repo.owner}/${context.repo.repo}`;
+            const repository = process.env.RELEASE_REPOSITORY.trim() || source;
+            if (!/^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+$/.test(repository) || ['.', '..'].includes(repository.split('/')[1])) {
+              core.setFailed('release-repository must be owner/repo');
+              return;
+            }
+            const target = process.env.RELEASE_TARGET.trim();
+            if (target.length > 255 || /[\x00-\x20\x7f]/.test(target)) {
+              core.setFailed('release-target-commitish must be a branch, tag, or commit without whitespace');
+              return;
+            }
+            const crossRepository = repository.toLowerCase() !== source.toLowerCase();
+            core.setOutput('repository', repository);
+            core.setOutput('cross-repository', String(crossRepository));
+            core.setOutput('target-commitish', '');
+            // PR validation and dry runs do not need access to the publication repository.
+            if (context.eventName === 'pull_request' || context.eventName === 'pull_request_target' || process.env.DRY_RUN === 'true') return;
+            if (crossRepository && process.env.HAS_RELEASE_TOKEN !== 'true') {
+              core.setFailed('GH_RELEASE_TOKEN is required for cross-repository Releases; grant Contents: write on the destination repository');
+              return;
+            }
+            if (!crossRepository && !target) return;
+            const [owner, repo] = repository.split('/');
+            try {
+              const destination = {owner, repo};
+              const ref = target || (await github.rest.repos.get(destination)).data.default_branch;
+              const commit = await github.rest.repos.getCommit({...destination, ref});
+              core.setOutput('target-commitish', commit.data.sha);
+            } catch (error) {
+              core.setFailed(`Cannot resolve the Release destination commit (HTTP ${error.status || 'unknown'}); initialize the destination with a commit and check its ref and token permissions`);
+            }
 
       - name: Normalize toolchains
         id: toolchains
@@ -329,6 +385,7 @@ jobs:
         uses: ca-x/lazycat-github-action@v1
         env:
           GH_REPO_TOKEN: ${{ secrets.GH_REPO_TOKEN }}
+          GH_RELEASE_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
           LZC_API_HOST: ${{ secrets.LZC_API_HOST }}
           LZC_API_TOKEN: ${{ secrets.LZC_API_TOKEN }}
           LAZYCAT_TOKEN: ${{ secrets.LAZYCAT_TOKEN }}
@@ -344,6 +401,7 @@ jobs:
           version: ${{ inputs.version }}
           changelog: ${{ inputs.changelog }}
           changelog-template: ${{ inputs.changelog-template }}
+          release-repository: ${{ steps.release-destination.outputs.repository }}
           dry-run: ${{ inputs.dry-run }}
 
       - name: Upload validation Artifact
@@ -457,6 +515,7 @@ jobs:
         id: release-state
         uses: actions/github-script@v9
         env:
+          RELEASE_REPOSITORY: ${{ steps.release-destination.outputs.repository }}
           RELEASE_TAG: ${{ steps.lazycat.outputs.tag }}
           LPK_PATH: ${{ steps.lazycat.outputs.lpk-path }}
           PACKAGE_ID: ${{ steps.lazycat.outputs.package-id }}
@@ -467,8 +526,11 @@ jobs:
           DRY_RUN: ${{ inputs.dry-run }}
           OFFICIAL_REVIEW_PENDING: ${{ steps.lazycat.outputs.official-review-pending }}
         with:
+          github-token: ${{ secrets.GH_RELEASE_TOKEN || github.token }}
           retries: 3
           script: |
+            const [owner, repo] = process.env.RELEASE_REPOSITORY.split('/');
+            const destination = {owner, repo};
             if (process.env.OFFICIAL_REVIEW_PENDING === 'true') {
               core.setOutput('should-release', 'false');
               return;
@@ -486,7 +548,7 @@ jobs:
               }
               const expectedAssetName = `${packageId}-v${version}.lpk`;
               try {
-                const release = await github.rest.repos.getReleaseByTag({...context.repo, tag: process.env.RELEASE_TAG});
+                const release = await github.rest.repos.getReleaseByTag({...destination, tag: process.env.RELEASE_TAG});
                 if (process.env.VERSIONED_RELEASE_ASSET === 'true' && !release.data.assets.some(asset => asset.name === expectedAssetName)) {
                   core.setOutput('should-release', 'true');
                   return;
@@ -505,14 +567,13 @@ jobs:
               core.setOutput('should-release', 'false');
               return;
             }
-            const repository = await github.rest.repos.get(context.repo);
-            const defaultRef = `refs/heads/${repository.data.default_branch}`;
+            const defaultRef = `refs/heads/${context.payload.repository.default_branch}`;
             if (context.eventName !== 'push' || context.ref !== defaultRef) {
               core.setOutput('should-release', 'false');
               return;
             }
             try {
-              await github.rest.repos.getReleaseByTag({...context.repo, tag: process.env.RELEASE_TAG});
+              await github.rest.repos.getReleaseByTag({...destination, tag: process.env.RELEASE_TAG});
               core.setOutput('should-release', 'false');
             } catch (error) {
               if (error.status === 404) {
@@ -617,47 +678,43 @@ jobs:
       - name: Check remote Release tag
         id: release-tag
         if: steps.release-state.outputs.should-release == 'true'
-        shell: bash
+        uses: actions/github-script@v9
         env:
+          RELEASE_REPOSITORY: ${{ steps.release-destination.outputs.repository }}
           RELEASE_TAG: ${{ steps.lazycat.outputs.tag }}
-        run: |
-          set -euo pipefail
-          tag_ref="refs/tags/${RELEASE_TAG}"
-          if ! git check-ref-format "${tag_ref}"; then
-            echo "invalid Release tag ${RELEASE_TAG}" >&2
-            exit 1
-          fi
-          if git ls-remote --exit-code --refs origin "${tag_ref}" >/dev/null; then
-            echo "Remote Release tag ${RELEASE_TAG} already exists; reusing it."
-            echo "exists=true" >>"${GITHUB_OUTPUT}"
-            exit 0
-          else
-            status=$?
-          fi
-          if [[ "${status}" -eq 2 ]]; then
-            echo "Remote Release tag ${RELEASE_TAG} does not exist; the Release step may create it."
-            echo "exists=false" >>"${GITHUB_OUTPUT}"
-            exit 0
-          fi
-          echo "Failed to inspect remote Release tag ${RELEASE_TAG}" >&2
-          exit "${status}"
+        with:
+          github-token: ${{ secrets.GH_RELEASE_TOKEN || github.token }}
+          retries: 3
+          script: |
+            const [owner, repo] = process.env.RELEASE_REPOSITORY.split('/');
+            try {
+              await github.rest.git.getRef({owner, repo, ref: `tags/${process.env.RELEASE_TAG}`});
+              core.setOutput('exists', 'true');
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              core.setOutput('exists', 'false');
+            }
 
       - name: Inspect existing Release Asset
         id: asset-check
         if: steps.release-state.outputs.should-release == 'true'
         uses: actions/github-script@v9
         env:
+          RELEASE_REPOSITORY: ${{ steps.release-destination.outputs.repository }}
           RELEASE_TAG: ${{ steps.lazycat.outputs.tag }}
           LPK_PATH: ${{ steps.release-asset.outputs.lpk-path }}
           LPK_SHA256: ${{ steps.release-build.outputs.sha256 }}
         with:
+          github-token: ${{ secrets.GH_RELEASE_TOKEN || github.token }}
           retries: 3
           script: |
+            const [owner, repo] = process.env.RELEASE_REPOSITORY.split('/');
+            const destination = {owner, repo};
             const path = require('path');
             const tag = process.env.RELEASE_TAG;
             const assetName = path.basename(process.env.LPK_PATH);
             try {
-              const release = await github.rest.repos.getReleaseByTag({...context.repo, tag});
+              const release = await github.rest.repos.getReleaseByTag({...destination, tag});
               const asset = release.data.assets.find(item => item.name === assetName);
               if (!asset) {
                 core.setOutput('skip-upload', 'false');
@@ -686,10 +743,12 @@ jobs:
         if: steps.asset-check.outcome == 'success' && steps.asset-check.outputs.skip-upload != 'true'
         uses: softprops/action-gh-release@v3
         with:
+          repository: ${{ steps.release-destination.outputs.repository }}
+          token: ${{ secrets.GH_RELEASE_TOKEN || github.token }}
           tag_name: ${{ steps.lazycat.outputs.tag }}
           name: ${{ steps.lazycat.outputs.tag }}
           body: ${{ steps.lazycat.outputs.changelog }}
-          target_commitish: ${{ steps.release-tag.outputs.exists != 'true' && (steps.direct-commit.outputs.commit != '' && steps.direct-commit.outputs.commit || github.sha) || '' }}
+          target_commitish: ${{ steps.release-tag.outputs.exists != 'true' && (steps.release-destination.outputs.target-commitish || steps.direct-commit.outputs.commit || github.sha) || '' }}
           files: ${{ steps.release-asset.outputs.lpk-path }}
           fail_on_unmatched_files: true
 
@@ -698,14 +757,18 @@ jobs:
         if: steps.asset-check.outcome == 'success'
         uses: actions/github-script@v9
         env:
+          RELEASE_REPOSITORY: ${{ steps.release-destination.outputs.repository }}
           RELEASE_TAG: ${{ steps.lazycat.outputs.tag }}
           LPK_PATH: ${{ steps.release-asset.outputs.lpk-path }}
           LPK_SHA256: ${{ steps.release-build.outputs.sha256 }}
         with:
+          github-token: ${{ secrets.GH_RELEASE_TOKEN || github.token }}
           retries: 3
           script: |
+            const [owner, repo] = process.env.RELEASE_REPOSITORY.split('/');
+            const destination = {owner, repo};
             const path = require('path');
-            const release = await github.rest.repos.getReleaseByTag({...context.repo, tag: process.env.RELEASE_TAG});
+            const release = await github.rest.repos.getReleaseByTag({...destination, tag: process.env.RELEASE_TAG});
             const assetName = path.basename(process.env.LPK_PATH);
             const asset = release.data.assets.find(item => item.name === assetName);
             if (!asset) {
@@ -724,12 +787,16 @@ jobs:
         if: steps.asset-url.outputs.download-url == '' && steps.lazycat.outputs.official-review-pending != 'true' && steps.lazycat.outputs.update-strategy == 'publish' && (steps.lazycat.outputs.official-store-enabled == 'true' || steps.lazycat.outputs.private-store-enabled == 'true') && !inputs.dry-run
         uses: actions/github-script@v9
         env:
+          RELEASE_REPOSITORY: ${{ steps.release-destination.outputs.repository }}
           RELEASE_TAG: ${{ steps.lazycat.outputs.tag }}
           PACKAGE_ID: ${{ steps.lazycat.outputs.package-id }}
           VERSION: ${{ steps.lazycat.outputs.version }}
         with:
+          github-token: ${{ secrets.GH_RELEASE_TOKEN || github.token }}
           retries: 3
           script: |
+            const [owner, repo] = process.env.RELEASE_REPOSITORY.split('/');
+            const destination = {owner, repo};
             const packageId = process.env.PACKAGE_ID;
             const version = process.env.VERSION;
             if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(packageId) || !/^[0-9][0-9A-Za-z.+-]*$/.test(version)) {
@@ -738,7 +805,7 @@ jobs:
             }
             const assetName = `${packageId}-v${version}.lpk`;
             try {
-              const release = await github.rest.repos.getReleaseByTag({...context.repo, tag: process.env.RELEASE_TAG});
+              const release = await github.rest.repos.getReleaseByTag({...destination, tag: process.env.RELEASE_TAG});
               const asset = release.data.assets.find(item => item.name === assetName);
               if (!asset) return;
               if (!/^sha256:[0-9a-f]{64}$/.test(asset.digest || '')) {
@@ -758,7 +825,8 @@ jobs:
         if: steps.existing-asset.outputs.asset-id != ''
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ steps.release-destination.outputs.repository }}
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || github.token }}
           RELEASE_TAG: ${{ steps.lazycat.outputs.tag }}
           ASSET_NAME: ${{ steps.existing-asset.outputs.asset-name }}
           EXPECTED_SHA256: ${{ steps.existing-asset.outputs.sha256 }}
@@ -766,7 +834,7 @@ jobs:
           set -euo pipefail
           directory="${GITHUB_WORKSPACE}/.lazycat-action/release-assets"
           mkdir -p -- "${directory}"
-          gh release download "${RELEASE_TAG}" --pattern "${ASSET_NAME}" --dir "${directory}" --clobber
+          gh release download "${RELEASE_TAG}" --pattern "${ASSET_NAME}" --repo "${GH_REPO}" --dir "${directory}" --clobber
           path="${directory}/${ASSET_NAME}"
           actual_sha256="$(sha256sum "${path}" | cut -d' ' -f1)"
           if [[ "${actual_sha256}" != "${EXPECTED_SHA256}" ]]; then

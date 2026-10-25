@@ -69,13 +69,13 @@ func TestReusableWorkflowContractAndActionRefs(t *testing.T) {
 		t.Fatalf("workflow_call=%#v", on["workflow_call"])
 	}
 	inputs, _ := call["inputs"].(map[string]any)
-	for _, name := range []string{"config", "operation", "runner", "image-id", "version", "dry-run", "changelog", "changelog-template", "toolchains", "go-version", "node-version", "rust-toolchain", "node-package-manager", "enable-qemu", "docker-mirror", "ghcr-mirror", "registry-mirrors"} {
+	for _, name := range []string{"config", "operation", "runner", "image-id", "version", "dry-run", "changelog", "changelog-template", "release-repository", "release-target-commitish", "toolchains", "go-version", "node-version", "rust-toolchain", "node-package-manager", "enable-qemu", "docker-mirror", "ghcr-mirror", "registry-mirrors"} {
 		if _, found := inputs[name]; !found {
 			t.Fatalf("missing workflow input %q", name)
 		}
 	}
 	secrets, _ := call["secrets"].(map[string]any)
-	for _, name := range []string{"LZC_API_HOST", "LZC_API_TOKEN", "LAZYCAT_TOKEN", "APPSTORE_URL", "APPSTORE_TOKEN", "APP_ID", "PRIVATE_STORE_GROUP_CODES", "REGISTRY", "REGISTRY_USERNAME", "REGISTRY_PASSWORD"} {
+	for _, name := range []string{"GH_RELEASE_TOKEN", "LZC_API_HOST", "LZC_API_TOKEN", "LAZYCAT_TOKEN", "APPSTORE_URL", "APPSTORE_TOKEN", "APP_ID", "PRIVATE_STORE_GROUP_CODES", "REGISTRY", "REGISTRY_USERNAME", "REGISTRY_PASSWORD"} {
 		if _, found := secrets[name]; !found {
 			t.Fatalf("missing workflow secret %q", name)
 		}
@@ -385,7 +385,7 @@ func TestActionMetadataExposesStableContract(t *testing.T) {
 	if err := yaml.Unmarshal(data, &document); err != nil {
 		t.Fatal(err)
 	}
-	for _, input := range []string{"operation", "config", "image-id", "version", "changelog", "changelog-template", "lpk-path", "download-url", "sha256", "dry-run", "docker-mirror", "ghcr-mirror", "registry-mirrors"} {
+	for _, input := range []string{"operation", "config", "image-id", "version", "changelog", "changelog-template", "release-repository", "lpk-path", "download-url", "sha256", "dry-run", "docker-mirror", "ghcr-mirror", "registry-mirrors"} {
 		if _, exists := document.Inputs[input]; !exists {
 			t.Fatalf("missing input %q", input)
 		}
@@ -405,6 +405,8 @@ func TestActionMetadataExposesStableContract(t *testing.T) {
 		t.Fatalf("runs.steps=%d", len(document.Runs.Steps))
 	}
 	for name, want := range map[string]string{
+		"INPUT_RELEASE_REPOSITORY":      "${{ inputs['release-repository'] }}",
+		"GH_RELEASE_TOKEN":              "${{ env.GH_RELEASE_TOKEN }}",
 		"LAZYCAT_GUARD_OFFICIAL_REVIEW": "${{ env.LAZYCAT_GUARD_OFFICIAL_REVIEW }}",
 		"LAZYCAT_DOCKER_MIRROR":         "${{ inputs['docker-mirror'] || env.LAZYCAT_DOCKER_MIRROR }}",
 		"LAZYCAT_GHCR_MIRROR":           "${{ inputs['ghcr-mirror'] || env.LAZYCAT_GHCR_MIRROR }}",
@@ -417,8 +419,8 @@ func TestActionMetadataExposesStableContract(t *testing.T) {
 	if strings.Contains(string(data), "vars.") {
 		t.Fatal("composite action metadata must not reference the unsupported vars context")
 	}
-	if got := actionBootstrapVersion(t); got != "v1.3.4" {
-		t.Fatalf("action.yml bootstrap version=%q, want v1.3.4", got)
+	if got := actionBootstrapVersion(t); got != "v1.3.5" {
+		t.Fatalf("action.yml bootstrap version=%q, want v1.3.5", got)
 	}
 }
 
@@ -528,57 +530,6 @@ func TestReusableWorkflowRecoversStalePublishRerunsAndRetriesReleaseReads(t *tes
 		if !strings.Contains(step, "retries: 3") {
 			t.Fatalf("safe Release read step %q must retry transient GitHub 5xx responses", name)
 		}
-	}
-}
-
-func TestReusableWorkflowSkipsExistingRemoteReleaseTag(t *testing.T) {
-	root := t.TempDir()
-	remote := filepath.Join(root, "remote.git")
-	work := filepath.Join(root, "work")
-
-	runGit(t, root, "init", "--bare", remote)
-	runGit(t, root, "init", "-b", "main", work)
-	runGit(t, work, "config", "user.name", "Test User")
-	runGit(t, work, "config", "user.email", "test@example.com")
-	writeTestFile(t, filepath.Join(work, "package.yml"), "version: 1.3.3\n")
-	runGit(t, work, "add", "package.yml")
-	runGit(t, work, "commit", "-m", "release")
-	runGit(t, work, "tag", "v1.3.3")
-	runGit(t, work, "remote", "add", "origin", remote)
-	runGit(t, work, "push", "origin", "main", "refs/tags/v1.3.3")
-	writeTestFile(t, filepath.Join(work, "README.md"), "later commit\n")
-	runGit(t, work, "add", "README.md")
-	runGit(t, work, "commit", "-m", "later")
-	runGit(t, work, "push", "origin", "main")
-
-	script := reusableWorkflowRunScript(t, "Check remote Release tag")
-	for _, test := range []struct {
-		name string
-		tag  string
-		want string
-	}{
-		{name: "existing tag on older commit", tag: "v1.3.3", want: "exists=true"},
-		{name: "missing tag", tag: "v1.3.4", want: "exists=false"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			outputFile := filepath.Join(t.TempDir(), "github-output")
-			command := exec.Command("bash", "-c", script)
-			command.Dir = work
-			command.Env = append(os.Environ(),
-				"RELEASE_TAG="+test.tag,
-				"GITHUB_OUTPUT="+outputFile,
-			)
-			if output, err := command.CombinedOutput(); err != nil {
-				t.Fatalf("check remote Release tag: %v\n%s", err, output)
-			}
-			output, err := os.ReadFile(outputFile)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := strings.TrimSpace(string(output)); got != test.want {
-				t.Fatalf("tag check output=%q, want %q", got, test.want)
-			}
-		})
 	}
 }
 

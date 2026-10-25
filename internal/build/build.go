@@ -86,6 +86,7 @@ var protectedBuildEnvironment = map[string]struct{}{
 	"ACTIONS_RESULTS_URL":            {},
 	"ACTIONS_RUNTIME_TOKEN":          {},
 	"GH_TOKEN":                       {},
+	"GH_RELEASE_TOKEN":               {},
 	"GH_REPO_TOKEN":                  {},
 	"APPSTORE_TOKEN":                 {},
 	"APPSTORE_URL":                   {},

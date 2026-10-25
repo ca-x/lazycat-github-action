@@ -50,13 +50,60 @@ Gitea Actions 和 Forgejo Actions 用户应通过完整 URL 直接调用 composi
 
 调用方不需要编译本项目。启动脚本会按 Runner 架构下载 Action 二进制，并校验发布包 SHA256。
 
+## 私有源码与 LPK 分仓发布
+
+工作流在源码仓库 A 运行，通过 `with.release-repository: B/C` 把 LPK 发布到 B 组织的 C 仓库。构建、源码更新提交/PR、license 和版本同步仍在 A；Release、为 Release 新建的 tag、LPK 上传、已有资产复用和商店补发下载均使用 B/C。不会向 C 推送或复制 A 的源码 Git 对象；GitHub 自动生成的 Source code 压缩包只包含 C 自己的文件。
+
+需要配置以下项目：
+
+1. **创建并初始化 B/C**：至少提交一个 README。若用户或商店需要免登录下载 LPK，应将 C 设为公开仓库；C 无需再配置发布工作流。
+2. **创建发布 token**：推荐 fine-grained PAT，`Resource owner` 选 B，`Only select repositories` 选 C，`Repository permissions → Contents` 设为 **Read and write**。token 所属用户须有 C 的写权限；若组织要求审批或 SSO 授权，需要完成这些步骤。也可使用对 C 有同等权限的 GitHub App installation token。
+3. **在 A 配置 Secret**：进入 **A → Settings → Secrets and variables → Actions**，新增 **`GH_RELEASE_TOKEN`**，填入上述 token。使用组织 Secret 时需授权 A。Secret 应放在运行工作流的 A 中；仅放到 C 中不会被 A 读取。A 自带的 `GITHUB_TOKEN` 无法跨仓库发布。
+4. **配置 A 的调用工作流**：现有 `.github/lazycat-action.yml` 使用 `update.strategy: publish`；源码/tag 构建使用 `update.version_source.type: git`。在调用工作流中添加目标仓库和显式 Secret 映射：
+
+```yaml
+name: Publish LPK
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  lazycat:
+    uses: ca-x/lazycat-github-action/.github/workflows/lazycat.yml@v1
+    with:
+      config: .github/lazycat-action.yml
+      release-repository: B/C
+      versioned-release-asset: true
+      # release-target-commitish: main
+    secrets:
+      GH_RELEASE_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+```
+
+保留应用已有的 `toolchains` 和版本参数；启用商店时继续按需映射相应 Secrets。在 A 推送应用 tag（例如 `v1.2.3`）即可发布，也可手动运行并使用 `package.yml.version`。
+
+| 参数 | 默认值 | 用途 |
+|---|---|---|
+| `release-repository` | 当前源码仓库 | 接收 Release 和 LPK 的 `owner/repo`，配置在工作流 `with` 中。 |
+| `release-target-commitish` | 同仓库使用源码构建/更新提交；跨仓库使用目标仓库默认分支 | 可选，填写 **C 中的**分支、tag 或 SHA。构建前解析为目标提交，仅用于创建缺失的 Release tag；已有 tag 保持原指向。 |
+| `GH_RELEASE_TOKEN` | 同仓库回退到 `github.token` | 跨仓库且非 PR、非 dry-run 时必填；供 Release 操作和已发布说明复用使用，与 `GH_REPO_TOKEN` 分开。不会传入 buildscript 或 Docker 构建环境。 |
+| `versioned-release-asset` | `false` | 推荐设为 `true`，使用 `<package-id>-v<version>.lpk` 文件名并支持已有资产的商店补发。 |
+
+目标仓库留空时保持原有同仓库发布行为。PR 验证和 dry-run 不要求目标仓库 token；目标格式/ref 无效、缺少跨仓库 token、目标仓库不可访问或尚无提交时，会在构建前报错。商店补发从 C 下载相同版本的确定资产，同时核对 GitHub 与本地 SHA256。
+
+`release.github_repository` 仍然是**发布说明的上游来源**，不用于设置 LPK 上传仓库。自动探测同版本发布说明默认开启；C 的实际 tag 已有本应用 LPK 时，使用 `GH_RELEASE_TOKEN` 复用其最终说明；普通上游查询仍使用 `GH_REPO_TOKEN` 或 A 的 `GITHUB_TOKEN`。如不想把 A 的私有 Release 正文用于公开说明，可传显式 `changelog`，或设置 `release.use_github_release_notes: false` 并填写 `release.changelog_template`。
+
+直接使用 composite Action 时，`release-repository: B/C` 和 `env.GH_RELEASE_TOKEN` 只提供最终发布说明复用所需的信息；调用方仍需给自己的上传步骤配置 `repository: B/C`、token，以及属于 C 的目标提交。单独执行 composite step 不会创建 GitHub Release 或上传 LPK。
+
 ## 自动补全 GitHub 仓库 Website
 
 `update.sync_homepage` 默认开启。`check` 或 `build` 成功后，Action 查询当前运行仓库 About 中的 Website（GitHub API 的 `homepage` 字段）；为空时填入 `package.yml.homepage` 中的有效 HTTP(S) 网址。已有 Website 会保留，不会修改该网址指向的上游仓库。这只更新 GitHub 仓库设置，不修改 package 文件、不创建 commit，也不将受管文件的 `changed` 输出设为 true。
 
 仅在 GitHub.com Actions 中启用，要求 `GITHUB_SERVER_URL=https://github.com` 和有效的 `GITHUB_REPOSITORY`。本地运行、其他托管平台（当前也不支持 GitHub Enterprise 主机）、包网址为空或无效、dry-run、PR 事件、构建/检查失败、官方审核暂停和直接发布已有 LPK 到商店时均跳过。API 请求失败或权限不足只记录提示，后续任务继续执行；查询和更新共用 10 秒超时。
 
-更新仓库设置需要仓库管理权限，普通 workflow `GITHUB_TOKEN` 通常无法执行，即使已设置 `contents: write`。可配置可选 Secret `GH_REPO_TOKEN`，使用对目标仓库拥有 **Administration: write** 权限的 fine-grained PAT；classic PAT 需要相应仓库访问权限。Action 优先使用 `GH_REPO_TOKEN`，缺省时回退到 `GITHUB_TOKEN`。调用 reusable workflow 时显式传入：
+更新当前源码仓库的设置需要仓库管理权限，普通 workflow `GITHUB_TOKEN` 通常无法执行，即使已设置 `contents: write`。可配置可选 Secret `GH_REPO_TOKEN`，使用对目标仓库拥有 **Administration: write** 权限的 fine-grained PAT；classic PAT 需要相应仓库访问权限。Action 优先使用 `GH_REPO_TOKEN`，缺省时回退到 `GITHUB_TOKEN`。调用 reusable workflow 时显式传入：
 
 ```yaml
 secrets:

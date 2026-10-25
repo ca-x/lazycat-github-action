@@ -1,0 +1,21 @@
+# Source repo A: set update.strategy: publish and version_source.type: git.
+# Initialize B/C and store a Contents: write token as A's GH_RELEASE_TOKEN.
+# Add the actual application's toolchains and enabled-store credentials.
+name: Publish LPK
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  lazycat:
+    uses: ca-x/lazycat-github-action/.github/workflows/lazycat.yml@v1
+    with:
+      config: .github/lazycat-action.yml
+      release-repository: B/C
+      versioned-release-asset: true
+      # release-target-commitish: main
+    secrets:
+      GH_RELEASE_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
