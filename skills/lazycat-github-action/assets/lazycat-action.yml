@@ -18,9 +18,11 @@ update:
 
 # To publish LPKs to B/C, set caller workflow with.release-repository and
 # map A's GH_RELEASE_TOKEN Secret; github_repository below is only for notes.
-# One resolved changelog is shared by GitHub Releases and stores.
+# One source changelog is resolved; stores receive plain text by default.
 release:
   use_github_release_notes: true
+  # plain (default) removes Markdown at store submission; markdown preserves it.
+  store_changelog_format: plain
   # github_repository: owner/repo
   changelog_template: "{{if .ReleaseNotes}}{{.ReleaseNotes}}{{else}}Release {{.Version}}{{end}}"
 

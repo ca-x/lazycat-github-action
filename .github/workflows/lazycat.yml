@@ -34,7 +34,7 @@ on:
         required: false
         default: false
       changelog:
-        description: Literal release and store changelog; overrides templates and GitHub Release notes.
+        description: Source release notes; overrides templates and GitHub lookup. Stores convert to plain text by default.
         type: string
         required: false
         default: ""

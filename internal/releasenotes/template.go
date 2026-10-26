@@ -2,6 +2,7 @@
 package releasenotes
 
 import (
+	"cmp"
 	"errors"
 	"reflect"
 	"strings"
@@ -119,11 +120,14 @@ func Render(source string, data Data) (string, error) {
 	return value, nil
 }
 
-type boundedOutput struct{ builder strings.Builder }
+type boundedOutput struct {
+	builder strings.Builder
+	limit   int
+}
 
 func (output *boundedOutput) Write(data []byte) (int, error) {
-	if len(data) > MaxChangelogBytes-output.builder.Len() {
-		return 0, errors.New("changelog exceeds 64 KiB")
+	if len(data) > cmp.Or(output.limit, MaxChangelogBytes)-output.builder.Len() {
+		return 0, errors.New("changelog exceeds output limit")
 	}
 	return output.builder.Write(data)
 }

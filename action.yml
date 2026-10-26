@@ -24,7 +24,7 @@ inputs:
     required: false
     default: ""
   changelog:
-    description: Literal release and store changelog; overrides templates and GitHub Release notes.
+    description: Source release notes; overrides templates and GitHub lookup. Stores convert to plain text by default.
     required: false
     default: ""
   release-repository:
@@ -66,7 +66,7 @@ inputs:
 
 outputs:
   changelog:
-    description: Resolved release and store changelog.
+    description: Resolved source Markdown; stores apply release.store_changelog_format at submission.
     value: ${{ steps.run.outputs.changelog }}
   operation:
     description: Resolved check or build operation.
@@ -148,7 +148,7 @@ runs:
       id: run
       shell: bash
       env:
-        LAZYCAT_ACTION_VERSION: v1.3.5
+        LAZYCAT_ACTION_VERSION: v1.3.6
         GITHUB_TOKEN: ${{ env.GITHUB_TOKEN || github.token }}
         GH_REPO_TOKEN: ${{ env.GH_REPO_TOKEN }}
         GH_RELEASE_TOKEN: ${{ env.GH_RELEASE_TOKEN }}

@@ -589,6 +589,7 @@ Composite Action 和可复用工作流现在统一生成 `changelog`，用于 Gi
 # .github/lazycat-action.yml
 release:
   use_github_release_notes: true
+  store_changelog_format: plain
   # 可选：覆盖从 package.yml.homepage 推断的 GitHub 仓库。
   # github_repository: owner/repo
   changelog_template: |
@@ -604,16 +605,19 @@ release:
 |---|---|---|
 | `release.use_github_release_notes` | `true` | 复用当前 Release 事件正文，或自动查询 GitHub 同版本 Release。设为 `false` 后跳过两者，直接使用模板。 |
 | `release.github_repository` | 自动推断 | 支持 `owner/repo` 或 GitHub 仓库 URL；优先取 `package.yml.homepage` 中的 GitHub 仓库，否则取当前 GitHub Actions 仓库。主页是产品网站或指向其他仓库时可显式配置。 |
+| `release.store_changelog_format` | `plain` | 商店说明格式。`plain` 将 Markdown 转成纯文本；`markdown` 原样保留。只影响商店提交。 |
 | `release.changelog_template` | Release 正文，否则为 `Release <版本>` | 未显式传入 `changelog` 时使用的 Go `text/template`。 |
 | 输入 `changelog-template` | 空 | 本次运行的模板，覆盖配置文件中的 `release.changelog_template`；两种入口均支持。 |
 | 输入 `changelog` | 空 | 最终说明原文，优先级最高；提供后跳过自动查询和模板渲染，其中的模板语法保持原样。 |
-| 输出 `changelog` | 最终说明 | GitHub Release 与启用商店共用的多行 Markdown，同时保存到结果 JSON 的 `changelog` 字段。 |
+| 输出 `changelog` | 最终说明 | 保留源 Markdown，用于 GitHub Release 和结果 JSON；商店提交前根据格式设置转换。 |
 
 可用模板变量：`{{.Version}}`（不带 `v` 的应用 SemVer）、`{{.Tag}}`（实际 Release tag，保留组件前缀）、`{{.PackageID}}`、`{{.Name}}`、`{{.Homepage}}`、`{{.Repository}}`（实际查询的 `owner/repo`）、`{{.ReleaseNotes}}`、`{{.ReleaseURL}}`。未找到可用 Release 或关闭自动检测时，`ReleaseNotes` 和 `ReleaseURL` 为空。支持 Go 模板条件和内置函数；Release 正文作为普通文本插入，不会再次执行其中的模板语法。
 
 优先级：显式 `changelog` → 输入 `changelog-template` → 配置 `release.changelog_template` → 默认模板。自动检测开启时，先使用当前匹配版本 Release 事件的非空正文，否则按“实际应用 tag、`v<版本>`、`<版本>`”查询指定仓库，自动去重。不会取 `latest` 或其他版本的说明。Release 缺失、正文为空、处于草稿、无权限或 API 查询失败时，使用模板的回退内容；模板最终只有空白时回退到 `Release <版本>`。模板无效会在配置校验阶段报错。保留多行 Markdown。查询优先使用 `GH_REPO_TOKEN`，否则使用 `GITHUB_TOKEN`；私有上游需要该 token 具备读取权限。
 
 当前 GitHub Actions 仓库在实际发布 tag 上的同版本 Release 已附带本应用 LPK（`<包 ID>-v<版本>.lpk` 或配置的历史输出文件名）时，正文视为最终说明，不再套一次模板，避免商店补发时重复添加标题；API 查询和 Release 事件都遵循此规则。手动创建、尚未附带 LPK 的 Release 正文仍会作为模板数据。显式输入 `changelog` 或 `changelog-template` 可覆盖已有最终说明；关闭 `use_github_release_notes` 后始终使用配置模板。最终说明、显式 changelog 和模板源码均限制为 64 KiB UTF-8 文本，保证能够通过 Action 输入传递；自动获取的正文超过该限制时使用模板回退。保留 Markdown 首行缩进和末尾换行。
+
+商店默认收到纯文本：标题和加粗标记被去除，列表保留条目，链接变为“文字 (URL)”，GitHub 提示如 `[!IMPORTANT]` 变为 `IMPORTANT:`。代码保留内容并去掉围栏；HTML 标签被去除，script/style 内容被忽略。自动获取、模板、显式 `changelog` 和商店补发都在提交时使用同一转换。GitHub Release 和 `changelog` 输出保留源 Markdown，避免补发时二次转换；需要商店保留 Markdown 时设置 `release.store_changelog_format: markdown`。转换前后均限制为 64 KiB，转换后只有空白时回退到 `Release <版本>`。
 
 关闭自动探测、固定使用自己的模板：
 

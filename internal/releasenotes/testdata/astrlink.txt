@@ -1,0 +1,26 @@
+AstrLink v0.2.18
+
+IMPORTANT:
+进行中的对话会列出最近几步：读文件、跑命令、思考、写回复。客户端在两次调用之间跑工具时，对话会一直显示为进行中。
+
+Conversations in progress list the last few steps: reading files, running commands, thinking, and answering. A conversation stays in progress while the client runs tools between model calls.
+
+中文
+
+• 进行中的对话：第二条会列出最近 5 步，例如读文件、改文件、跑命令、搜索、思考和回复。连续相同的步骤会合在一起。客户端在两次调用之间跑工具时，对话会再留最多 30 分钟，跑完长命令也不会从列表里掉出去。模型重定向后，条上显示实际用的模型。
+• 请求记录：Codex Desktop 探测接口的 HEAD 请求不再记进列表。
+• 内置工具：开着网页搜索或图片生成时，提供商拒绝这次请求，客户端会收到提供商自己的错误，而不是笼统的工具失败。
+• 失败切换：ABC 模式下没有下一家时，会在最后这家提供商按重试规则再试。
+• Windows：能找到并更新 Codex 的独立安装包。AstrLink 开着时新装的 Codex，不用重启也能看到。
+• 隐私：修复令牌占位符被再次当成密钥替换的问题。
+
+English
+
+• Live conversations: The second line lists the last 5 steps, such as reading or changing files, running commands, searching, thinking, and answering. Repeated steps fold into one mark. While the client runs tools between model calls, the conversation stays in progress for up to 30 minutes, so a long command does not drop it from the list. After a model redirect, the lane names the model that ran.
+• Request records: HEAD probes from Codex Desktop are no longer recorded.
+• Built-in tools: With web search or image generation on, a provider that refuses the request sends its own error to the client, not a generic tool failure.
+• Failover: In ABC mode, when no next provider is left, AstrLink retries the last one under the retry rules.
+• Windows: AstrLink finds and updates a standalone Codex install. A Codex installed while AstrLink is open shows up without a restart.
+• Privacy: Fixes a token placeholder being treated as a secret and replaced again.
+
+官网 / Website (https://astrlink.com/) · Docker (https://hub.docker.com/r/calciumion/astrlink) · v0.2.17...v0.2.18 (https://github.com/Calcium-Ion/AstrLink/compare/v0.2.17...v0.2.18)

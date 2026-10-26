@@ -16,6 +16,7 @@ import (
 	"github.com/ca-x/lazycat-github-action/internal/lpkcheck"
 	"github.com/ca-x/lazycat-github-action/internal/platformauth"
 	"github.com/ca-x/lazycat-github-action/internal/project"
+	"github.com/ca-x/lazycat-github-action/internal/releasenotes"
 	"github.com/ca-x/lazycat-github-action/internal/store/official"
 	private "github.com/ca-x/lazycat-github-action/internal/store/private"
 	"github.com/ca-x/lazycat-github-action/internal/storelookup"
@@ -137,6 +138,14 @@ func (flow Flow) Publish(ctx context.Context, request Request) (Result, error) {
 	if strings.TrimSpace(request.LPKPath) == "" || version == "" {
 		return Result{}, errors.New("publish stores: LPK path and version are required")
 	}
+	changelog, err := releasenotes.FormatStore(request.Changelog, request.Config.Release.StoreChangelogFormat)
+	if err != nil {
+		return Result{}, fmt.Errorf("format store changelog: %w", err)
+	}
+	if strings.TrimSpace(changelog) == "" {
+		changelog = "Release " + version
+	}
+	request.Changelog = changelog
 	verify := flow.Verify
 	if verify == nil {
 		return Result{}, errors.New("publish stores: LPK verifier is unavailable")

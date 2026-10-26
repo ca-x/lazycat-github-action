@@ -36,3 +36,30 @@ func TestReleaseConfiguration(t *testing.T) {
 		})
 	}
 }
+
+func TestStoreChangelogFormatConfiguration(t *testing.T) {
+	for _, test := range []struct {
+		format, want string
+		invalid      bool
+	}{
+		{want: "plain"}, {format: "plain", want: "plain"}, {format: "markdown", want: "markdown"}, {format: "  MARKDOWN  ", want: "markdown"}, {format: "html", invalid: true},
+	} {
+		t.Run(test.format, func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "config.yml")
+			source := "version: 1\nupdate:\n  version_source:\n    type: git\nrelease:\n  store_changelog_format: '" + test.format + "'\n"
+			if err := os.WriteFile(file, []byte(source), 0600); err != nil {
+				t.Fatal(err)
+			}
+			got, err := config.Load(file)
+			if test.invalid {
+				if err == nil {
+					t.Fatal("invalid format was accepted")
+				}
+				return
+			}
+			if err != nil || got.Release.StoreChangelogFormat != test.want {
+				t.Fatalf("format=%q err=%v want=%q", got.Release.StoreChangelogFormat, err, test.want)
+			}
+		})
+	}
+}

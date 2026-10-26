@@ -94,6 +94,10 @@ func applyDefaults(value *Config) {
 	}
 
 	value.Release.GitHubRepository = strings.TrimSpace(value.Release.GitHubRepository)
+	value.Release.StoreChangelogFormat = strings.ToLower(strings.TrimSpace(value.Release.StoreChangelogFormat))
+	if value.Release.StoreChangelogFormat == "" {
+		value.Release.StoreChangelogFormat = releasenotes.StoreFormatPlain
+	}
 	value.Project.Root = filepath.Clean(strings.TrimSpace(value.Project.Root))
 	value.Project.BuildConfig = filepath.Clean(strings.TrimSpace(value.Project.BuildConfig))
 	value.Project.PackageFile = filepath.Clean(strings.TrimSpace(value.Project.PackageFile))
@@ -160,6 +164,9 @@ func applyDefaults(value *Config) {
 }
 
 func validate(value Config) error {
+	if err := releasenotes.ValidateStoreFormat(value.Release.StoreChangelogFormat); err != nil {
+		return fmt.Errorf("release.store_changelog_format: %w", err)
+	}
 	if err := releasenotes.ValidateTemplate(value.Release.ChangelogTemplate); err != nil {
 		return fmt.Errorf("release.changelog_template: %w", err)
 	}

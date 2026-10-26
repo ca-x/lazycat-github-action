@@ -46,6 +46,7 @@ func TestPublishOfficialPropagatesVerifiedArtifactAndRetryPolicy(t *testing.T) {
 	}
 	cfg := publishConfig()
 	cfg.Stores.Official.Enabled = true
+	cfg.Release.StoreChangelogFormat = "markdown" // Preserve the exact legacy payload in this mode.
 	cfg.Stores.Official.Retry = config.OfficialRetry{
 		Enabled: true, MaxAttempts: 4, InitialDelay: 3 * time.Second, MaxDelay: 45 * time.Second,
 	}
@@ -133,6 +134,7 @@ func TestFlowPublishesPrivateStoreWithEnvironmentAndMetadataDefaults(t *testing.
 	}
 	cfg := publishConfig()
 	cfg.Stores.Private.Enabled = true
+	cfg.Release.StoreChangelogFormat = "markdown"
 	result, err := flow.Publish(t.Context(), publishflow.Request{
 		Target: publishflow.TargetPrivate, Config: cfg, Project: projectInfo(), LPKPath: "/repo/dist/app.lpk",
 		Version: "1.2.3", Changelog: changelog, DownloadURL: "https://github.com/acme/example/releases/download/v1.2.3/app.lpk", ExpectedSHA256: artifactSHA,
@@ -521,5 +523,90 @@ func publishConfig() config.Config {
 	return config.Config{
 		Update: config.Update{Strategy: config.StrategyPublish},
 		Stores: config.Stores{Official: config.OfficialStore{Locales: []string{"zh", "en"}}},
+	}
+}
+
+func TestStoreChangelogFormatsAtPublishBoundary(t *testing.T) {
+	const source = "## 更新\n\n> [!IMPORTANT]\n> Keep conversations visible.\n\n- **Fixed** startup\n\n[Website](https://example.com/)"
+	const plain = "更新\n\nIMPORTANT:\nKeep conversations visible.\n\n• Fixed startup\n\nWebsite (https://example.com/)"
+	for _, target := range []publishflow.Target{publishflow.TargetOfficial, publishflow.TargetPrivate} {
+		for _, format := range []string{"", "plain", "markdown"} {
+			t.Run(string(target)+"/"+format, func(t *testing.T) {
+				cfg := publishConfig()
+				cfg.Stores.Official.Enabled = true
+				cfg.Stores.Private.Enabled = true
+				cfg.Release.StoreChangelogFormat = format
+				var sent []string
+				flow := publishflow.Flow{
+					Verify:           func(context.Context, lpkcheck.Request) (lpkcheck.Result, error) { return verifiedArtifact(), nil },
+					PrecheckOfficial: passOfficialPrecheck,
+					ResolveAuth: func(context.Context) (platformauth.Result, error) {
+						return platformauth.Result{Provider: auth.StaticToken("test-token")}, nil
+					},
+					PublishOfficial: func(_ context.Context, request official.Request) (official.Result, error) {
+						sent = append(sent, request.Changelog)
+						return official.Result{Published: true}, nil
+					},
+					LookupEnv: func(key string) (string, bool) { return "test-value", true },
+					NewPrivate: func(private.Options) (publishflow.PrivatePublisher, error) {
+						return privatePublisherFunc(func(_ context.Context, request private.Request) (private.Result, error) {
+							sent = append(sent, request.Changelog)
+							return private.Result{Published: true}, nil
+						}), nil
+					},
+				}
+				request := publishflow.Request{Target: target, Config: cfg, Project: projectInfo(), LPKPath: "/repo/dist/app.lpk", Version: "1.2.3", Changelog: source, DownloadURL: "https://github.com/acme/example/releases/download/v1.2.3/app.lpk", ExpectedSHA256: artifactSHA}
+				// Recovery uses the same Markdown source again; it must never double-format it.
+				for range 2 {
+					if _, err := flow.Publish(t.Context(), request); err != nil {
+						t.Fatal(err)
+					}
+				}
+				expected := plain
+				if format == "markdown" {
+					expected = source
+				}
+				if len(sent) != 2 || sent[0] != expected || sent[1] != expected || request.Changelog != source {
+					t.Fatalf("payloads=%q; source=%q; expected=%q", sent, request.Changelog, expected)
+				}
+			})
+		}
+	}
+}
+
+func TestInvalidStoreChangelogFailsBeforeArtifactAndCredentials(t *testing.T) {
+	for _, test := range []struct{ format, body string }{{"html", "secret body"}, {"plain", strings.Repeat("中", 65536)}} {
+		cfg := publishConfig()
+		cfg.Stores.Official.Enabled = true
+		cfg.Release.StoreChangelogFormat = test.format
+		flow := publishflow.Flow{Verify: func(context.Context, lpkcheck.Request) (lpkcheck.Result, error) {
+			t.Fatal("invalid notes reached artifact verification")
+			return lpkcheck.Result{}, nil
+		}}
+		_, err := flow.Publish(t.Context(), publishflow.Request{Target: publishflow.TargetOfficial, Config: cfg, Project: projectInfo(), LPKPath: "/repo/dist/app.lpk", Version: "1.2.3", Changelog: test.body})
+		if err == nil || !strings.Contains(err.Error(), "format store changelog") || strings.Contains(err.Error(), "secret body") {
+			t.Fatalf("err=%v", err)
+		}
+	}
+}
+
+func TestEmptyPlainStoreChangelogFallsBackToVersion(t *testing.T) {
+	cfg := publishConfig()
+	cfg.Stores.Official.Enabled = true
+	sent := ""
+	flow := publishflow.Flow{
+		Verify:           func(context.Context, lpkcheck.Request) (lpkcheck.Result, error) { return verifiedArtifact(), nil },
+		PrecheckOfficial: passOfficialPrecheck,
+		ResolveAuth: func(context.Context) (platformauth.Result, error) {
+			return platformauth.Result{Provider: auth.StaticToken("test-token")}, nil
+		},
+		PublishOfficial: func(_ context.Context, request official.Request) (official.Result, error) {
+			sent = request.Changelog
+			return official.Result{Published: true}, nil
+		},
+	}
+	_, err := flow.Publish(t.Context(), publishflow.Request{Target: publishflow.TargetOfficial, Config: cfg, Project: projectInfo(), LPKPath: "/repo/dist/app.lpk", Version: "1.2.3", Changelog: "---\n<!-- no visible notes -->"})
+	if err != nil || sent != "Release 1.2.3" {
+		t.Fatalf("sent=%q err=%v", sent, err)
 	}
 }

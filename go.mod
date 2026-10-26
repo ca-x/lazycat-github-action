@@ -11,7 +11,11 @@ require github.com/Masterminds/semver/v3 v3.5.0
 
 require github.com/cloudflare/backoff v0.0.0-20240920015135-e46b80a3a7d0
 
-require github.com/google/licensecheck v0.3.1
+require (
+	github.com/google/licensecheck v0.3.1
+	github.com/yuin/goldmark v1.8.6
+	golang.org/x/net v0.58.0
+)
 
 require (
 	github.com/docker/cli v29.5.3+incompatible // indirect
@@ -22,6 +26,6 @@ require (
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/sys v0.46.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 )
