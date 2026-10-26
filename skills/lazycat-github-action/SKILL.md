@@ -231,6 +231,12 @@ Explain every required setting to the user:
 
 Read [references/workflows.md](references/workflows.md#private-source-with-a-separate-release-repository) for the full caller YAML, GitHub settings, token setup, defaults, and store constraints. Do not leave required configuration only in an explanation outside the generated workflow and documentation.
 
+## Publish prebuilt artifacts without source-side credentials
+
+When the user wants private source A to stay build-only and all publication to run in public B/C, use a target-owned `schedule` / `workflow_dispatch` workflow. A uploads only its generated LPK Artifact. C stores `SOURCE_REPO_TOKEN`, a fine-grained PAT for A with **Actions: Read** only (Metadata read is automatic); do not grant Contents Read, put a token in A, upload the agent's local login token, or claim A's `GITHUB_TOKEN` can write C. Organization membership, approval and PAT policy still apply. C downloads only a successful trusted-branch non-PR build from the expected workflow, checks the LPK's package/version/architecture/SHA256 and runtime-file allowlist, then uses C's own `GITHUB_TOKEN` with Contents write to create C's Release and target-owned tag. Keep source Git objects out of C. Chain any enabled store submission in the same workflow; a Release created with `GITHUB_TOKEN` does not normally trigger another Release workflow.
+
+Write the target README, workflows, Variables and exact Secret setup steps first. Do not leave the user waiting for a token without a reviewable workflow and clear instructions. Keep unrequested store publication disabled. Explain that target-side polling trades immediate push notification for no source-side credential. See [references/workflows.md](references/workflows.md#target-owned-publication-of-private-build-artifacts).
+
 ## Configure release notes
 
 Generate the same resolved `changelog` for GitHub Releases and both stores, including automatic image updates and store reconciliation. Document these settings in the generated project configuration:
