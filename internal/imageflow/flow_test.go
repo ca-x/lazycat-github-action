@@ -625,6 +625,95 @@ func TestFlowBumpsPatchOnlyWhenMutableDigestChanges(t *testing.T) {
 	}
 }
 
+func TestFlowMutableMirrorMigrationOption(test *testing.T) {
+	for _, scenario := range []struct {
+		name     string
+		enabled  bool
+		dryRun   bool
+		mismatch bool
+	}{
+		{name: "default keeps current manifest"},
+		{name: "opt-in migrates without old mirror", enabled: true},
+		{name: "dry-run does not edit manifest", enabled: true, dryRun: true},
+		{name: "failed verification does not edit manifest", enabled: true, mismatch: true},
+	} {
+		test.Run(scenario.name, func(test *testing.T) {
+			currentRef := "old.example/ghcr/acme/web:latest@" + digest("a")
+			desiredRef := "new.example/ghcr/acme/web:latest@" + digest("a")
+			original := "services:\n  web:\n    # upstream: ghcr.io/acme/web:latest@" + digest("a") + "\n    image: " + currentRef + "\n"
+			filename := filepath.Join(test.TempDir(), "lzc-manifest.yml")
+			if err := os.WriteFile(filename, []byte(original), 0o600); err != nil {
+				test.Fatal(err)
+			}
+			mirrors, err := imagemirror.FromEnvironment(func(key string) string {
+				if key == imagemirror.EnvGHCRMirror {
+					return "new.example/ghcr"
+				}
+				return ""
+			})
+			if err != nil {
+				test.Fatal(err)
+			}
+			inspector := inspectorFunc(func(_ context.Context, reference string) (registry.Image, error) {
+				if reference == currentRef && !scenario.enabled {
+					return registry.Image{Digest: digest("a"), Platform: "linux/amd64"}, nil
+				}
+				if reference != desiredRef {
+					return registry.Image{}, errors.New("old mirror is unavailable")
+				}
+				image := registry.Image{Digest: digest("a"), Platform: "linux/amd64"}
+				if scenario.mismatch {
+					image.Digest = digest("b")
+				}
+				return image, nil
+			})
+			resolver := delivery.Resolver{Mirrors: mirrors, Inspector: inspector}
+			cfg := mutableImageConfig()
+			cfg.Images[0].Source = ""
+			cfg.Images[0].Delivery = config.Delivery{Mode: "mirror", RequireDigestMatch: true, MigrateOnMirrorChange: scenario.enabled}
+			flow := imageflow.Flow{
+				Registry: &fakeRegistry{bySource: map[string][]versioning.Candidate{
+					"ghcr.io/acme/web": {{Tag: "latest", Digest: digest("a"), Created: created(12)}},
+				}},
+				Deliverer: resolver, ResolveImage: resolver.ResolveImage,
+			}
+			request := imageflow.Request{Config: cfg, Project: project.Info{ManifestFile: filename, Version: "1.4.6"}, DryRun: scenario.dryRun}
+			result, err := flow.Check(test.Context(), request)
+			if scenario.mismatch {
+				if !errors.Is(err, imageflow.ErrMirrorVerificationFailed) {
+					test.Fatalf("err=%v", err)
+				}
+			} else {
+				if err != nil {
+					test.Fatal(err)
+				}
+				wantRef := currentRef
+				if scenario.enabled {
+					wantRef = desiredRef
+				}
+				if result.Changed != scenario.enabled || result.Version != "1.4.6" || len(result.Images) != 1 || result.Images[0].DigestChanged || result.Images[0].DeliveredRef != wantRef || result.Images[0].SelectedVersion != "1.4.6" {
+					test.Fatalf("result=%#v", result)
+				}
+			}
+			after, err := os.ReadFile(filename)
+			if err != nil {
+				test.Fatal(err)
+			}
+			if scenario.enabled && !scenario.dryRun && !scenario.mismatch {
+				if !strings.Contains(string(after), "image: "+desiredRef) || !strings.Contains(string(after), "# upstream: ghcr.io/acme/web:latest@"+digest("a")) {
+					test.Fatalf("manifest was not migrated:\n%s", after)
+				}
+				repeated, err := flow.Check(test.Context(), request)
+				if err != nil || repeated.Changed || repeated.Version != "1.4.6" {
+					test.Fatalf("repeated=%#v err=%v", repeated, err)
+				}
+			} else if string(after) != original {
+				test.Fatalf("manifest unexpectedly changed:\n%s", after)
+			}
+		})
+	}
+}
+
 func TestFlowMutableDryRunCalculatesBumpWithoutApplying(t *testing.T) {
 	cfg := mutableImageConfig()
 	deliverer := &fakeDeliverer{digestChanged: true, currentDigest: digest("a")}
@@ -782,6 +871,12 @@ func TestFlowFixtureUpdatesExplicitWebServiceOnly(t *testing.T) {
 	if strings.Contains(string(after), "registry.lazycat.cloud/acme/example-web:old") || !strings.Contains(string(after), "# upstream: ghcr.io/acme/example-web:v2.0.0") {
 		t.Fatalf("web service was not updated as expected:\n%s", after)
 	}
+}
+
+type inspectorFunc func(context.Context, string) (registry.Image, error)
+
+func (inspect inspectorFunc) Inspect(ctx context.Context, reference string) (registry.Image, error) {
+	return inspect(ctx, reference)
 }
 
 type fakeRegistry struct {

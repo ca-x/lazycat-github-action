@@ -228,6 +228,17 @@ delivery:
 
 Resolution precedence is runtime environment mapping, historical `image_template`, then the built-in Docker Hub/GHCR default. New configurations keep `source` explicit. During migration only, mirror delivery may recover a missing source from the Manifest `upstream` comment or a recognized built-in/configured mirror reference. It never writes that recovered source back to `.github/lazycat-action.yml` and fails before Registry access when recovery is ambiguous.
 
+For mutable version sources using `bump: patch`, `migrate_on_mirror_change: false` is the default: equal digests retain the existing runtime reference even when the configured accelerator changes. Keep that behavior unless the user explicitly requests address-only migration. To opt in per image under `images[].delivery`:
+
+```yaml
+delivery:
+  mode: mirror
+  require_digest_match: true
+  migrate_on_mirror_change: true
+```
+
+This option is valid only for mirror delivery and requires `require_digest_match: true`. When the effective mirror registry or repository path changes, the next image check uses the current digest-pinned runtime as its baseline and verifies only the new mirror's target platform and source digest; the old mirror may be offline. Verification failures or a missing digest pin stop before Manifest edits. An address-only migration retains the application version; dry-run reports the change without writing files. The Action does not rewrite its configuration or replace existing Release assets/store versions. Publishing an updated LPK to installed applications needs a new application version. Ordinary versioned-tag updates retain their existing behavior.
+
 Mirror verification is a read-only Registry operation and reports `MIRROR_VERIFICATION_FAILED`; it does not use the LazyCat image-copy path.
 
 ## Build environment

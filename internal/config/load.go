@@ -474,7 +474,13 @@ func validateImageRule(image Image) error {
 		if image.Delivery.RequireDigestMatch {
 			return fmt.Errorf("require_digest_match is only valid for mirror delivery")
 		}
+		if image.Delivery.MigrateOnMirrorChange {
+			return errors.New("migrate_on_mirror_change is only valid for mirror delivery")
+		}
 	case "mirror":
+		if image.Delivery.MigrateOnMirrorChange && !image.Delivery.RequireDigestMatch {
+			return errors.New("migrate_on_mirror_change requires require_digest_match=true")
+		}
 	default:
 		return fmt.Errorf("unsupported delivery mode %q", image.Delivery.Mode)
 	}

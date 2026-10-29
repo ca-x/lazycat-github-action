@@ -110,6 +110,18 @@
       "mustNotInclude": ["allow_downgrade: true", "bump on every run", "mode: direct", "version_regex"]
     },
     {
+      "id": "mutable-mirror-migration-opt-in",
+      "prompt": "A private-store-only project tracks latest with bump: patch and a digest-pinned mirror runtime. The GitHub mirror Variable changed without a source digest change, and the old mirror is offline. Configure an explicit per-image migration option, preserve the application version, and explain verification failures and dry-run.",
+      "mustInclude": ["images[].delivery", "mode: mirror", "require_digest_match: true", "migrate_on_mirror_change: true", "false", "old mirror", "target platform", "digest", "dry-run", "without writing", "application version"],
+      "mustNotInclude": ["migrate_on_mirror_change: true by default", "must contact the old mirror", "increment the patch for every mirror change", "with:\n  migrate_on_mirror_change"]
+    },
+    {
+      "id": "mutable-mirror-retain-current-reference",
+      "prompt": "An organization frequently rotates its mirror Variable. This project uses mirror delivery with bump: patch and must keep its current reference while the digest is unchanged. Preserve that behavior and explain whether ordinary versioned-tag updates change.",
+      "mustInclude": ["migrate_on_mirror_change: false", "default", "images[].delivery", "unchanged", "version", "ordinary versioned-tag"],
+      "mustNotInclude": ["migrate_on_mirror_change: true", "mode: direct", "require_digest_match: false"]
+    },
+    {
       "id": "node24-action-runtime",
       "prompt": "Generate a caller-owned composite workflow that checks out the repository and configures Node without GitHub's Node.js 20 deprecation warning.",
       "mustInclude": ["Node.js 24", "actions/checkout@v7", "actions/setup-node@v7"],

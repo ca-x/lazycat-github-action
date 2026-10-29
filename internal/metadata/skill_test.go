@@ -317,8 +317,8 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	if err := json.Unmarshal(prompts, &promptCases); err != nil {
 		t.Fatal(err)
 	}
-	if len(promptCases) != 24 {
-		t.Fatalf("test-prompts.json cases=%d, want 24", len(promptCases))
+	if len(promptCases) != 26 {
+		t.Fatalf("test-prompts.json cases=%d, want 26", len(promptCases))
 	}
 	promptIDs := make(map[string]string, len(promptCases))
 	for _, prompt := range promptCases {
@@ -607,6 +607,24 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	}
 	if starterDocument.Stores.Official.ContinueIfNewerVersion == nil || !*starterDocument.Stores.Official.ContinueIfNewerVersion {
 		t.Fatalf("starter official continue_if_newer_version=%v, want true", starterDocument.Stores.Official.ContinueIfNewerVersion)
+	}
+}
+
+func TestMirrorMigrationDocumentationContract(test *testing.T) {
+	root := filepath.Join("..", "..")
+	for _, filename := range []string{
+		"README.md", "README.zh-CN.md", "skills/lazycat-github-action/SKILL.md",
+		"skills/lazycat-github-action/references/configuration.md", "skills/lazycat-github-action/references/workflows.md",
+	} {
+		data, err := os.ReadFile(filepath.Join(root, filename))
+		if err != nil {
+			test.Fatal(err)
+		}
+		for _, required := range []string{"migrate_on_mirror_change: false", "migrate_on_mirror_change: true", "images[].delivery", "bump: patch", "require_digest_match: true", "dry-run"} {
+			if !strings.Contains(string(data), required) {
+				test.Errorf("%s is missing mirror migration guidance %q", filename, required)
+			}
+		}
 	}
 }
 

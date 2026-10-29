@@ -869,6 +869,43 @@ images:
 	}
 }
 
+func TestLoadMirrorMigrationOption(test *testing.T) {
+	for _, scenario := range []struct {
+		name    string
+		fields  string
+		want    bool
+		wantErr string
+	}{
+		{name: "omitted defaults to false", fields: "mode: mirror\nrequire_digest_match: true"},
+		{name: "explicit opt-out", fields: "mode: mirror\nrequire_digest_match: true\nmigrate_on_mirror_change: false"},
+		{name: "explicit opt-in", fields: "mode: mirror\nrequire_digest_match: true\nmigrate_on_mirror_change: true", want: true},
+		{name: "direct rejects migration", fields: "mode: direct\nmigrate_on_mirror_change: true", wantErr: "migrate_on_mirror_change is only valid for mirror delivery"},
+		{name: "lazycat rejects migration", fields: "mode: lazycat\nmigrate_on_mirror_change: true", wantErr: "migrate_on_mirror_change is only valid for mirror delivery"},
+		{name: "migration requires verification", fields: "mode: mirror\nmigrate_on_mirror_change: true", wantErr: "migrate_on_mirror_change requires require_digest_match=true"},
+	} {
+		test.Run(scenario.name, func(test *testing.T) {
+			filename := filepath.Join(test.TempDir(), "lazycat.yml")
+			data := "version: 1\nupdate:\n  version_source:\n    type: git\nimages:\n  - id: web\n    target: service\n    service: web\n    source: ghcr.io/acme/web\n    delivery:\n" + indent(scenario.fields, 6)
+			if err := os.WriteFile(filename, []byte(data), 0o600); err != nil {
+				test.Fatal(err)
+			}
+			loaded, err := config.Load(filename)
+			if scenario.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), scenario.wantErr) {
+					test.Fatalf("err=%v, want %q", err, scenario.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				test.Fatal(err)
+			}
+			if got := loaded.Images[0].Delivery.MigrateOnMirrorChange; got != scenario.want {
+				test.Fatalf("migrate_on_mirror_change=%t, want %t", got, scenario.want)
+			}
+		})
+	}
+}
+
 func TestLoadRejectsUnusedOfficialApplicationMetadata(t *testing.T) {
 	filename := filepath.Join(t.TempDir(), "lazycat.yml")
 	data := []byte(`version: 1

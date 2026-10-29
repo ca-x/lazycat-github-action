@@ -456,7 +456,7 @@ images:
       mode: lazycat
 ```
 
-The Action compares the selected target-platform digest with the currently delivered image. An equal digest is a successful no-op and retains the current package version. A changed digest increments only the patch component (`1.4.6` → `1.4.7`), delivers the new image, and follows the normal versioned Release/store path. The current package version must be strict stable SemVer without prerelease or build metadata. `bump: patch` cannot be combined with `allow_downgrade`, tag-to-version mapping, or a non-`custom`/non-`created` rule.
+The Action compares the selected target-platform digest with the currently delivered image. An equal digest retains the current package version and is a successful no-op by default; optional address-only mirror migration is described below. A changed digest increments only the patch component (`1.4.6` → `1.4.7`), delivers the new image, and follows the normal versioned Release/store path. The current package version must be strict stable SemVer without prerelease or build metadata. `bump: patch` cannot be combined with `allow_downgrade`, tag-to-version mapping, or a non-`custom`/non-`created` rule.
 
 Mutable `direct` and `mirror` references are digest-pinned so the previous state is durable. Mutable mirrors require `require_digest_match: true`. Official-store workflows must continue to use `delivery.mode: lazycat`. Dry-run performs the same digest comparison without copying or writing. `image-results` reports `currentDigest`, `sourceDigest`, `digestChanged`, `bump`, `previousVersion`, and `selectedVersion` for auditability.
 
@@ -518,6 +518,17 @@ with:
 ```
 
 The Composite Action accepts `docker-mirror`, `ghcr-mirror`, and `registry-mirrors` inputs and falls back to equivalent job/step environment variables; composite metadata cannot access the GitHub `vars` context. A caller that wants Repository/Organization Variables maps them in its own workflow, for example `docker-mirror: ${{ vars.LAZYCAT_DOCKER_MIRROR }}` under `with`. Values are Registry/path prefixes without a URL scheme. Precedence is reusable/composite input (including a caller-mapped GitHub Variable), composite environment, existing `image_template`, then the built-in Docker Hub/GHCR default. Missing or empty values are not errors. Other registries require an entry in `LAZYCAT_REGISTRY_MIRRORS`.
+
+For a mutable image version source using `bump: patch`, `migrate_on_mirror_change: false` is the backward-compatible default: an unchanged digest retains the current runtime reference even if the configured mirror changes. Opt in per image under `images[].delivery`:
+
+```yaml
+delivery:
+  mode: mirror
+  require_digest_match: true
+  migrate_on_mirror_change: true
+```
+
+With migration enabled, the next image check updates the Manifest when the mirror registry or repository path changes, even if the digest is unchanged. The current reference must already be digest-pinned; its persisted digest is the baseline, so the old mirror need not be reachable. The new mirror must pass target-platform and source-digest verification before any Manifest edit. An address-only migration keeps the application version, and dry-run reports the change without writing files. Existing Release assets and store versions are not replaced; publishing an updated LPK to installed applications requires a separate application version. The option requires `require_digest_match: true` and is valid only for mirror delivery. Ordinary versioned-tag reference updates keep their existing behavior.
 
 For migration, mirror delivery can recover an omitted `source` from the Manifest's `upstream` comment or from a known built-in/configured mirror reference. For example, `docker.1ms.run/acme/api:v1` recovers `docker.io/acme/api`. The Action does not rewrite `.github/lazycat-action.yml`; if the upstream cannot be recovered unambiguously, it fails before querying a Registry or editing the Manifest.
 

@@ -331,6 +331,151 @@ func TestMutableMirrorDeliveryUsesPinnedPreviousDigest(t *testing.T) {
 	}
 }
 
+func TestMutableMirrorDeliveryMigrationOption(test *testing.T) {
+	for _, scenario := range []struct {
+		name           string
+		prefix         string
+		digest         string
+		enabled        bool
+		oldUnavailable bool
+		wantChanged    bool
+		wantErr        bool
+	}{
+		{name: "default retains old mirror", prefix: "new.example/ghcr", digest: digest("a")},
+		{name: "default still checks old mirror", prefix: "new.example/ghcr", digest: digest("a"), oldUnavailable: true, wantErr: true},
+		{name: "new host with equal digest", prefix: "new.example/ghcr", digest: digest("a"), enabled: true, oldUnavailable: true, wantChanged: true},
+		{name: "new prefix with equal digest", prefix: "mirror.example/new", digest: digest("a"), enabled: true, oldUnavailable: true, wantChanged: true},
+		{name: "new host with changed digest", prefix: "new.example/ghcr", digest: digest("b"), enabled: true, oldUnavailable: true, wantChanged: true},
+		{name: "same mirror with equal digest", prefix: "mirror.example/old", digest: digest("a"), enabled: true},
+		{name: "same mirror with changed digest", prefix: "mirror.example/old", digest: digest("b"), enabled: true},
+	} {
+		test.Run(scenario.name, func(test *testing.T) {
+			for _, run := range []struct {
+				name   string
+				dryRun bool
+			}{{name: "apply"}, {name: "dry-run", dryRun: true}} {
+				test.Run(run.name, func(test *testing.T) {
+					currentRef := "mirror.example/old/acme/web:latest@" + digest("a")
+					desiredRef := scenario.prefix + "/acme/web:latest@" + scenario.digest
+					inspections := 0
+					inspector := inspectorFunc(func(_ context.Context, reference string) (registry.Image, error) {
+						inspections++
+						if reference == currentRef {
+							if scenario.oldUnavailable {
+								return registry.Image{}, errors.New("old mirror is unavailable")
+							}
+							return registry.Image{Digest: digest("a"), Platform: "linux/amd64"}, nil
+						}
+						if reference != desiredRef {
+							return registry.Image{}, errors.New("unexpected mirror reference")
+						}
+						return registry.Image{Digest: scenario.digest, Platform: "linux/amd64"}, nil
+					})
+					result, err := (delivery.Resolver{Inspector: inspector}).Deliver(test.Context(), delivery.Request{
+						Image: config.Image{ID: "web", Source: "ghcr.io/acme/web", Delivery: config.Delivery{
+							Mode: "mirror", ImageTemplate: scenario.prefix + "/acme/web:{tag}", RequireDigestMatch: true, MigrateOnMirrorChange: scenario.enabled,
+						}},
+						Tag: "latest", SourceRef: "ghcr.io/acme/web:latest", SourceDigest: scenario.digest,
+						CurrentRef: currentRef, Mutable: true, DryRun: run.dryRun,
+					})
+					if scenario.wantErr {
+						if !errors.Is(err, delivery.ErrMirrorVerification) {
+							test.Fatalf("err=%v", err)
+						}
+						return
+					}
+					if err != nil {
+						test.Fatal(err)
+					}
+					wantDigestChanged := scenario.digest != digest("a")
+					wantRef := desiredRef
+					wantInspections := 2
+					if scenario.wantChanged {
+						wantInspections = 1
+					} else if !wantDigestChanged {
+						wantRef = currentRef
+					}
+					if result.DeliveryChanged != scenario.wantChanged || result.DigestChanged != wantDigestChanged || result.CurrentDigest != digest("a") || result.RuntimeRef != wantRef || result.Copied || inspections != wantInspections {
+						test.Fatalf("result=%#v inspections=%d, want ref=%q inspections=%d", result, inspections, wantRef, wantInspections)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestMutableMirrorMigrationVerifiesNewMirror(test *testing.T) {
+	for _, scenario := range []struct {
+		name  string
+		image registry.Image
+		err   error
+	}{
+		{name: "digest mismatch", image: registry.Image{Digest: digest("b"), Platform: "linux/amd64"}},
+		{name: "platform mismatch", image: registry.Image{Digest: digest("a"), Platform: "linux/arm64"}},
+		{name: "unavailable", err: errors.New("new mirror is unavailable")},
+	} {
+		test.Run(scenario.name, func(test *testing.T) {
+			desiredRef := "new.example/acme/web:latest@" + digest("a")
+			inspector := inspectorFunc(func(_ context.Context, reference string) (registry.Image, error) {
+				if reference != desiredRef {
+					test.Errorf("inspected %q, want only new mirror %q", reference, desiredRef)
+				}
+				return scenario.image, scenario.err
+			})
+			_, err := (delivery.Resolver{Inspector: inspector}).Deliver(test.Context(), delivery.Request{
+				Image: config.Image{ID: "web", Source: "ghcr.io/acme/web", Delivery: config.Delivery{
+					Mode: "mirror", ImageTemplate: "new.example/acme/web:{tag}", RequireDigestMatch: true, MigrateOnMirrorChange: true,
+				}},
+				Tag: "latest", SourceRef: "ghcr.io/acme/web:latest", SourceDigest: digest("a"),
+				CurrentRef: "old.example/acme/web:latest@" + digest("a"), Mutable: true,
+			})
+			if !errors.Is(err, delivery.ErrMirrorVerification) {
+				test.Fatalf("err=%v", err)
+			}
+		})
+	}
+}
+
+func TestMutableMirrorMigrationUsesConfiguredTarget(test *testing.T) {
+	for _, architecture := range []string{"amd64", "arm64"} {
+		test.Run(architecture, func(test *testing.T) {
+			inspector := &fakeInspector{result: registry.Image{Digest: digest("a"), Platform: "linux/" + architecture}}
+			result, err := (delivery.Resolver{Inspector: inspector}).Deliver(test.Context(), delivery.Request{
+				Image: config.Image{ID: "web", Source: "ghcr.io/acme/web", Delivery: config.Delivery{
+					Mode: "mirror", ImageTemplate: "new.example/acme/web:{tag}", RequireDigestMatch: true, MigrateOnMirrorChange: true,
+				}},
+				Tag: "latest", SourceRef: "ghcr.io/acme/web:latest", SourceDigest: digest("a"),
+				CurrentRef: "old.example/acme/web:latest@" + digest("a"), Mutable: true,
+				Target: platform.Target{Arch: architecture},
+			})
+			if err != nil {
+				test.Fatal(err)
+			}
+			if !result.DeliveryChanged || result.DigestChanged || inspector.calls != 1 || inspector.reference != result.RuntimeRef || inspector.target.Arch != architecture {
+				test.Fatalf("result=%#v inspector=%#v", result, inspector)
+			}
+		})
+	}
+}
+
+func TestMutableMirrorMigrationRequiresPinnedBaseline(test *testing.T) {
+	for _, currentRef := range []string{"old.example/acme/web:latest", "old.example/acme/web:latest@sha256:invalid"} {
+		test.Run(currentRef, func(test *testing.T) {
+			inspector := &fakeInspector{err: errors.New("must not inspect")}
+			_, err := (delivery.Resolver{Inspector: inspector}).Deliver(test.Context(), delivery.Request{
+				Image: config.Image{ID: "web", Source: "ghcr.io/acme/web", Delivery: config.Delivery{
+					Mode: "mirror", ImageTemplate: "new.example/acme/web:{tag}", RequireDigestMatch: true, MigrateOnMirrorChange: true,
+				}},
+				Tag: "latest", SourceRef: "ghcr.io/acme/web:latest", SourceDigest: digest("a"),
+				CurrentRef: currentRef, Mutable: true,
+			})
+			if err == nil || inspector.calls != 0 {
+				test.Fatalf("err=%v inspections=%d", err, inspector.calls)
+			}
+		})
+	}
+}
+
 func TestDryRunDoesNotCopyOrInspect(t *testing.T) {
 	resolver := delivery.Resolver{Copier: &fakeCopier{err: errors.New("must not copy")}, Inspector: &fakeInspector{err: errors.New("must not inspect")}}
 	for _, image := range []config.Image{
@@ -345,6 +490,12 @@ func TestDryRunDoesNotCopyOrInspect(t *testing.T) {
 			t.Fatalf("result=%#v", result)
 		}
 	}
+}
+
+type inspectorFunc func(context.Context, string) (registry.Image, error)
+
+func (inspect inspectorFunc) Inspect(ctx context.Context, reference string) (registry.Image, error) {
+	return inspect(ctx, reference)
 }
 
 type fakeCopier struct {

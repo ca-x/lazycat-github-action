@@ -144,12 +144,25 @@ func (resolver Resolver) Deliver(ctx context.Context, request Request) (Result, 
 			if digestErr != nil {
 				return Result{}, fmt.Errorf("inspect current mirror image: %w", digestErr)
 			}
-			current, inspectErr := resolver.inspect(ctx, request.CurrentRef, target)
-			if inspectErr != nil {
-				return Result{}, fmt.Errorf("%w: inspect current mirror image %q: %w", ErrMirrorVerification, request.CurrentRef, inspectErr)
+			if request.Image.Delivery.MigrateOnMirrorChange {
+				currentReference, parseErr := name.ParseReference(strings.TrimSpace(request.CurrentRef), name.WeakValidation)
+				if parseErr != nil {
+					return Result{}, fmt.Errorf("parse current mirror reference: %w", parseErr)
+				}
+				desiredReference, parseErr := name.ParseReference(runtimeRef, name.WeakValidation)
+				if parseErr != nil {
+					return Result{}, fmt.Errorf("parse desired mirror reference: %w", parseErr)
+				}
+				result.DeliveryChanged = currentReference.Context().Name() != desiredReference.Context().Name()
 			}
-			if !strings.EqualFold(strings.TrimSpace(current.Digest), currentDigest) {
-				return Result{}, fmt.Errorf("%w: current mirror digest %q does not match pinned digest %q", ErrMirrorVerification, current.Digest, currentDigest)
+			if !result.DeliveryChanged {
+				current, inspectErr := resolver.inspect(ctx, request.CurrentRef, target)
+				if inspectErr != nil {
+					return Result{}, fmt.Errorf("%w: inspect current mirror image %q: %w", ErrMirrorVerification, request.CurrentRef, inspectErr)
+				}
+				if !strings.EqualFold(strings.TrimSpace(current.Digest), currentDigest) {
+					return Result{}, fmt.Errorf("%w: current mirror digest %q does not match pinned digest %q", ErrMirrorVerification, current.Digest, currentDigest)
+				}
 			}
 			result.CurrentDigest = currentDigest
 			sourceDigest, digestErr := normalizedDigest(request.SourceDigest)
@@ -179,7 +192,7 @@ func (resolver Resolver) Deliver(ctx context.Context, request Request) (Result, 
 		}
 		if request.Mutable {
 			result.DigestChanged = !strings.EqualFold(strings.TrimSpace(result.CurrentDigest), strings.TrimSpace(request.SourceDigest))
-			if !result.DigestChanged {
+			if !result.DigestChanged && !result.DeliveryChanged {
 				result.RuntimeRef = request.CurrentRef
 			}
 		}

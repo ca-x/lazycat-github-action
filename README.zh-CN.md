@@ -455,7 +455,7 @@ images:
       mode: lazycat
 ```
 
-Action 会比较目标架构的上游 digest 与当前已交付镜像 digest。digest 相同即成功 no-op，包版本保持不变；digest 变化时只递增 patch（`1.4.6` → `1.4.7`），交付新镜像并进入正常的版本化 Release/商店流程。当前包版本必须是没有 prerelease/build metadata 的严格稳定 SemVer。`bump: patch` 不能与 `allow_downgrade`、标签版本映射或非 `custom`/非 `created` 规则组合。
+Action 会比较目标架构的上游 digest 与当前已交付镜像 digest。digest 相同则包版本保持不变，默认成功 no-op；如需仅迁移加速地址，可启用下文的 `delivery.migrate_on_mirror_change`。digest 变化时只递增 patch（`1.4.6` → `1.4.7`），交付新镜像并进入正常的版本化 Release/商店流程。当前包版本必须是没有 prerelease/build metadata 的严格稳定 SemVer。`bump: patch` 不能与 `allow_downgrade`、标签版本映射或非 `custom`/非 `created` 规则组合。
 
 mutable `direct` 和 `mirror` 引用会固定 digest，确保上次状态可追踪；mirror 必须设置 `require_digest_match: true`。官方商店仍强制使用 `delivery.mode: lazycat`。dry-run 会做同样的 digest 比较，但不会复制镜像或写文件。`image-results` 会输出 `currentDigest`、`sourceDigest`、`digestChanged`、`bump`、`previousVersion` 和 `selectedVersion` 供审计。
 
@@ -517,6 +517,17 @@ with:
 ```
 
 Composite Action 提供 `docker-mirror`、`ghcr-mirror` 和 `registry-mirrors` inputs，并 fallback 到同名 job/step 环境变量；composite metadata 不能访问 GitHub `vars` 上下文。需要 Repository/Organization Variables 的调用方必须在自己的 workflow 的 `with` 中映射，例如 `docker-mirror: ${{ vars.LAZYCAT_DOCKER_MIRROR }}`。值是不能带 URL scheme 的 Registry/path 前缀。优先级依次为 reusable/composite input（包括由调用方映射的 GitHub Variable）、composite 环境变量、历史 `image_template`、Docker Hub/GHCR 内置默认值。值缺失或为空不是错误。其他 Registry 必须在 `LAZYCAT_REGISTRY_MIRRORS` 中配置映射。
+
+对于使用 `bump: patch` 的可变镜像版本源，默认 `migrate_on_mirror_change: false`，保持兼容：digest 未变时，即使配置的加速地址变化，也继续保留当前运行镜像地址。如需迁移，在对应镜像的 `images[].delivery` 下显式开启：
+
+```yaml
+delivery:
+  mode: mirror
+  require_digest_match: true
+  migrate_on_mirror_change: true
+```
+
+开启后，下次镜像检查会在 mirror Registry 或仓库路径变化时更新 Manifest，不要求 digest 同时变化。当前运行镜像必须已固定 digest；迁移使用该持久化 digest 作为基线，不要求旧镜像站仍可访问。新镜像站必须通过目标平台和源 digest 校验，才会修改 Manifest。仅地址变化不增加应用版本；dry-run 只报告变化，不写文件。已有 Release 附件和商店版本不会被替换；如需向已安装应用分发使用新地址的 LPK，仍需另行发布新的应用版本。此选项仅适用于 mirror 模式，且必须配置 `require_digest_match: true`。普通版本 tag 的地址更新行为保持不变。
 
 迁移历史项目时，mirror 模式可以从 Manifest 的 `upstream` 注释或已知的内置/自定义 mirror 地址恢复省略的 `source`。例如 `docker.1ms.run/acme/api:v1` 会恢复为 `docker.io/acme/api`。Action 不会回写 `.github/lazycat-action.yml`；无法无歧义恢复上游时，会在查询 Registry 或修改 Manifest 前安全失败。
 

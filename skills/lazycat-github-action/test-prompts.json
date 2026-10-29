@@ -115,6 +115,16 @@
     "expected": "配置 release.use_github_release_notes，默认 true，并给 false 关闭示例；release.changelog_template 使用 Go text/template，列出 Version、Tag、PackageID、Name、Homepage、Repository、ReleaseNotes、ReleaseURL；release.github_repository 可显式指定，上游默认从 package.yml.homepage 的 GitHub 仓库推断再回退当前 GitHub 仓库。显式 changelog 为最高优先级原文并跳过查询，其次 input changelog-template、配置模板、默认模板。只查实际 tag、v<version>、<version>，不取 latest 或其他版本；正文缺失、草稿、API 错误回退，关闭时跳过事件正文和 API。GitHub Release 和两个商店使用同一份 resolved changelog 源文本。release.store_changelog_format 默认 plain，仅商店提交前将 Markdown 转为纯文本；markdown 可保留原文。GitHub Release 与输出保留源 Markdown，补发不重复转换，支持 GitHub alert、列表和链接。"
   },
   {
+    "id": "mutable-mirror-migration-opt-in",
+    "prompt": "项目只发布喵喵商店，latest 镜像使用 bump: patch，当前镜像已固定 digest。GitHub 的加速地址变量换了，源 digest 没变，旧镜像站已下线。请配置显式可选的地址迁移，不增加应用版本，并说明 dry-run 和校验失败的行为。",
+    "expected": "在该镜像的 images[].delivery 下设置 mode: mirror、require_digest_match: true、migrate_on_mirror_change: true。默认 false 保留当前行为，不自动给其他项目开启。下次镜像检查在 Registry/仓库路径变化时使用已固定的当前 digest 作基线，仅校验新镜像站目标平台和源 digest，不访问已下线的旧站；失败不修改 Manifest，dry-run 仅报告变化、不写文件。仅地址变化不 bump；不回写 Action 配置、不替换已有 Release 附件或商店版本，也不能配置成 workflow input。"
+  },
+  {
+    "id": "mutable-mirror-retain-current-reference",
+    "prompt": "我们的 latest 镜像使用 mirror 和 bump: patch。组织的加速变量会频繁切换，但 digest 未变时我希望当前地址保持不动，不要强制迁移。请保留这个行为。",
+    "expected": "保留默认 migrate_on_mirror_change: false 或省略该字段；说明它位于 images[].delivery，只影响 mutable 版本源的地址迁移。digest 未变保持旧运行地址和应用版本，不要自动开启 true，也不要改成 direct 或关闭 require_digest_match。普通版本 tag 的既有地址更新行为不受此开关影响。"
+  },
+  {
     "id": "private-source-cross-repository-release",
     "prompt": "源码在私有 A 仓库，LPK 放到 B 组织的 C 仓库。直接修改工作流，并告诉我需要配置什么，记得更新 Skill。",
     "expected": "在 A 的 caller workflow 设置 release-repository: B/C、versioned-release-asset: true，按需设置属于 C 的 release-target-commitish。指导创建并初始化 C，C 需要免登录下载时公开。GH_RELEASE_TOKEN 放在 A 的 Actions Secrets，fine-grained PAT 选 B/C 并授予 Contents Read and write，完成组织要求的审批/SSO；A 的 GITHUB_TOKEN 无法跨仓库写 C。源码提交、PR、license/版本同步留在 A，不能向 C push 源码对象或使用 A 的私有 SHA 创建 C 的 tag。release.github_repository 仍只选择上游说明，默认自动探测开关保持开启。目标资产/最终说明复用及商店补发一律用 C 与独立 token，核对 SHA256。说明两种入口责任及所有默认值；实际验证 workflow。"

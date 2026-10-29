@@ -96,9 +96,10 @@ type Image struct {
 }
 
 type Delivery struct {
-	Mode               string `yaml:"mode"`
-	ImageTemplate      string `yaml:"image_template"`
-	RequireDigestMatch bool   `yaml:"require_digest_match"`
+	Mode                  string `yaml:"mode"`
+	ImageTemplate         string `yaml:"image_template"`
+	RequireDigestMatch    bool   `yaml:"require_digest_match"`
+	MigrateOnMirrorChange bool   `yaml:"migrate_on_mirror_change"`
 }
 
 type Release struct {
