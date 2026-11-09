@@ -28,7 +28,7 @@ func TestDockerHubTagMetadataReadsPaginatedUpdateTimes(t *testing.T) {
 		writer.Header().Set("Content-Type", "application/json")
 		switch request.URL.Query().Get("page") {
 		case "1":
-			fmt.Fprint(writer, `{"count":2,"results":[{"name":"v1.2.15","last_updated":"2026-07-12T08:30:00Z"}]}`)
+			fmt.Fprint(writer, `{"count":2,"next":"?page=2&page_size=1","results":[{"name":"v1.2.15","last_updated":"2026-07-12T08:30:00Z"}]}`)
 		case "2":
 			fmt.Fprint(writer, `{"count":2,"results":[{"name":"v1.2.26","last_updated":"2026-06-14T08:30:00Z"}]}`)
 		default:
@@ -42,7 +42,7 @@ func TestDockerHubTagMetadataReadsPaginatedUpdateTimes(t *testing.T) {
 		t.Fatal(err)
 	}
 	metadata := dockerHubTagMetadata{client: server.Client(), baseURL: server.URL, pageSize: 1}
-	updates, err := metadata.Updates(context.Background(), repository, []string{"v1.2.15", "v1.2.26"}, defaultMaxMatchingTags)
+	updates, err := metadata.Updates(context.Background(), repository, []string{"v1.2.15", "v1.2.26"}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestDockerHubTagMetadataFailsClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Run("unsupported registry", func(t *testing.T) {
-		_, err := (dockerHubTagMetadata{}).Updates(context.Background(), otherRepository, []string{"v1"}, defaultMaxMatchingTags)
+		_, err := (dockerHubTagMetadata{}).Updates(context.Background(), otherRepository, []string{"v1"}, 0)
 		if err == nil || !strings.Contains(err.Error(), "only for Docker Hub") {
 			t.Fatalf("err=%v", err)
 		}
@@ -72,7 +72,7 @@ func TestDockerHubTagMetadataFailsClosed(t *testing.T) {
 	t.Run("cancelled", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		_, err := (dockerHubTagMetadata{}).Updates(ctx, dockerRepository, []string{"v1"}, defaultMaxMatchingTags)
+		_, err := (dockerHubTagMetadata{}).Updates(ctx, dockerRepository, []string{"v1"}, 0)
 		if err == nil || !errors.Is(err, context.Canceled) {
 			t.Fatalf("err=%v", err)
 		}
@@ -86,7 +86,7 @@ func TestDockerHubTagMetadataFailsClosed(t *testing.T) {
 		{name: "HTTP status hides body", status: http.StatusTooManyRequests, body: `{"message":"secret-token"}`, wantText: "HTTP 429"},
 		{name: "missing timestamp", status: http.StatusOK, body: `{"count":1,"results":[{"name":"v1"}]}`, wantText: "update time is missing"},
 		{name: "missing tag", status: http.StatusOK, body: `{"count":1,"results":[{"name":"other","last_updated":"2026-07-12T08:30:00Z"}]}`, wantText: "missing tag"},
-		{name: "too many tags", status: http.StatusOK, body: `{"count":10001,"results":[]}`, wantText: "limit is 10000"},
+		{name: "large count cannot replace missing metadata", status: http.StatusOK, body: `{"count":10001,"results":[]}`, wantText: "missing tag"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -95,7 +95,7 @@ func TestDockerHubTagMetadataFailsClosed(t *testing.T) {
 				fmt.Fprint(writer, test.body)
 			}))
 			defer server.Close()
-			_, err := (dockerHubTagMetadata{client: server.Client(), baseURL: server.URL}).Updates(context.Background(), dockerRepository, []string{"v1"}, defaultMaxMatchingTags)
+			_, err := (dockerHubTagMetadata{client: server.Client(), baseURL: server.URL}).Updates(context.Background(), dockerRepository, []string{"v1"}, 0)
 			if err == nil || !strings.Contains(err.Error(), test.wantText) {
 				t.Fatalf("err=%v", err)
 			}
@@ -109,7 +109,7 @@ func TestDockerHubTagMetadataFailsClosed(t *testing.T) {
 			fmt.Fprint(writer, strings.Repeat("x", maxDockerHubBodyBytes+1))
 		}))
 		defer server.Close()
-		_, err := (dockerHubTagMetadata{client: server.Client(), baseURL: server.URL}).Updates(context.Background(), dockerRepository, []string{"v1"}, defaultMaxMatchingTags)
+		_, err := (dockerHubTagMetadata{client: server.Client(), baseURL: server.URL}).Updates(context.Background(), dockerRepository, []string{"v1"}, 0)
 		if err == nil || !strings.Contains(err.Error(), "exceeds") {
 			t.Fatalf("err=%v", err)
 		}
@@ -145,9 +145,54 @@ func TestCandidatesInspectsUpdatedTagsUntilPlatformMatches(t *testing.T) {
 	}
 }
 
+func TestDockerHubMetadataFollowsNextDespiteLargeCountsAndShortPages(testContext *testing.T) {
+	pages := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		pages++
+		switch request.URL.Query().Get("page") {
+		case "1":
+			fmt.Fprint(writer, `{"count":1000000,"next":"?page=2&page_size=100","results":[]}`)
+		case "2":
+			fmt.Fprint(writer, `{"count":1,"next":"?page=3&page_size=100","results":[{"name":"other","last_updated":"2026-07-12T08:30:00Z"}]}`)
+		case "3":
+			fmt.Fprint(writer, `{"count":1000000,"results":[{"name":"v1.2.3","last_updated":"2026-07-12T08:30:00Z"}]}`)
+		default:
+			testContext.Errorf("unexpected page %s", request.URL.RawQuery)
+		}
+	}))
+	defer server.Close()
+	repository, err := name.NewRepository("docker.io/acme/widgets", name.WeakValidation)
+	if err != nil {
+		testContext.Fatal(err)
+	}
+	updates, err := (dockerHubTagMetadata{client: server.Client(), baseURL: server.URL}).Updates(testContext.Context(), repository, []string{"v1.2.3"}, 1)
+	if err != nil || pages != 3 || updates["v1.2.3"].IsZero() {
+		testContext.Fatalf("updates=%v pages=%d err=%v", updates, pages, err)
+	}
+}
+
+func TestDockerHubMetadataRejectsPaginationLoopsAndUnsafeNext(testContext *testing.T) {
+	for _, next := range []string{
+		"?page=1&page_size=100", "https://other.invalid/v2/namespaces/acme/repositories/widgets/tags?page=2", "/different/path?page=2",
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			fmt.Fprintf(writer, `{"count":1000000,"next":%q,"results":[]}`, next)
+		}))
+		repository, err := name.NewRepository("docker.io/acme/widgets", name.WeakValidation)
+		if err != nil {
+			testContext.Fatal(err)
+		}
+		_, err = (dockerHubTagMetadata{client: server.Client(), baseURL: server.URL}).Updates(testContext.Context(), repository, []string{"v1.2.3"}, 0)
+		server.Close()
+		if err == nil || !strings.Contains(err.Error(), "pagination") {
+			testContext.Fatalf("next=%s err=%v", next, err)
+		}
+	}
+}
+
 type staticTagMetadata map[string]time.Time
 
-func (metadata staticTagMetadata) Updates(_ context.Context, _ name.Repository, tags []string, _ int) (map[string]time.Time, error) {
+func (metadata staticTagMetadata) Updates(_ context.Context, _ name.Repository, tags []string, _ int, _ ...*discoveryBudget) (map[string]time.Time, error) {
 	updates := make(map[string]time.Time, len(tags))
 	for _, tag := range tags {
 		updates[tag] = metadata[tag]

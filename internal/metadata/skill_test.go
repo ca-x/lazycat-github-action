@@ -317,8 +317,8 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 	if err := json.Unmarshal(prompts, &promptCases); err != nil {
 		t.Fatal(err)
 	}
-	if len(promptCases) != 26 {
-		t.Fatalf("test-prompts.json cases=%d, want 26", len(promptCases))
+	if len(promptCases) != 28 {
+		t.Fatalf("test-prompts.json cases=%d, want 28", len(promptCases))
 	}
 	promptIDs := make(map[string]string, len(promptCases))
 	for _, prompt := range promptCases {
@@ -331,6 +331,8 @@ func TestRepositorySkillContractAndEvals(t *testing.T) {
 		promptIDs[prompt.ID] = prompt.Expected
 	}
 	for id, required := range map[string][]string{
+		"large-upstream-automatic-discovery":    {"max_tags", "max_matching_tags", "32 MiB", "SemVer", "last_updated", "平台回退", "部分结果"},
+		"release-cleanup-default-and-opt-out":   {"release.cleanup", "enabled: true", "keep_latest: 1000", "enabled: false", "release-repository", "Git tag", "草稿", "不干预"},
 		"historical-lpk-migration":              {"git ls-files '*.lpk'", "总字节", "yes/no", "拒绝", "versioned-release-asset: true", "<package-id>-v<version>.lpk"},
 		"go-template-manifest-preservation":     {"绝不执行或求值", "if/else/end/with/range", "逐字节", "fail closed"},
 		"release-store-reconciliation":          {"精确命名", "GitHub sha256 digest", "本地 SHA256", "官方商店补交", "喵喵商店", "独立跳过", "不重建", "不改名", "不猜测"},

@@ -23,7 +23,7 @@ const (
 )
 
 type tagMetadata interface {
-	Updates(context.Context, name.Repository, []string, int) (map[string]time.Time, error)
+	Updates(context.Context, name.Repository, []string, int, ...*discoveryBudget) (map[string]time.Time, error)
 }
 
 type dockerHubTagMetadata struct {
@@ -34,6 +34,7 @@ type dockerHubTagMetadata struct {
 
 type dockerHubTagsPage struct {
 	Count   int                  `json:"count"`
+	Next    string               `json:"next"`
 	Results []dockerHubTagResult `json:"results"`
 }
 
@@ -42,12 +43,18 @@ type dockerHubTagResult struct {
 	LastUpdated time.Time `json:"last_updated"`
 }
 
-func (metadata dockerHubTagMetadata) Updates(ctx context.Context, repository name.Repository, tags []string, maxTags int) (map[string]time.Time, error) {
+func (metadata dockerHubTagMetadata) Updates(ctx context.Context, repository name.Repository, tags []string, maxTags int, budgets ...*discoveryBudget) (map[string]time.Time, error) {
 	if ctx == nil {
 		return nil, errors.New("docker hub metadata context is required")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("docker hub metadata request cancelled: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(ctx, tagDiscoveryTimeout)
+	defer cancel()
+	budget := &discoveryBudget{remaining: tagDiscoveryBudget}
+	if len(budgets) > 0 && budgets[0] != nil {
+		budget = budgets[0]
 	}
 	if !isDockerHubRegistry(repository.RegistryStr()) {
 		return nil, fmt.Errorf("updated sorting is supported only for Docker Hub repositories, got %q", repository.RegistryStr())
@@ -59,7 +66,7 @@ func (metadata dockerHubTagMetadata) Updates(ctx context.Context, repository nam
 			desired[tag] = struct{}{}
 		}
 	}
-	if len(desired) > maxTags {
+	if maxTags > 0 && len(desired) > maxTags {
 		return nil, fmt.Errorf("docker hub metadata requested %d tags; limit is %d", len(desired), maxTags)
 	}
 	if len(desired) == 0 {
@@ -84,15 +91,15 @@ func (metadata dockerHubTagMetadata) Updates(ctx context.Context, repository nam
 	}
 
 	updates := make(map[string]time.Time, len(desired))
-	for page := 1; page <= (maxTags+pageSize-1)/pageSize; page++ {
-		endpoint := fmt.Sprintf(
-			"%s/v2/namespaces/%s/repositories/%s/tags?page=%s&page_size=%s",
-			baseURL,
-			url.PathEscape(parts[0]),
-			url.PathEscape(parts[1]),
-			strconv.Itoa(page),
-			strconv.Itoa(pageSize),
-		)
+	endpoint := fmt.Sprintf(
+		"%s/v2/namespaces/%s/repositories/%s/tags?page=1&page_size=%s",
+		baseURL, url.PathEscape(parts[0]), url.PathEscape(parts[1]), strconv.Itoa(pageSize),
+	)
+	tracker, err := newPageTracker(endpoint, budget)
+	if err != nil {
+		return nil, err
+	}
+	for endpoint != "" {
 		request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 		if err != nil {
 			return nil, fmt.Errorf("create Docker Hub tag metadata request: %w", err)
@@ -118,9 +125,6 @@ func (metadata dockerHubTagMetadata) Updates(ctx context.Context, repository nam
 		if err := json.Unmarshal(body, &payload); err != nil {
 			return nil, fmt.Errorf("decode Docker Hub tag metadata for %q: %w", repository.Name(), err)
 		}
-		if payload.Count > maxTags {
-			return nil, fmt.Errorf("docker hub repository %q returned %d tags; limit is %d", repository.Name(), payload.Count, maxTags)
-		}
 		for _, result := range payload.Results {
 			if _, wanted := desired[result.Name]; !wanted {
 				continue
@@ -128,13 +132,17 @@ func (metadata dockerHubTagMetadata) Updates(ctx context.Context, repository nam
 			if result.LastUpdated.IsZero() {
 				return nil, fmt.Errorf("docker hub tag %q update time is missing", result.Name)
 			}
+			if existing, found := updates[result.Name]; found && !existing.Equal(result.LastUpdated) {
+				return nil, fmt.Errorf("docker hub tag %q has conflicting update times", result.Name)
+			}
 			updates[result.Name] = result.LastUpdated.UTC()
 		}
 		if len(updates) == len(desired) {
 			return updates, nil
 		}
-		if len(payload.Results) == 0 || len(payload.Results) < pageSize || (payload.Count > 0 && page*pageSize >= payload.Count) {
-			break
+		endpoint, err = tracker.next(payload.Next)
+		if err != nil {
+			return nil, err
 		}
 	}
 	for tag := range desired {

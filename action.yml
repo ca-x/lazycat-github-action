@@ -128,6 +128,12 @@ outputs:
   update-strategy:
     description: Normalized pull or publish update strategy.
     value: ${{ steps.run.outputs['update-strategy'] }}
+  release-cleanup-enabled:
+    description: Whether GitHub Release cleanup is enabled; defaults to true.
+    value: ${{ steps.run.outputs['release-cleanup-enabled'] }}
+  release-keep-latest:
+    description: Published GitHub Releases to retain; defaults to 1000, excluding protected releases.
+    value: ${{ steps.run.outputs['release-keep-latest'] }}
   channel:
     description: Channel selected by the version-source image.
     value: ${{ steps.run.outputs.channel }}
@@ -148,7 +154,7 @@ runs:
       id: run
       shell: bash
       env:
-        LAZYCAT_ACTION_VERSION: v1.3.7
+        LAZYCAT_ACTION_VERSION: v1.3.8
         GITHUB_TOKEN: ${{ env.GITHUB_TOKEN || github.token }}
         GH_REPO_TOKEN: ${{ env.GH_REPO_TOKEN }}
         GH_RELEASE_TOKEN: ${{ env.GH_RELEASE_TOKEN }}

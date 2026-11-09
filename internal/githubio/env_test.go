@@ -239,7 +239,7 @@ func TestWriteOutputsUsesStableKeysAndDoesNotLeakSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := output.String()
-	for _, key := range []string{"operation", "changed", "package-id", "package-file", "manifest-file", "version", "tag", "lpk-path", "sha256", "download-url", "image-results", "store-results", "official-store-enabled", "official-review-pending", "official-review-version", "private-store-enabled", "update-strategy", "channel", "result-file", "runner-arch", "target-platform"} {
+	for _, key := range []string{"operation", "changed", "package-id", "package-file", "manifest-file", "version", "tag", "lpk-path", "sha256", "download-url", "image-results", "store-results", "official-store-enabled", "official-review-pending", "official-review-version", "private-store-enabled", "release-cleanup-enabled", "release-keep-latest", "update-strategy", "channel", "result-file", "runner-arch", "target-platform"} {
 		if !strings.Contains(got, key+"<<lazycat_output_") {
 			t.Fatalf("missing key %q in:\n%s", key, got)
 		}

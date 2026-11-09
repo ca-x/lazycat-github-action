@@ -8,7 +8,7 @@ import (
 )
 
 func TestFilterTagsAllowsLargeRepositoryWithNarrowFilter(t *testing.T) {
-	tags := make([]string, defaultMaxTags+1)
+	tags := make([]string, 10001)
 	for index := range tags {
 		tags[index] = fmt.Sprintf("unrelated-%05d", index)
 	}
@@ -24,12 +24,12 @@ func TestFilterTagsAllowsLargeRepositoryWithNarrowFilter(t *testing.T) {
 }
 
 func TestFilterTagsRejectsTooManyMatchingTags(t *testing.T) {
-	tags := make([]string, defaultMaxMatchingTags+1)
+	tags := make([]string, 10001)
 	for index := range tags {
 		tags[index] = fmt.Sprintf("server-vulkan-b%05d", index)
 	}
 
-	_, err := filterTags("ghcr.io/ggml-org/llama.cpp", tags, TagFilter{Include: regexp.MustCompile(`^server-vulkan-b\d+$`)})
+	_, err := filterTags("ghcr.io/ggml-org/llama.cpp", tags, TagFilter{Include: regexp.MustCompile(`^server-vulkan-b\d+$`), MaxMatchingTags: 10000})
 	if err == nil || !strings.Contains(err.Error(), "matching the configured filter") {
 		t.Fatalf("err=%v", err)
 	}

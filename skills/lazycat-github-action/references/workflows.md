@@ -1,5 +1,20 @@
 # Workflow reference
 
+## GitHub Release cleanup
+
+Configure cleanup in `.github/lazycat-action.yml`, not as a workflow input:
+
+```yaml
+release:
+  cleanup:
+    enabled: true
+    keep_latest: 1000
+```
+
+Both values are defaults. `enabled: false` disables cleanup; `keep_latest` must be a positive integer. After successful Release/store work with a verified Release asset, the reusable workflow lists all Releases in the resolved `release-repository` (otherwise the current repository) before deleting older published Releases. It uses `GH_RELEASE_TOKEN` for a separate destination, otherwise the normal publication token. Order is publication time descending, not tag name or SemVer. Prereleases count; drafts do not. Preserve the current Release, GitHub's latest Release, and Git tags even when protected releases exceed the retention count. Deleting a Release removes its GitHub attachments but never invokes either store's deletion APIs.
+
+Skip cleanup for PRs, dry runs, official-review pauses, and failed publication. Cleanup failure is visible without rolling back publication. Outputs expose `release-cleanup-enabled`, `release-keep-latest`, and `release-cleanup-deleted`. Direct composite callers only receive the first two configuration outputs and must own the post-publication cleanup lifecycle. Do not delete live historical releases merely while configuring this feature.
+
 ## Scheduled pull request
 
 ```yaml

@@ -63,3 +63,41 @@ func TestStoreChangelogFormatConfiguration(t *testing.T) {
 		})
 	}
 }
+
+func TestReleaseCleanupConfiguration(testContext *testing.T) {
+	for _, test := range []struct {
+		name, cleanup string
+		wantEnabled   bool
+		wantKeep      int
+		wantErr       bool
+	}{
+		{name: "defaults", wantEnabled: true, wantKeep: 1000},
+		{name: "disabled", cleanup: "  cleanup:\n    enabled: false\n", wantKeep: 1000},
+		{name: "custom retention", cleanup: "  cleanup:\n    enabled: true\n    keep_latest: 25\n", wantEnabled: true, wantKeep: 25},
+		{name: "disabled custom retention", cleanup: "  cleanup:\n    enabled: false\n    keep_latest: 2000\n", wantKeep: 2000},
+		{name: "zero retention", cleanup: "  cleanup:\n    keep_latest: 0\n", wantErr: true},
+		{name: "negative retention", cleanup: "  cleanup:\n    keep_latest: -1\n", wantErr: true},
+		{name: "fractional retention", cleanup: "  cleanup:\n    keep_latest: 1.5\n", wantErr: true},
+	} {
+		testContext.Run(test.name, func(testContext *testing.T) {
+			filename := filepath.Join(testContext.TempDir(), "config.yml")
+			source := "version: 1\nupdate:\n  version_source:\n    type: git\nrelease:\n" + test.cleanup
+			if err := os.WriteFile(filename, []byte(source), 0600); err != nil {
+				testContext.Fatal(err)
+			}
+			cfg, err := config.Load(filename)
+			if test.wantErr {
+				if err == nil {
+					testContext.Fatal("invalid cleanup retention was accepted")
+				}
+				return
+			}
+			if err != nil {
+				testContext.Fatal(err)
+			}
+			if cfg.Release.Cleanup.ShouldCleanup() != test.wantEnabled || cfg.Release.Cleanup.KeepLatestCount() != test.wantKeep {
+				testContext.Fatalf("cleanup=%+v want enabled=%t keep=%d", cfg.Release.Cleanup, test.wantEnabled, test.wantKeep)
+			}
+		})
+	}
+}

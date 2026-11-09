@@ -112,6 +112,8 @@ type Result struct {
 	OfficialReviewPending bool            `json:"officialReviewPending"`
 	OfficialReviewVersion string          `json:"officialReviewVersion,omitempty"`
 	PrivateStoreEnabled   bool            `json:"privateStoreEnabled"`
+	ReleaseCleanupEnabled bool            `json:"releaseCleanupEnabled"`
+	ReleaseKeepLatest     int             `json:"releaseKeepLatest"`
 	Channel               string          `json:"channel,omitempty"`
 	ResultFile            string          `json:"resultFile"`
 	RunnerArch            string          `json:"runnerArch"`
@@ -702,20 +704,22 @@ func runCheck(ctx context.Context, input Input, cfg config.Config, info project.
 
 func baseResult(input Input, host platform.Host, info project.Info, cfg config.Config) Result {
 	return Result{
-		PackageID:            info.PackageID,
-		PackageFile:          info.PackageFile,
-		ManifestFile:         info.ManifestFile,
-		Version:              input.Version,
-		Tag:                  input.Tag,
-		DownloadURL:          input.DownloadURL,
-		ImageResults:         json.RawMessage("[]"),
-		StoreResults:         json.RawMessage("{}"),
-		UpdateStrategy:       string(cfg.Update.Strategy),
-		OfficialStoreEnabled: cfg.Stores.Official.Enabled,
-		PrivateStoreEnabled:  cfg.Stores.Private.Enabled,
-		Channel:              input.Channel,
-		RunnerArch:           host.Arch,
-		TargetPlatform:       cfg.Project.Target().Platform(),
+		PackageID:             info.PackageID,
+		PackageFile:           info.PackageFile,
+		ManifestFile:          info.ManifestFile,
+		Version:               input.Version,
+		Tag:                   input.Tag,
+		DownloadURL:           input.DownloadURL,
+		ImageResults:          json.RawMessage("[]"),
+		StoreResults:          json.RawMessage("{}"),
+		UpdateStrategy:        string(cfg.Update.Strategy),
+		OfficialStoreEnabled:  cfg.Stores.Official.Enabled,
+		PrivateStoreEnabled:   cfg.Stores.Private.Enabled,
+		ReleaseCleanupEnabled: cfg.Release.Cleanup.ShouldCleanup(),
+		ReleaseKeepLatest:     cfg.Release.Cleanup.KeepLatestCount(),
+		Channel:               input.Channel,
+		RunnerArch:            host.Arch,
+		TargetPlatform:        cfg.Project.Target().Platform(),
 	}
 }
 

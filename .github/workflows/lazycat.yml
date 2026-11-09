@@ -169,6 +169,12 @@ on:
         value: ${{ jobs.lazycat.outputs.private-store-enabled }}
       update-strategy:
         value: ${{ jobs.lazycat.outputs.update-strategy }}
+      release-cleanup-enabled:
+        value: ${{ jobs.lazycat.outputs.release-cleanup-enabled }}
+      release-keep-latest:
+        value: ${{ jobs.lazycat.outputs.release-keep-latest }}
+      release-cleanup-deleted:
+        value: ${{ jobs.lazycat.outputs.release-cleanup-deleted }}
       channel:
         value: ${{ jobs.lazycat.outputs.channel }}
       result-file:
@@ -210,6 +216,9 @@ jobs:
       official-review-version: ${{ steps.publish-official.outputs.official-review-version || steps.lazycat.outputs.official-review-version }}
       private-store-enabled: ${{ steps.lazycat.outputs.private-store-enabled }}
       update-strategy: ${{ steps.lazycat.outputs.update-strategy }}
+      release-cleanup-enabled: ${{ steps.lazycat.outputs.release-cleanup-enabled }}
+      release-keep-latest: ${{ steps.lazycat.outputs.release-keep-latest }}
+      release-cleanup-deleted: ${{ steps.release-cleanup.outputs.deleted-count }}
       channel: ${{ steps.lazycat.outputs.channel }}
       result-file: ${{ steps.lazycat.outputs.result-file }}
       runner-arch: ${{ steps.lazycat.outputs.runner-arch }}
@@ -1021,3 +1030,78 @@ jobs:
               message: `chore: sync package version to ${process.env.VERSION} [skip ci]`,
               content: content.toString('base64'),
             });
+
+      - name: Clean up old GitHub Releases
+        id: release-cleanup
+        if: ${{ success() && steps.lazycat.outputs.release-cleanup-enabled == 'true' && !inputs.dry-run && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && steps.lazycat.outputs.official-review-pending != 'true' && steps.publish-official.outputs.official-review-pending != 'true' && steps.publish-official.outcome != 'failure' && (steps.asset-url.outputs.download-url != '' || steps.existing-asset.outputs.download-url != '') }}
+        continue-on-error: true
+        uses: actions/github-script@v9
+        env:
+          CLEANUP_ENABLED: ${{ steps.lazycat.outputs.release-cleanup-enabled }}
+          KEEP_LATEST: ${{ steps.lazycat.outputs.release-keep-latest }}
+          DRY_RUN: ${{ inputs.dry-run }}
+          RELEASE_REPOSITORY: ${{ steps.release-destination.outputs.repository }}
+          CURRENT_TAG: ${{ steps.lazycat.outputs.tag }}
+        with:
+          github-token: ${{ secrets.GH_RELEASE_TOKEN || github.token }}
+          script: |
+            core.setOutput('deleted-count', '0');
+            if (process.env.CLEANUP_ENABLED !== 'true' || process.env.DRY_RUN === 'true' || ['pull_request', 'pull_request_target'].includes(context.eventName)) {
+              return;
+            }
+            const keepText = process.env.KEEP_LATEST || '';
+            const keepLatest = Number(keepText);
+            const repository = process.env.RELEASE_REPOSITORY || '';
+            const currentTag = process.env.CURRENT_TAG || '';
+            if (!/^[0-9]+$/.test(keepText) || !Number.isSafeInteger(keepLatest) || keepLatest < 1 || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || !currentTag) {
+              core.setFailed('Invalid GitHub Release cleanup configuration');
+              return;
+            }
+            const [owner, repo] = repository.split('/');
+            const destination = {owner, repo};
+            let deleted = 0;
+            try {
+              const published = new Map();
+              for await (const response of github.paginate.iterator(github.rest.repos.listReleases, {...destination, per_page: 100})) {
+                for (const release of response.data) {
+                  if (release.draft) continue;
+                  const publishedAt = Date.parse(release.published_at);
+                  if (!Number.isSafeInteger(release.id) || release.id < 1 || typeof release.tag_name !== 'string' || !release.tag_name || !Number.isFinite(publishedAt)) {
+                    core.setFailed('Invalid published Release metadata; cleanup stopped without deleting releases');
+                    return;
+                  }
+                  published.set(release.id, {id: release.id, tag: release.tag_name, publishedAt});
+                }
+              }
+              const releases = [...published.values()].sort((left, right) => right.publishedAt - left.publishedAt || right.id - left.id);
+              if (!releases.some(release => release.tag === currentTag)) {
+                core.setFailed('Current published Release is missing; cleanup stopped without deleting releases');
+                return;
+              }
+              if (releases.length <= keepLatest) return;
+              let latestId;
+              try {
+                latestId = (await github.rest.repos.getLatestRelease(destination)).data.id;
+                if (!Number.isSafeInteger(latestId) || !published.has(latestId)) {
+                  core.setFailed('Latest published Release metadata is inconsistent; cleanup stopped without deleting releases');
+                  return;
+                }
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+              const candidates = releases.slice(keepLatest).filter(release => release.tag !== currentTag && release.id !== latestId);
+              core.info(`GitHub Release cleanup: retaining ${keepLatest} newest published releases plus protected current/latest releases; ${candidates.length} old releases selected.`);
+              for (const release of candidates) {
+                try {
+                  await github.rest.repos.deleteRelease({...destination, release_id: release.id});
+                  deleted++;
+                  core.setOutput('deleted-count', String(deleted));
+                } catch (error) {
+                  if (error.status !== 404) throw error;
+                }
+              }
+              core.info(`GitHub Release cleanup deleted ${deleted} releases. Git tags and store versions were not changed.`);
+            } catch (error) {
+              const status = Number.isInteger(error.status) ? ` (HTTP ${error.status})` : '';
+              core.setFailed(`GitHub Release cleanup failed${status}; ${deleted} releases deleted. Existing publication is preserved.`);
+            }

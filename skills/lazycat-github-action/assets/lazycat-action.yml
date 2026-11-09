@@ -20,6 +20,9 @@ update:
 # map A's GH_RELEASE_TOKEN Secret; github_repository below is only for notes.
 # One source changelog is resolved; stores receive plain text by default.
 release:
+  cleanup:
+    enabled: true
+    keep_latest: 1000
   use_github_release_notes: true
   # plain (default) removes Markdown at store submission; markdown preserves it.
   store_changelog_format: plain

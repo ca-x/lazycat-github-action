@@ -480,7 +480,9 @@ version_template: '{version}.{build}.0' # 20260603.01 -> 20260603.1.0
 
 `version` 捕获组仍然必填。未知占位符或展开后不是合法 SemVer 时会直接失败。配置了正则/模板映射时，三个 SemVer 数字核心字段会在校验前去掉前导零；预发布和构建标识仍遵循严格 SemVer 规则。
 
-镜像仓库发现使用 `github.com/google/go-containerregistry`。Action 会先应用 `tag_regex` 和 `exclude_regex`。`max_tags` 限制 Registry 返回的原始标签列表，默认 `10000`；仅在已知的大型上游仓库中按镜像显式提高，最大 `50000`。`max_matching_tags` 独立限制筛选后的候选数，默认也是 `10000`，且不得超过 `max_tags`。SemVer 排序先按标签排名；`updated` 先按 Docker Hub 标签元数据排名，两者都按顺序检查 manifest，找到第一个可用的项目目标平台就停止。按创建时间排序因为目标镜像时间参与排名，仍必须检查全部候选 manifest。OCI index 和 Docker manifest list 只选择 `project.target_arch` 对应平台。默认降级保护可以防止旧版本映射静默降低应用版本。
+镜像发现通过 `github.com/google/go-containerregistry` 完整分页。`max_tags` 和 `max_matching_tags` 省略或设为 `0` 时均为自动发现，不会只因上游超过一万或五万个 tag 就报错。每页先应用 `tag_regex` 和 `exclude_regex`，只保留去重后的匹配名称，读完全部分页再排序。自动发现使用 10 分钟总超时、名称与分页游标共享的 **32 MiB 保留状态计费预算**，默认单页响应不超过 4 MiB。这个预算不是进程总内存上限；预算耗尽、取消或分页失败都会明确报错，不会拿不完整列表继续选版本。
+
+仍可显式设置正数安全上限，两个字段各自最大 `50000`；两者均为正数时，匹配上限不得超过原始上限。原始上限统计所有返回记录，匹配上限只统计筛选后不重复的名称。已有的显式上限继续生效；若之前只是为绕过报错而调大数量，可省略这两个字段或将两者设为 `0`，切换为自动发现。SemVer 从完整候选集排名，跳过缺少 `project.target_arch` 的高版本后继续查找，不截断前 N 个 tag，也不把 Registry 的返回顺序当作更新时间。GHCR 标准标签列表没有时间字段；Docker Hub 的 `sort: updated` 使用 `last_updated`，独立跟随元数据分页，不受全库数量误限，也不以镜像创建时间代替更新时间。`created` 排序仍检查全部候选的目标平台 manifest。OCI index 只选择项目目标平台，原有降级保护不变。
 
 ## 镜像交付模式
 
@@ -688,6 +690,21 @@ update:
 直接发布会创建 Git commit、tag、GitHub Release 和 Release Asset。配置了商店时，reusable workflow 随后提交经过校验的 LPK。`strategy: pull` 永远不会发布商店。
 
 定时或手动触发的自动直发开始前，如果启用了官方商店，Action 会通过带认证的开发者 API 查询精确的审核中版本。对于镜像版本源，`stores.official.continue_if_newer_version` 默认是 `true`：真实镜像检查会选择最新候选，并在 mirror 校验、懒猫镜像交付或文件修改之前完成比较。对于可变的 `bump: patch` 版本源，Action 根据 Manifest 中持久化的源 digest 规划候选应用版本：digest 未变时保留当前版本，变化时选择下一 patch。审核中版本等于或高于候选版本时暂停；候选版本更高时，后续自动升级和发布复用同一次选择继续执行。官方上传前，reusable workflow 还会用最终校验过的 LPK 版本再次执行认证比较，避免构建或创建 Release 期间新增的审核绕过门禁。将此选项设为 `false` 可恢复“只要存在审核就暂停”的保守行为。暂停结果会输出 `official-review-pending: true` 和 `official-review-version`；首次检查暂停时不会编辑、提交、推送、打 tag、创建 Release 或对账商店，最终复查暂停时则会阻止官方 LPK 上传和审核提交。Git 版本源没有可比较的上游镜像候选，因此存在审核时始终暂停。无效/非 SemVer 比较、认证错误和远程错误都会安全停止。显式 operation、dry-run、PR 更新及 Tag/Release 发布保持原行为。
+
+## GitHub Release 清理
+
+Reusable workflow 在成功发布后自动清理旧 GitHub Release。默认开启，按发布时间保留最新 **1000 个已发布版本**；预发布版本计入数量，草稿不计入。
+
+```yaml
+release:
+  cleanup:
+    enabled: true
+    keep_latest: 1000
+```
+
+设置 `enabled: false` 可关闭清理，`keep_latest` 可改为其他正整数。清理使用发布凭据，作用于 `release-repository` 指定的仓库，未指定则为当前仓库。当前 tag 对应的 Release、GitHub 标记的最新 Release、所有草稿和 Git tag 均保留，因此实际保留数量可能高于设定值。删除 Release 也会删除其 GitHub 附件，但不修改喵喵商店和官方商店各自保留的版本。
+
+dry-run、PR、官方审核暂停或发布失败时不清理。清理失败会显示错误，但不撤销已成功的发布。直接调用 composite Action 时会得到 `release-cleanup-enabled`、`release-keep-latest` 输出，调用方需在自己的发布流程中处理清理。
 
 ## 商店发布
 

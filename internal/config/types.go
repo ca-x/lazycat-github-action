@@ -103,10 +103,11 @@ type Delivery struct {
 }
 
 type Release struct {
-	ChangelogTemplate     string `yaml:"changelog_template"`
-	StoreChangelogFormat  string `yaml:"store_changelog_format"`
-	GitHubRepository      string `yaml:"github_repository"`
-	UseGitHubReleaseNotes *bool  `yaml:"use_github_release_notes"`
+	ChangelogTemplate     string         `yaml:"changelog_template"`
+	StoreChangelogFormat  string         `yaml:"store_changelog_format"`
+	GitHubRepository      string         `yaml:"github_repository"`
+	UseGitHubReleaseNotes *bool          `yaml:"use_github_release_notes"`
+	Cleanup               ReleaseCleanup `yaml:"cleanup"`
 }
 
 func (release Release) ShouldUseGitHubReleaseNotes() bool {

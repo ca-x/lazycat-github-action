@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -16,11 +15,6 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-)
-
-const (
-	defaultMaxTags         = 10000
-	defaultMaxMatchingTags = 10000
 )
 
 var ErrPlatformNotFound = errors.New("target image platform not found")
@@ -60,7 +54,7 @@ type TagFilter struct {
 
 func New(options ...remote.Option) *Client {
 	return &Client{
-		options: append([]remote.Option(nil), options...),
+		options: append([]remote.Option{remote.WithTransport(boundedTagTransport{base: remote.DefaultTransport})}, options...),
 		tagMetadata: dockerHubTagMetadata{
 			client:  &http.Client{Timeout: dockerHubRequestTimeout},
 			baseURL: dockerHubBaseURL,
@@ -77,6 +71,9 @@ func (client *Client) CandidatesForTarget(ctx context.Context, source string, ta
 	if err := checkContext(ctx); err != nil {
 		return nil, err
 	}
+	ctx, cancel := context.WithTimeout(ctx, tagDiscoveryTimeout)
+	defer cancel()
+	budget := &discoveryBudget{remaining: tagDiscoveryBudget}
 	target, err := target.Normalize()
 	if err != nil {
 		return nil, err
@@ -89,19 +86,7 @@ func (client *Client) CandidatesForTarget(ctx context.Context, source string, ta
 	if len(filters) > 0 {
 		filter = filters[0]
 	}
-	tags, err := remote.List(repository, client.remoteOptions(ctx, target)...)
-	if err != nil {
-		return nil, fmt.Errorf("list image tags for %q: %w", source, err)
-	}
-	maxTags := filter.MaxTags
-	if maxTags == 0 {
-		maxTags = defaultMaxTags
-	}
-	if len(tags) > maxTags {
-		return nil, publicError{detail: fmt.Sprintf("image repository returned %d tags; raw limit is %d", len(tags), maxTags)}
-	}
-	sort.Strings(tags)
-	eligibleTags, err := filterTags(source, tags, filter)
+	eligibleTags, err := client.listMatchingTags(ctx, repository, target, filter, budget)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +124,7 @@ func (client *Client) CandidatesForTarget(ctx context.Context, source string, ta
 	}
 	if filter.UpdatedRule != nil {
 		metadata := clientTagMetadata(client)
-		updates, err := metadata.Updates(ctx, repository, eligibleTags, matchingTagLimit(filter))
+		updates, err := metadata.Updates(ctx, repository, eligibleTags, filter.MaxMatchingTags, budget)
 		if err != nil {
 			return nil, fmt.Errorf("read image tag update times for %q: %w", source, err)
 		}
@@ -206,18 +191,11 @@ func filterTags(source string, tags []string, filter TagFilter) ([]string, error
 		}
 		eligibleTags = append(eligibleTags, tag)
 	}
-	maxMatchingTags := matchingTagLimit(filter)
-	if len(eligibleTags) > maxMatchingTags {
+	maxMatchingTags := filter.MaxMatchingTags
+	if maxMatchingTags > 0 && len(eligibleTags) > maxMatchingTags {
 		return nil, publicError{detail: fmt.Sprintf("image repository has %d tags matching the configured filter; limit is %d", len(eligibleTags), maxMatchingTags)}
 	}
 	return eligibleTags, nil
-}
-
-func matchingTagLimit(filter TagFilter) int {
-	if filter.MaxMatchingTags > 0 {
-		return filter.MaxMatchingTags
-	}
-	return defaultMaxMatchingTags
 }
 
 func clientTagMetadata(client *Client) tagMetadata {

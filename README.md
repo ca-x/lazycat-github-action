@@ -481,7 +481,9 @@ version_template: '{version}.{build}.0' # 20260603.01 -> 20260603.1.0
 
 The `version` group remains required. Unknown placeholders and expanded values that are not valid SemVer fail closed. When a regex/template mapping is configured, leading zeroes in the three numeric SemVer core components are removed before validation; prerelease and build identifiers remain subject to strict SemVer rules.
 
-Registry discovery uses `github.com/google/go-containerregistry`. `tag_regex` and `exclude_regex` run before the Action fetches individual manifests. `max_tags` bounds the raw Registry tag list and defaults to `10000`; set it per image only for a known large upstream, up to `50000`. `max_matching_tags` independently bounds filtered candidates and also defaults to `10000`; it must not exceed `max_tags`. For SemVer sorting, the Action ranks tag names first. For `updated`, it ranks Docker Hub tag metadata first. Both inspect manifests in order only until the first usable configured target is found. Creation-time sorting must inspect every eligible manifest because the target image timestamp is part of the ordering. OCI indexes and Docker manifest lists are reduced to `project.target_arch`. The default downgrade guard prevents an older mapped version from silently lowering the application version.
+Registry discovery uses `github.com/google/go-containerregistry` with complete pagination. Both `max_tags` and `max_matching_tags` default to automatic discovery when omitted or set to `0`; a repository is not rejected merely for exceeding 10000 or 50000 tags. Each page is filtered with `tag_regex` and `exclude_regex`, and unique matching names are retained before ranking. Automatic discovery has a 10-minute overall deadline, a **32 MiB retained-state accounting budget** for names and pagination cursors, and a default 4 MiB tag-page response limit. This accounting budget is not a total process-memory bound. Exceeding a resource budget or encountering a pagination error fails instead of selecting from a partial list.
+
+Optional positive `max_tags` and `max_matching_tags` remain hard safety caps, each at most `50000`; when both are positive, matching must not exceed raw. Raw caps count every returned record; matching caps count unique filtered names. Existing explicit caps still apply: omit them or set both to `0` to replace a manually raised count workaround with automatic discovery. For SemVer sorting, the Action ranks the complete filtered tag list before inspecting manifests, falling back past tags without `project.target_arch`. Never truncate the first/top N tags or treat Registry list order as update time. GHCR's standard tag list contains no timestamps. Docker Hub `sort: updated` uses tag `last_updated`, follows metadata pagination independently of repository count, and never substitutes image creation time. `created` sorting inspects every eligible target manifest. OCI indexes select `project.target_arch`; downgrade protection remains unchanged.
 
 ## Image delivery modes
 
@@ -693,6 +695,21 @@ A successful scheduled or manual image check commits only the managed package an
 Direct publish creates the Git commit, tag, GitHub Release, and Release Asset. If a store is enabled, the reusable workflow then submits the verified LPK to that store. Store publishing never runs for `strategy: pull`.
 
 Before an automatic scheduled or manually dispatched direct publish, an enabled official store is queried through the authenticated developer API for an exact version awaiting review. For an image version source, `stores.official.continue_if_newer_version` defaults to `true`: the real image check selects the latest candidate and compares it before mirror verification, LazyCat delivery, or file edits. For mutable `bump: patch` sources, the candidate application version is planned from the persisted source digest: an unchanged digest keeps the current version and a changed digest selects the next patch. The run pauses when the waiting-review version is equal to or newer than that candidate; if the candidate is newer, the same selection continues through automatic update and publication. Immediately before official upload, the reusable workflow repeats the authenticated comparison against the final verified LPK version so a review created during build/Release work cannot bypass the gate. Set the option to `false` to restore the conservative behavior of pausing for every pending review. A pause reports `official-review-pending: true` plus `official-review-version`; the initial pause does not edit, commit, push, tag, create a Release, or reconcile either store, while a final recheck pause prevents official upload/review submission. Git version sources pause for any pending review because there is no upstream image candidate to compare. Invalid/non-SemVer comparisons, authentication errors, and remote failures fail closed. Explicit operations, dry runs, pull-request updates, and Tag/Release publication keep their existing behavior.
+
+## GitHub Release cleanup
+
+The reusable workflow automatically cleans old GitHub Releases after successful publication. Cleanup is enabled by default and retains the newest **1000 published releases**, ordered by publication time; prereleases count, drafts do not.
+
+```yaml
+release:
+  cleanup:
+    enabled: true
+    keep_latest: 1000
+```
+
+Set `enabled: false` to disable cleanup, or change `keep_latest` to another positive integer. Cleanup targets `release-repository`, or the current repository when omitted, using the publication token. It preserves the current tag's Release, GitHub's latest Release, all drafts, and all Git tags; protected releases can increase the retained total. Deleting a Release also deletes its GitHub assets. Neither store's independently retained versions are modified.
+
+Dry runs, PRs, pending official review, and failed publication do not trigger cleanup. A cleanup failure is visible but does not undo publication. Composite Action callers receive `release-cleanup-enabled` and `release-keep-latest`; their caller-owned lifecycle must perform cleanup itself.
 
 ## Store publishing
 
@@ -984,6 +1001,8 @@ These projects do not need an `images` section. Their version comes from the tag
 | `official-review-version` | Exact version currently awaiting official review, when present |
 | `private-store-enabled` | Private store is enabled in configuration |
 | `update-strategy` | `pull` or `publish` |
+| `release-cleanup-enabled` | Whether GitHub Release cleanup is enabled; defaults to `true` |
+| `release-keep-latest` | Number of newest published Releases to retain; defaults to `1000` |
 | `channel` | Channel of the version-source image |
 | `result-file` | Complete secret-free JSON result path |
 | `runner-arch` | `amd64` or `arm64` |

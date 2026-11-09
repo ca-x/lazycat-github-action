@@ -1,5 +1,9 @@
 # Configuration reference
 
+## GitHub Release retention
+
+`release.cleanup.enabled` defaults to `true`; set `false` to disable GitHub Release cleanup. `release.cleanup.keep_latest` defaults to `1000` and must be a positive integer. These settings affect the reusable workflow's resolved publication repository only, not upstream Docker tags or store retention. See the [workflow lifecycle and protection rules](workflows.md#github-release-cleanup).
+
 ## Core shape
 
 ```yaml
@@ -187,7 +191,9 @@ For a registry that exposes only a mutable tag such as `latest`, configure the i
 
 Mutable LazyCat delivery stores the selected source digest in the Manifest upstream comment and uses that baseline instead of anonymously inspecting the private LazyCat Registry. A legacy LazyCat runtime without a baseline performs one authenticated copy and compares the returned content-addressed reference; an external runtime performs one migration copy without bumping. Dry-run fails closed only when a legacy private runtime has no persisted baseline.
 
-Registry discovery uses `github.com/google/go-containerregistry`. `max_tags` limits an image's raw Registry tag list, defaults to `10000`, and may be explicitly raised to at most `50000` for a known large upstream. `max_matching_tags` independently limits tags remaining after `tag_regex` and `exclude_regex`, defaults to `10000`, and must not exceed `max_tags`. Keep both defaults unless the repository has a measured need. SemVer rules rank filtered tag names before manifest inspection and stop at the first usable configured target, falling back past platform-incompatible higher tags. `sort: updated` uses Docker Hub `last_updated`, then mapped SemVer and tag name; it is Docker Hub-only and fails closed instead of falling back to OCI creation time. `created` rules inspect all eligible manifests because the configured target image creation timestamps determine the result.
+Registry discovery uses complete `github.com/google/go-containerregistry` pagination. Omit `max_tags` and `max_matching_tags`, or set both to `0`, for automatic discovery even when upstream has more than 10000 or 50000 valid tags. Pages are filtered immediately and matching names are deduplicated; the complete result is ranked before inspecting any manifest. Safeguards are a 10-minute overall discovery deadline, a 32 MiB retained-state accounting budget shared by names and pagination cursors, and a default 4 MiB tag-page body limit. The accounting budget is not a total process-memory limit. A resource, timeout, or pagination failure must not yield partial candidates.
+
+Positive per-image caps remain optional and cannot exceed `50000`; when both are positive, `max_matching_tags` must not exceed `max_tags`. The raw cap counts all returned records, including duplicates; the matching cap counts unique regex/exclude matches. Existing explicit limits are not silently removed. To migrate a previous manually raised-count workaround, omit both limits or set both to `0`. Do not truncate first/top N names, depend on lexicographic order, or pin one immutable version to hide discovery errors. SemVer retains full ranking and platform fallback. GHCR's standard tag API has no timestamps. Docker Hub `sort: updated` uses `last_updated`, then mapped SemVer and tag name; follow metadata `next` independently of total Count or short pages, and fail closed if requested timestamps are missing. Never replace tag update time with OCI creation time. `created` rules still inspect every eligible target manifest.
 
 ## Image target examples
 

@@ -2,6 +2,18 @@
   "version": 1,
   "cases": [
     {
+      "id": "large-upstream-automatic-discovery",
+      "prompt": "GHCR 的 Magpie 上游返回 10277 个 tag，超出默认 10000；另有 Docker Hub 仓库超过五万个合法版本。不要让我反复调数量，也不能漏掉最后一页的最新版。请修正调用配置并解释支持边界。",
+      "mustInclude": ["max_tags", "max_matching_tags", "0", "32 MiB", "SemVer", "last_updated", "分页"],
+      "mustNotInclude": ["max_tags: 15000", "max_matching_tags: 15000", "tag_regex: '^0\\.1\\.3198$'", "sort: updated\n    source: ghcr.io/yetone/magpie"]
+    },
+    {
+      "id": "release-cleanup-default-and-opt-out",
+      "prompt": "给应用配置 GitHub Release 自动清理：默认开启、保留1000个已发布版本；另一应用要求关闭。说明如何改保留数量、跨仓库目标、保护规则，以及是否影响 Git tag 和商店版本。只配置，不立即在线清理。",
+      "mustInclude": ["release:", "cleanup:", "enabled: true", "keep_latest: 1000", "enabled: false", "release-repository", "Git tag", "草稿"],
+      "mustNotInclude": ["delete-tags: true", "keep_latest: 0", "gh release delete", "清理官方商店历史版本"]
+    },
+    {
       "id": "multi-service-web-version-source",
       "prompt": "Configure scheduled updates for a manifest with db and web services; web is the visible application and drives versions.",
       "mustInclude": ["version_source", "image: web", "target: service", "service: web", "strategy: pull"],

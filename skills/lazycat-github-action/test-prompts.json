@@ -1,5 +1,15 @@
 [
   {
+    "id": "large-upstream-automatic-discovery",
+    "prompt": "GHCR Magpie 有10277个上游tag导致超过10000上限；Docker Hub也有超过五万个合法版本。请避免继续手调数量，保留跨分页的SemVer最新版本选择和目标平台回退。",
+    "expected": "两个字段 max_tags 和 max_matching_tags 均省略或设为 0，启用自动完整分页，而不是默认再调成15000或50000。每页先筛选、按名称去重，完整候选集做 SemVer 排名和平台回退，不截断前N条、不把分页或字典序当时间。说明10分钟总超时、32 MiB保留状态计费预算和默认4 MiB单页限制，不承诺进程总内存32 MiB；预算或分页失败不使用部分结果。保留用户有意设置的正数安全cap。GHCR标准tag列表无时间字段，Docker Hub updated用last_updated并独立跟随next，不因全库Count或短页早停，也不用created冒充更新时间。"
+  },
+  {
+    "id": "release-cleanup-default-and-opt-out",
+    "prompt": "配置GitHub Release清理，默认开启保留1000个版本，允许用户改数量或关闭。另一个应用明确要求关闭。不要现场删除旧Release，也不要影响喵喵或官方商店的版本保留。",
+    "expected": "在 release.cleanup 下显式提供 enabled: true 和 keep_latest: 1000；自定义数量必须为正整数，关闭使用 enabled: false，不能用keep_latest: 0删除全部。成功发布并验证Release附件后清理release-repository目标仓库，跨仓库使用发布token。按发布时间计数，包括预发布、不包括草稿；保护当前Release、GitHub最新Release和Git tag，保护项可使数量超过设定值。删除仅影响GitHub Release及附件，不干预两个商店的保留策略。PR、dry-run、审核暂停、发布失败不清理；设置配置不等于授权agent立即在线删除。"
+  },
+  {
     "id": "dual-store-deduplication",
     "prompt": "这个项目通过 release 同时发布到懒猫官方商店和喵喵私有商店。请配置 Action：如果精确包名对应的线上最新版本已经等于本次 LPK 版本，就不要重复提交。喵喵应用只对两个私有分组可见。给出配置和 Secret 设置方式。",
     "expected": "同时启用两个 skip_if_version_exists 开关；把分组码作为逗号分隔的 PRIVATE_STORE_GROUP_CODES GitHub Secret；说明相同版本跳过、NotFound 继续、其他查询错误失败，且不把分组码写入 YAML 或普通 input。"

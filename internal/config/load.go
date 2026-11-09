@@ -164,6 +164,9 @@ func applyDefaults(value *Config) {
 }
 
 func validate(value Config) error {
+	if value.Release.Cleanup.KeepLatestCount() < 1 {
+		return errors.New("release.cleanup.keep_latest must be a positive integer")
+	}
 	if err := releasenotes.ValidateStoreFormat(value.Release.StoreChangelogFormat); err != nil {
 		return fmt.Errorf("release.store_changelog_format: %w", err)
 	}
@@ -263,10 +266,10 @@ func validate(value Config) error {
 			return fmt.Errorf("image %q source is required", image.ID)
 		}
 		if image.MaxTags < 0 || image.MaxTags > 50000 {
-			return fmt.Errorf("image %q max_tags must be between 1 and 50000 when set", image.ID)
+			return fmt.Errorf("image %q max_tags must be between 1 and 50000 when set; omit or use 0 for automatic discovery", image.ID)
 		}
 		if image.MaxMatchingTags < 0 || image.MaxMatchingTags > 50000 {
-			return fmt.Errorf("image %q max_matching_tags must be between 1 and 50000 when set", image.ID)
+			return fmt.Errorf("image %q max_matching_tags must be between 1 and 50000 when set; omit or use 0 for automatic discovery", image.ID)
 		}
 		if image.MaxTags > 0 && image.MaxMatchingTags > image.MaxTags {
 			return fmt.Errorf("image %q max_matching_tags must not exceed max_tags", image.ID)

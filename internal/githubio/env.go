@@ -158,6 +158,8 @@ func WriteOutputs(writer io.Writer, result action.Result) error {
 		{key: "official-review-pending", value: strconv.FormatBool(result.OfficialReviewPending)},
 		{key: "official-review-version", value: result.OfficialReviewVersion},
 		{key: "private-store-enabled", value: strconv.FormatBool(result.PrivateStoreEnabled)},
+		{key: "release-cleanup-enabled", value: strconv.FormatBool(result.ReleaseCleanupEnabled)},
+		{key: "release-keep-latest", value: strconv.Itoa(result.ReleaseKeepLatest)},
 		{key: "update-strategy", value: result.UpdateStrategy},
 		{key: "channel", value: result.Channel},
 		{key: "result-file", value: result.ResultFile},
