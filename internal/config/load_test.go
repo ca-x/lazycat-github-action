@@ -371,6 +371,7 @@ stores:
     skip_if_version_exists: true
     name: " Private Example "
     summary: " Private summary "
+    resolve_by_name: true
 `,
 			check: func(t *testing.T, got config.Config) {
 				if !got.Stores.Official.SkipIfVersionExists || !got.Stores.Private.SkipIfVersionExists {
@@ -386,7 +387,7 @@ stores:
 				if !application.SupportPC || !application.SupportMobile || strings.Join(application.ScreenshotPCFiles, ",") != ".github/screenshots/pc-one.png,.github/screenshots/pc-two.jpg" || len(application.ScreenshotMobileFiles) != 3 {
 					t.Fatalf("official application screenshots=%#v", application)
 				}
-				if got.Stores.Private.Name != "Private Example" || got.Stores.Private.Summary != "Private summary" {
+				if got.Stores.Private.Name != "Private Example" || got.Stores.Private.Summary != "Private summary" || !got.Stores.Private.ResolveByName {
 					t.Fatalf("private store=%#v", got.Stores.Private)
 				}
 			},
@@ -407,6 +408,9 @@ stores:
 			check: func(t *testing.T, got config.Config) {
 				if got.Stores.Official.SkipIfVersionExists || got.Stores.Private.SkipIfVersionExists {
 					t.Fatalf("store deduplication should default off: %#v", got.Stores)
+				}
+				if got.Stores.Private.ResolveByName {
+					t.Fatal("private name resolution must default off")
 				}
 			},
 		},

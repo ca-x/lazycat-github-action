@@ -154,7 +154,7 @@ runs:
       id: run
       shell: bash
       env:
-        LAZYCAT_ACTION_VERSION: v1.3.8
+        LAZYCAT_ACTION_VERSION: v1.3.9
         GITHUB_TOKEN: ${{ env.GITHUB_TOKEN || github.token }}
         GH_REPO_TOKEN: ${{ env.GH_REPO_TOKEN }}
         GH_RELEASE_TOKEN: ${{ env.GH_RELEASE_TOKEN }}

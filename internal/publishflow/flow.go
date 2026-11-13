@@ -339,6 +339,7 @@ func (flow Flow) publishPrivate(ctx context.Context, request Request, result Res
 		summary = name
 	}
 	input := private.Request{
+		ResolveByName: request.Config.Stores.Private.ResolveByName,
 		AppID: appID, PackageID: result.Artifact.PackageID, Name: name, Summary: summary,
 		Version: result.Artifact.Version, Changelog: request.Changelog,
 		DownloadURL: strings.TrimSpace(request.DownloadURL), SHA256: result.Artifact.SHA256,

@@ -797,7 +797,7 @@ PRIVATE_STORE_GROUP_CODES=ABC123,LATE23
 
 `APP_ID` 和 `PRIVATE_STORE_GROUP_CODES` 都是可选项。分组码属于访问凭据，必须以逗号分隔的 GitHub Secret 保存。它只用于匿名查询线上最新版本，由 toolkit 默认通过 `X-Group-Codes` 请求头发送，不会进入 Action inputs、outputs、summary 或结果 JSON。toolkit 会清除 Cookie jar 并禁止重定向，防止分组码被转发到其他来源。
 
-启用 `skip_if_version_exists: true` 后，Action 会在读取 `APPSTORE_TOKEN` 前通过精确包名查询喵喵商店。相等版本和线上更高的 SemVer 分别使用 `version-already-online`、`online-version-newer`，并且每个商店独立判断。无 HTTP 状态的连接错误、HTTP 429 和 HTTP 5xx 会进行最多三次指数退避尝试；应用不存在时继续发布，其他错误或重试耗尽后安全失败。真正发布时，如果没有 `APP_ID`，写客户端会先按 `packageId` 精确查找，再用 `stores.private.name` 调用带 Token 的 `GET /api/v1/apps/by-name?name=...` 接口。商店只返回当前 Token 有权上传版本的唯一精确同名应用；404 时创建新应用，同名歧义或鉴权错误直接停止。按名称解析出的历史应用可以保留不同的 `packageId`，Action 只使用其数字 ID 追加新的外部版本。提供 `APP_ID` 时，仍会先确认该应用的 `packageId` 与 LPK 一致。
+启用 `skip_if_version_exists: true` 后，Action 会在读取 `APPSTORE_TOKEN` 前通过精确包名查询喵喵商店。相等版本和线上更高的 SemVer 分别使用 `version-already-online`、`online-version-newer`，并且每个商店独立判断。无 HTTP 状态的连接错误、HTTP 429 和 HTTP 5xx 会进行最多三次指数退避尝试；应用不存在时继续发布，其他错误或重试耗尽后安全失败。真正发布时，没有 `APP_ID` 就按 `packageId` 精确查找，不存在则创建独立应用。自 v1.3.9 起，显示名称默认不再作为包身份：同名的单实例与多实例包不会共用商店条目。只有为历史包迁移显式设置 `stores.private.resolve_by_name: true`，才会用 `stores.private.name` 调用带 Token 的 `GET /api/v1/apps/by-name?name=...` 回退接口；其唯一可写的同名结果可以保留不同的历史 `packageId`。404 时创建新应用，同名歧义或鉴权错误直接停止。该选项只用于有意迁移，不可用于显示名相同的独立包。提供 `APP_ID` 时，始终先确认该应用的 `packageId` 与 LPK 一致。
 
 ### Release/商店对账
 

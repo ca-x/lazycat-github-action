@@ -203,6 +203,8 @@ Keep the maintained reusable workflow on the current major lines: `actions/check
 
 Set `build.run_buildscript: false` explicitly when `lzc-build.yml` has no `buildscript`; the Action default is `true`. For every publishing workflow, explicitly map each credential required by the enabled stores under the reusable job's `secrets:` block. Do not use only `secrets: inherit`: explicit mappings make missing repository authorization and Environment/Repository/Organization overrides reviewable. A public-image scheduled PR workflow with stores disabled should not receive unrelated repository Secrets.
 
+Private publication defaults to exact package-ID matching. Keep `stores.private.resolve_by_name: false` for independent packages, especially same-name single-instance/multi-instance variants. Enable it only for an explicitly confirmed historical package migration; name resolution can append versions to a different package's existing entry. Never reuse another package's `APP_ID`.
+
 Use `LZC_API_TOKEN` as the default credential for new or regenerated callers. Do not map `LAZYCAT_TOKEN` by default. Include `LAZYCAT_TOKEN` only when an existing caller still depends on an lzc-cli session token and no PAT migration has been confirmed. Do not map both credentials as a generic fallback; once the PAT path is confirmed, remove the legacy mapping from generated examples and workflow updates. Keep the reusable workflow's optional `LAZYCAT_TOKEN` input for backward compatibility.
 
 For versioned Release assets, set the reusable workflow input exactly:

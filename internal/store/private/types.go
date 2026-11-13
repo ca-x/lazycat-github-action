@@ -8,14 +8,15 @@ import (
 )
 
 type Request struct {
-	AppID       string
-	PackageID   string
-	Name        string
-	Summary     string
-	Version     string
-	Changelog   string
-	DownloadURL string
-	SHA256      string
+	ResolveByName bool
+	AppID         string
+	PackageID     string
+	Name          string
+	Summary       string
+	Version       string
+	Changelog     string
+	DownloadURL   string
+	SHA256        string
 }
 
 type Result struct {

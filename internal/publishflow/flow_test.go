@@ -134,6 +134,7 @@ func TestFlowPublishesPrivateStoreWithEnvironmentAndMetadataDefaults(t *testing.
 	}
 	cfg := publishConfig()
 	cfg.Stores.Private.Enabled = true
+	cfg.Stores.Private.ResolveByName = true
 	cfg.Release.StoreChangelogFormat = "markdown"
 	result, err := flow.Publish(t.Context(), publishflow.Request{
 		Target: publishflow.TargetPrivate, Config: cfg, Project: projectInfo(), LPKPath: "/repo/dist/app.lpk",
@@ -147,6 +148,9 @@ func TestFlowPublishesPrivateStoreWithEnvironmentAndMetadataDefaults(t *testing.
 	}
 	if published.Changelog != changelog {
 		t.Fatalf("changelog=%q, want %q", published.Changelog, changelog)
+	}
+	if !published.ResolveByName {
+		t.Fatal("private name resolution option was not forwarded")
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -172,13 +173,71 @@ func TestClientResolvesExistingApplicationByNameWhenHistoricalPackageDiffers(t *
 		t.Fatal(err)
 	}
 	result, err := client.Publish(context.Background(), private.Request{
-		PackageID: packageID, Name: appName, Version: version, DownloadURL: downloadURL, SHA256: digest,
+		ResolveByName: true, PackageID: packageID, Name: appName, Version: version, DownloadURL: downloadURL, SHA256: digest,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if packageQueries != 1 || nameResolutions != 1 || posts != 1 || result.AppID != "42" || result.VersionID != "56" || result.PackageID != historicalPackageID || result.Created || result.Existing {
 		t.Fatalf("packageQueries=%d nameResolutions=%d posts=%d result=%#v", packageQueries, nameResolutions, posts, result)
+	}
+}
+
+func TestClientDoesNotResolveDifferentPackageBySharedName(t *testing.T) {
+	nameResolutions := 0
+	created := false
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/api/v1/apps":
+			_, _ = response.Write([]byte(`{"apps":[]}`))
+		case request.Method == http.MethodGet && request.URL.Path == "/api/v1/apps/by-name":
+			nameResolutions++
+			_, _ = response.Write([]byte(`{"app":{"id":42,"packageId":"cloud.lazycat.single.instance","name":"Shared Name","canUploadVersion":true}}`))
+		case request.Method == http.MethodGet && request.URL.Path == "/api/v1/apps/42":
+			_, _ = response.Write([]byte(`{"app":{"id":42,"packageId":"cloud.lazycat.single.instance","name":"Shared Name","versions":[]}}`))
+		case request.Method == http.MethodPost && request.URL.Path == "/api/v1/apps":
+			created = true
+			response.WriteHeader(http.StatusCreated)
+			_, _ = response.Write([]byte(`{"app":{"id":17,"packageId":"cloud.lazycat.example.app","latestVersion":{"id":23,"appId":17,"version":"1.2.3","downloadUrl":"https://github.com/acme/example/releases/download/v1.2.3/app.lpk","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}`))
+		default:
+			t.Errorf("unexpected request: %s %s", request.Method, request.URL.Path)
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+	client, err := private.New(private.Options{BaseURL: server.URL, Token: "lcst_test", HTTPClient: server.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.Publish(t.Context(), private.Request{
+		PackageID: packageID, Name: "Shared Name", Version: version, DownloadURL: downloadURL, SHA256: digest,
+	})
+	if err != nil || nameResolutions != 0 || !created || !result.Created || result.AppID != "17" {
+		t.Fatalf("result=%#v err=%v nameResolutions=%d created=%v", result, err, nameResolutions, created)
+	}
+}
+
+func TestClientRejectsExplicitAppIDForDifferentPackage(t *testing.T) {
+	for _, resolveByName := range []bool{false, true} {
+		t.Run(strconv.FormatBool(resolveByName), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				if request.Method != http.MethodGet || request.URL.Path != "/api/v1/apps/42" {
+					t.Errorf("unexpected request: %s %s", request.Method, request.URL.Path)
+				}
+				_, _ = response.Write([]byte(`{"app":{"id":42,"packageId":"cloud.lazycat.single.instance","versions":[]}}`))
+			}))
+			defer server.Close()
+			client, err := private.New(private.Options{BaseURL: server.URL, Token: "lcst_test", HTTPClient: server.Client()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.Publish(t.Context(), private.Request{
+				ResolveByName: resolveByName, AppID: "42", PackageID: packageID, Name: "Shared Name", Version: version, DownloadURL: downloadURL, SHA256: digest,
+			})
+			if !errors.Is(err, lpkgo.ErrConflict) {
+				t.Fatalf("err=%v, want package identity conflict", err)
+			}
+		})
 	}
 }
 
@@ -205,7 +264,7 @@ func TestClientStopsWhenNameResolutionIsAmbiguous(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = client.Publish(context.Background(), private.Request{
-		PackageID: packageID, Name: "Duplicate App", Version: version, DownloadURL: downloadURL, SHA256: digest,
+		ResolveByName: true, PackageID: packageID, Name: "Duplicate App", Version: version, DownloadURL: downloadURL, SHA256: digest,
 	})
 	if !errors.Is(err, lpkgo.ErrConflict) || posts != 0 {
 		t.Fatalf("err=%v posts=%d", err, posts)

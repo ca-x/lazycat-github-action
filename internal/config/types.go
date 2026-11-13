@@ -163,6 +163,7 @@ func (application OfficialApplication) HasSubmissionInfo() bool {
 type PrivateStore struct {
 	Enabled             bool   `yaml:"enabled"`
 	SkipIfVersionExists bool   `yaml:"skip_if_version_exists"`
+	ResolveByName       bool   `yaml:"resolve_by_name"`
 	Name                string `yaml:"name"`
 	Summary             string `yaml:"summary"`
 }

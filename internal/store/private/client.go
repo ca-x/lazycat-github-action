@@ -64,7 +64,7 @@ func (client *Client) Publish(ctx context.Context, request Request) (Result, err
 		application, err = client.getApplication(ctx, request.AppID)
 		found = err == nil
 	} else {
-		application, found, resolvedByName, err = client.findApplication(ctx, request.PackageID, request.Name)
+		application, found, resolvedByName, err = client.findApplication(ctx, request.PackageID, request.Name, request.ResolveByName)
 		if err == nil && found {
 			application, err = client.getApplication(ctx, string(application.ID))
 		}
@@ -93,9 +93,9 @@ func (client *Client) Publish(ctx context.Context, request Request) (Result, err
 	return client.createVersion(ctx, application, request)
 }
 
-func (client *Client) findApplication(ctx context.Context, packageID, name string) (appDTO, bool, bool, error) {
+func (client *Client) findApplication(ctx context.Context, packageID, name string, resolveByName bool) (appDTO, bool, bool, error) {
 	application, found, err := client.findApplicationByQuery(ctx, packageID, packageID)
-	if err != nil || found || strings.TrimSpace(name) == strings.TrimSpace(packageID) {
+	if err != nil || found || !resolveByName || strings.TrimSpace(name) == strings.TrimSpace(packageID) {
 		return application, found, false, err
 	}
 	application, found, err = client.findApplicationByName(ctx, name)
