@@ -697,7 +697,7 @@ update:
 
 直接发布会创建 Git commit、tag、GitHub Release 和 Release Asset。配置了商店时，reusable workflow 随后提交经过校验的 LPK。`strategy: pull` 永远不会发布商店。
 
-定时或手动触发的自动直发开始前，如果启用了官方商店，Action 会通过带认证的开发者 API 查询精确的审核中版本。对于镜像版本源，`stores.official.continue_if_newer_version` 默认是 `true`：真实镜像检查会选择最新候选，并在 mirror 校验、懒猫镜像交付或文件修改之前完成比较。对于可变的 `bump: patch` 版本源，Action 根据 Manifest 中持久化的源 digest 规划候选应用版本：digest 未变时保留当前版本，变化时选择下一 patch。审核中版本等于或高于候选版本时暂停；候选版本更高时，后续自动升级和发布复用同一次选择继续执行。官方上传前，reusable workflow 还会用最终校验过的 LPK 版本再次执行认证比较，避免构建或创建 Release 期间新增的审核绕过门禁。将此选项设为 `false` 可恢复“只要存在审核就暂停”的保守行为。暂停结果会输出 `official-review-pending: true` 和 `official-review-version`；首次检查暂停时不会编辑、提交、推送、打 tag、创建 Release 或对账商店，最终复查暂停时则会阻止官方 LPK 上传和审核提交。Git 版本源没有可比较的上游镜像候选，因此存在审核时始终暂停。无效/非 SemVer 比较、认证错误和远程错误都会安全停止。显式 operation、dry-run、PR 更新及 Tag/Release 发布保持原行为。
+定时或手动触发的自动直发开始前，如果启用了官方商店，Action 会通过带认证的开发者 API 查询精确的审核中版本。对于镜像版本源，`stores.official.continue_if_newer_version` 默认是 `true`：真实镜像检查会选择最新候选，并在 mirror 校验、懒猫镜像交付或文件修改之前完成比较。对于可变的 `bump: patch` 版本源，Action 根据 Manifest 中持久化的源 digest 规划候选应用版本：digest 未变时保留当前版本，变化时选择下一 patch。审核中版本等于或高于候选版本时暂停；候选版本更高时，后续自动升级和发布复用同一次选择继续执行。官方上传前，reusable workflow 还会用最终校验过的 LPK 版本再次执行认证比较，避免构建或创建 Release 期间新增的审核绕过门禁。将此选项设为 `false` 可恢复“只要存在审核就暂停”的保守行为。暂停结果会输出 `official-review-pending: true` 和 `official-review-version`；首次检查暂停会停止应用更新、Release 创建和商店对账。最终复查暂停会阻止官方 LPK 上传和审核提交。保活步骤仍可独立记录本次运行。Git 版本源没有可比较的上游镜像候选，因此存在审核时始终暂停。无效/非 SemVer 比较、认证错误和远程错误都会安全停止。显式 operation、dry-run、PR 更新及 Tag/Release 发布保持原行为。
 
 ## GitHub Release 清理
 
