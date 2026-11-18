@@ -69,6 +69,10 @@ func TestReusableWorkflowContractAndActionRefs(t *testing.T) {
 		t.Fatalf("workflow_call=%#v", on["workflow_call"])
 	}
 	inputs, _ := call["inputs"].(map[string]any)
+	keepAlive, _ := inputs["keep-alive"].(map[string]any)
+	if keepAlive["type"] != "boolean" || keepAlive["default"] != true {
+		t.Fatalf("keep-alive must be a boolean input enabled by default: %#v", keepAlive)
+	}
 	for _, name := range []string{"config", "operation", "runner", "image-id", "version", "dry-run", "changelog", "changelog-template", "release-repository", "release-target-commitish", "toolchains", "go-version", "node-version", "rust-toolchain", "node-package-manager", "enable-qemu", "docker-mirror", "ghcr-mirror", "registry-mirrors"} {
 		if _, found := inputs[name]; !found {
 			t.Fatalf("missing workflow input %q", name)
@@ -419,8 +423,8 @@ func TestActionMetadataExposesStableContract(t *testing.T) {
 	if strings.Contains(string(data), "vars.") {
 		t.Fatal("composite action metadata must not reference the unsupported vars context")
 	}
-	if got := actionBootstrapVersion(t); got != "v1.3.9" {
-		t.Fatalf("action.yml bootstrap version=%q, want v1.3.9", got)
+	if got := actionBootstrapVersion(t); got != "v1.3.10" {
+		t.Fatalf("action.yml bootstrap version=%q, want v1.3.10", got)
 	}
 }
 

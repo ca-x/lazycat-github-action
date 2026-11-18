@@ -1,5 +1,18 @@
 # Workflow reference
 
+## Keep scheduled workflows active
+
+For public repositories, GitHub automatically disables scheduled workflows after 60 days without repository activity. The reusable workflow creates or updates `.github/lazycat-keep-alive.txt` on the caller's default branch near the end of each scheduled run, default-branch push or manual run, tag push, and Release run. It records the UTC time, run ID, and attempt even when application work fails or produces no changes. PRs, dry runs, and cancelled runs skip the step.
+
+Grant the reusable job `permissions.contents: write`. The activity commit uses the caller's `GITHUB_TOKEN` and stays in the caller repository during cross-repository publication. A rejected commit produces a warning. This commit does not trigger push workflows. Set this input under the reusable job to opt out:
+
+```yaml
+with:
+  keep-alive: false
+```
+
+An already-disabled scheduled workflow needs to be enabled in GitHub Actions or with `gh workflow enable <workflow> --repo <owner/repo>`. GitHub reports automatic inactivity as `disabled_inactivity`; preserve workflows with `disabled_manually` when restoring inactive schedules. [GitHub schedule documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
+
 ## GitHub Release cleanup
 
 Configure cleanup in `.github/lazycat-action.yml`, not as a workflow input:

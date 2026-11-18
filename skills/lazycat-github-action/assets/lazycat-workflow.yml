@@ -12,6 +12,7 @@ jobs:
     with:
       operation: auto
       config: .github/lazycat-action.yml
+      # keep-alive: false # Opt out of activity commits on the default branch.
       # For private source A -> public artifacts B/C, use the separate starter:
       # assets/lazycat-cross-repository-workflow.yml (requires strategy: publish).
     # Organization Secrets must authorize this repository. A same-name

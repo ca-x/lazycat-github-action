@@ -33,6 +33,11 @@ on:
         type: boolean
         required: false
         default: false
+      keep-alive:
+        description: Record workflow activity in a file on the caller repository's default branch.
+        type: boolean
+        required: false
+        default: true
       changelog:
         description: Source release notes; overrides templates and GitHub lookup. Stores convert to plain text by default.
         type: string
@@ -1104,4 +1109,51 @@ jobs:
             } catch (error) {
               const status = Number.isInteger(error.status) ? ` (HTTP ${error.status})` : '';
               core.setFailed(`GitHub Release cleanup failed${status}; ${deleted} releases deleted. Existing publication is preserved.`);
+            }
+
+      - name: Record repository activity
+        if: ${{ !cancelled() && inputs.keep-alive && !inputs.dry-run && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'release') }}
+        continue-on-error: true
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const repository = context.repo;
+            const path = '.github/lazycat-keep-alive.txt';
+            try {
+              const {data: {default_branch: branch}} = await github.rest.repos.get(repository);
+              const tagOrRelease = context.eventName === 'release' ||
+                (context.eventName === 'push' && context.ref.startsWith('refs/tags/'));
+              if (!branch || (!tagOrRelease && context.ref !== `refs/heads/${branch}`)) return;
+
+              const file = {...repository, path};
+              const content = Buffer.from(
+                `Updated: ${new Date().toISOString()}\nRun: ${context.runId}\nAttempt: ${process.env.GITHUB_RUN_ATTEMPT}\n`
+              ).toString('base64');
+              for (let attempt = 1; ; attempt++) {
+                let sha;
+                try {
+                  const {data} = await github.rest.repos.getContent({...file, ref: branch});
+                  if (data.type !== 'file' || !data.sha) {
+                    core.warning(`Cannot record repository activity: ${path} is not a regular file.`);
+                    return;
+                  }
+                  sha = data.sha;
+                } catch (error) {
+                  if (error.status !== 404) throw error;
+                }
+
+                try {
+                  await github.rest.repos.createOrUpdateFileContents({
+                    ...file, branch, sha, content,
+                    message: 'chore: record LazyCat workflow activity [skip ci]',
+                  });
+                  return;
+                } catch (error) {
+                  if (attempt >= 3 || ![409, 422].includes(error.status)) throw error;
+                }
+              }
+            } catch (error) {
+              const status = Number.isInteger(error.status) ? ` (HTTP ${error.status})` : '';
+              core.warning(`Could not record repository activity${status}. Check the workflow's contents: write permission and default-branch rules.`);
             }

@@ -50,6 +50,14 @@ Gitea Actions 和 Forgejo Actions 用户应通过完整 URL 直接调用 composi
 
 调用方不需要编译本项目。启动脚本会按 Runner 架构下载 Action 二进制，并校验发布包 SHA256。
 
+## 防止定时任务因仓库不活跃被停用
+
+Reusable workflow 默认开启 `keep-alive: true`。每次符合条件的运行都会在调用仓库的默认分支创建或更新 `.github/lazycat-keep-alive.txt`，记录 UTC 时间、运行 ID 和重试序号，即使应用没有变化也会提交。公开仓库连续 60 天无活动时，GitHub 可能自动停用定时 workflow。[GitHub 定时任务文档](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
+
+该步骤在定时运行、默认分支 push 或手动运行、tag push 和 Release 运行末尾执行。PR、dry-run 和取消的运行会跳过。调用仓库的 `GITHUB_TOKEN` 需要 `contents: write`，且默认分支规则须允许它提交。权限或分支规则阻止写入时会记录警告。该 token 创建的提交不会触发 push workflow。
+
+在调用 job 的 `with:` 中设置 `keep-alive: false` 即可关闭。已停用的定时任务需要在 GitHub Actions 页面或用 `gh workflow enable` 重新启用。直接使用 composite Action 的 job 自行管理 GitHub 提交。
+
 ## 私有源码与 LPK 分仓发布
 
 工作流在源码仓库 A 运行，通过 `with.release-repository: B/C` 把 LPK 发布到 B 组织的 C 仓库。构建、源码更新提交/PR、license 和版本同步仍在 A；Release、为 Release 新建的 tag、LPK 上传、已有资产复用和商店补发下载均使用 B/C。不会向 C 推送或复制 A 的源码 Git 对象；GitHub 自动生成的 Source code 压缩包只包含 C 自己的文件。

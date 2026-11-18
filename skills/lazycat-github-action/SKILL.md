@@ -69,6 +69,10 @@ Run `git ls-files '*.lpk'`, show the tracked paths, count, and total bytes, reco
 
 Future version-bearing releases use `versioned-release-asset: true`. The verified build output remains the validation Artifact and Release upload uses the copied `<package-id>-v<version>.lpk`. The private store uses the verified GitHub Release Asset URL and SHA256. The official store uploads the same locally verified LPK bytes and SHA256 without receiving the Release URL.
 
+## Keep scheduled workflows active
+
+The reusable workflow defaults to `keep-alive: true`. Each eligible run commits `.github/lazycat-keep-alive.txt` to the caller repository's default branch, including runs with no application changes. Keep `contents: write` in scheduled callers. Use `with.keep-alive: false` only when the repository opts out. Standalone composite jobs own their GitHub commits. For disabled schedules, check GitHub's workflow state and re-enable `disabled_inactivity` workflows when asked. See [the workflow reference](references/workflows.md#keep-scheduled-workflows-active).
+
 ## GitHub Release cleanup
 
 The reusable workflow defaults to `release.cleanup.enabled: true` and `release.cleanup.keep_latest: 1000` in `.github/lazycat-action.yml`. Preserve that default unless the user requests another positive retention count or `enabled: false`; do not confuse this policy with upstream Docker tag discovery or either store's own retention.

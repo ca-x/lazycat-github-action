@@ -50,6 +50,14 @@ Gitea Actions and Forgejo Actions users should call the composite Action directl
 
 Callers do not compile this repository. The bootstrap downloads a checksum-verified Action binary for the Runner architecture.
 
+## Keep scheduled workflows active
+
+The reusable workflow defaults to `keep-alive: true`. On each eligible run it creates or updates `.github/lazycat-keep-alive.txt` on the caller repository's default branch, even when no application files change. The file records the UTC time, run ID, and attempt. GitHub can disable scheduled workflows in public repositories after 60 days without repository activity. [GitHub schedule documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
+
+The activity step runs at the end of scheduled runs, default-branch pushes and manual runs, tag pushes, and Release runs. PRs, dry runs, and cancelled runs skip it. The caller's `GITHUB_TOKEN` needs `contents: write` and must be allowed to commit to the default branch. Permission or branch-rule failures produce a warning. The token's commit does not trigger push workflows.
+
+Set `keep-alive: false` in the reusable job's `with:` block to opt out. If a schedule is already disabled, re-enable it in GitHub Actions or with `gh workflow enable`. Standalone composite jobs manage their own GitHub commits.
+
 ## Keep source private and publish LPKs to another repository
 
 Run the reusable workflow in source repository A and set `with.release-repository: B/C`. Builds, source update commits/PRs, license and version synchronization stay in A. GitHub Releases, tags created for those Releases, LPK asset uploads, asset reuse, and store-reconciliation downloads use B/C. No source Git objects are pushed or copied to B/C; GitHub's generated source archives contain only B/C's own files.
